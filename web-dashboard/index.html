@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ObservAI - Real-Time Analytics Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-left">
+                <h1 class="logo">ObservAI</h1>
+                <div class="connection-status" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="fps-counter" id="fpsCounter">FPS: 0</div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="dashboard-main">
+            <!-- KPI Cards Row -->
+            <section class="kpi-section">
+                <div class="kpi-card glass-card">
+                    <div class="kpi-icon entry">📥</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Entries</div>
+                        <div class="kpi-value" id="entriesValue">0</div>
+                    </div>
+                </div>
+                <div class="kpi-card glass-card">
+                    <div class="kpi-icon exit">📤</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Exits</div>
+                        <div class="kpi-value" id="exitsValue">0</div>
+                    </div>
+                </div>
+                <div class="kpi-card glass-card">
+                    <div class="kpi-icon current">👥</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Current</div>
+                        <div class="kpi-value" id="currentValue">0</div>
+                    </div>
+                </div>
+                <div class="kpi-card glass-card">
+                    <div class="kpi-icon queue">⏱️</div>
+                    <div class="kpi-content">
+                        <div class="kpi-label">Queue</div>
+                        <div class="kpi-value" id="queueValue">0</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Charts Row 1 -->
+            <section class="charts-row">
+                <div class="chart-card glass-card">
+                    <h3 class="chart-title">Gender Distribution</h3>
+                    <div id="genderChart" class="chart-container"></div>
+                </div>
+                <div class="chart-card glass-card">
+                    <h3 class="chart-title">Age Distribution</h3>
+                    <div id="ageChart" class="chart-container"></div>
+                </div>
+            </section>
+
+            <!-- Charts Row 2 -->
+            <section class="charts-row">
+                <div class="chart-card glass-card full-width">
+                    <h3 class="chart-title">Traffic Timeline</h3>
+                    <div id="trafficChart" class="chart-container"></div>
+                </div>
+            </section>
+
+            <!-- Heatmap Row -->
+            <section class="charts-row">
+                <div class="chart-card glass-card full-width">
+                    <h3 class="chart-title">Heatmap</h3>
+                    <div id="heatmapChart" class="chart-container heatmap-container"></div>
+                </div>
+            </section>
+
+            <!-- Live Tracks -->
+            <section class="tracks-section">
+                <h3 class="section-title">Live Tracks</h3>
+                <div class="tracks-grid" id="tracksGrid">
+                    <!-- Track cards will be added dynamically -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

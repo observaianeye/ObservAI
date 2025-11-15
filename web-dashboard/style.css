@@ -1,0 +1,311 @@
+/* Modern Glassmorphism Design */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-dark: #0b0b10;
+    --glass-bg: rgba(20, 20, 28, 0.35);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --accent-purple: #7C4DFF;
+    --accent-blue: #4FC3F7;
+    --accent-lime: #D4FB54;
+    --accent-orange: #FFB74D;
+    --accent-red: #FF5252;
+    --text-primary: #FFFFFF;
+    --text-secondary: rgba(255, 255, 255, 0.7);
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0b0b10 0%, #1a1a2e 100%);
+    color: var(--text-primary);
+    overflow-x: hidden;
+}
+
+.dashboard-container {
+    min-height: 100vh;
+    padding: 20px;
+}
+
+/* Glass Card Effect */
+.glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 24px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Header */
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding: 20px 24px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(22px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+}
+
+.logo {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-red);
+    animation: pulse 2s infinite;
+}
+
+.status-dot.connected {
+    background: var(--accent-lime);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.status-text {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.fps-counter {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+    color: var(--accent-lime);
+}
+
+/* KPI Section */
+.kpi-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.kpi-card {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.kpi-icon {
+    width: 64px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.kpi-icon.entry { background: linear-gradient(135deg, rgba(76, 195, 247, 0.2), rgba(76, 195, 247, 0.05)); }
+.kpi-icon.exit { background: linear-gradient(135deg, rgba(255, 183, 77, 0.2), rgba(255, 183, 77, 0.05)); }
+.kpi-icon.current { background: linear-gradient(135deg, rgba(124, 77, 255, 0.2), rgba(124, 77, 255, 0.05)); }
+.kpi-icon.queue { background: linear-gradient(135deg, rgba(255, 82, 82, 0.2), rgba(255, 82, 82, 0.05)); }
+
+.kpi-content {
+    flex: 1;
+}
+
+.kpi-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.kpi-value {
+    font-size: 36px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #fff, rgba(255, 255, 255, 0.7));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Charts */
+.charts-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.charts-row .full-width {
+    grid-column: 1 / -1;
+}
+
+.chart-card {
+    min-height: 350px;
+}
+
+.chart-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+}
+
+.chart-container {
+    width: 100%;
+    height: 300px;
+}
+
+.heatmap-container {
+    height: 400px;
+}
+
+/* Tracks Section */
+.tracks-section {
+    margin-bottom: 32px;
+}
+
+.section-title {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+.tracks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.track-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(22px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.3s ease;
+}
+
+.track-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-purple);
+}
+
+.track-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.track-id {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent-purple);
+}
+
+.track-gender {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.track-gender.male {
+    color: var(--accent-blue);
+    background: rgba(76, 195, 247, 0.15);
+}
+
+.track-gender.female {
+    color: var(--accent-red);
+    background: rgba(255, 82, 82, 0.15);
+}
+
+.track-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.track-info-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+}
+
+.track-info-label {
+    color: var(--text-secondary);
+}
+
+.track-info-value {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* Animations */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.kpi-card, .chart-card, .track-card {
+    animation: slideIn 0.5s ease-out;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .kpi-section {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .charts-row {
+        grid-template-columns: 1fr;
+    }
+
+    .tracks-grid {
+        grid-template-columns: 1fr;
+    }
+}
