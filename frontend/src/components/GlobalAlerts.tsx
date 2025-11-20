@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Bell, X, AlertCircle, TrendingDown, Camera, Package, Users } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -80,101 +80,16 @@ const severityColors = {
   low: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' }
 };
 
-// Collision detection utility
-function checkCollision(pos1: { x: number; y: number }, pos2: { x: number; y: number }, size: number = 64, margin: number = 10) {
-  const distance = Math.sqrt(Math.pow(pos1.x - pos2.x, 2) + Math.pow(pos1.y - pos2.y, 2));
-  return distance < (size + margin);
-}
-
 export default function GlobalAlerts() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'sales' | 'camera' | 'inventory' | 'labor'>('all');
   const [alerts, setAlerts] = useState<Alert[]>(demoAlerts);
-  const [position, setPosition] = useState(() => {
-    const saved = localStorage.getItem('alertsPosition');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth - 170, y: window.innerHeight - 90 };
-  });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [hasDragged, setHasDragged] = useState(false);
-
   const isDashboard = location.pathname.startsWith('/dashboard');
   const shouldShow = isAuthenticated && isDashboard;
 
   if (!shouldShow) return null;
-
-  useEffect(() => {
-    localStorage.setItem('alertsPosition', JSON.stringify(position));
-    // Broadcast position change for collision detection
-    window.dispatchEvent(new CustomEvent('alertsPositionChange', { detail: position }));
-  }, [position]);
-
-  // Listen for chatbot position to avoid collision
-  useEffect(() => {
-    const handleChatbotPosition = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      const chatbotPos = customEvent.detail;
-      if (checkCollision(position, chatbotPos)) {
-        // Move alerts to avoid collision
-        setPosition({ x: window.innerWidth - 170, y: window.innerHeight - 170 });
-      }
-    };
-    window.addEventListener('chatbotPositionChange', handleChatbotPosition);
-    return () => window.removeEventListener('chatbotPositionChange', handleChatbotPosition);
-  }, [position]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (isOpen) return; // Don't drag when panel is open
-    e.preventDefault();
-    setHasDragged(false);
-    setDragStartPos({ x: e.clientX, y: e.clientY });
-    setDragOffset({
-      x: e.clientX - position.x,
-      y: e.clientY - position.y
-    });
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (dragStartPos.x === 0 && dragStartPos.y === 0) return;
-
-      const distanceMoved = Math.sqrt(
-        Math.pow(e.clientX - dragStartPos.x, 2) +
-        Math.pow(e.clientY - dragStartPos.y, 2)
-      );
-
-      if (distanceMoved > 5 && !hasDragged) {
-        setIsDragging(true);
-        setHasDragged(true);
-      }
-
-      if (isDragging) {
-        const newX = Math.max(0, Math.min(e.clientX - dragOffset.x, window.innerWidth - 64));
-        const newY = Math.max(0, Math.min(e.clientY - dragOffset.y, window.innerHeight - 64));
-        setPosition({ x: newX, y: newY });
-      }
-    };
-
-    const handleMouseUp = () => {
-      if (isDragging) {
-        setIsDragging(false);
-        setDragStartPos({ x: 0, y: 0 });
-      }
-    };
-
-    if (dragStartPos.x !== 0 || dragStartPos.y !== 0) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, dragOffset, dragStartPos, hasDragged]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -191,10 +106,7 @@ export default function GlobalAlerts() {
   };
 
   const handleClick = () => {
-    if (!hasDragged) {
-      setIsOpen(!isOpen);
-    }
-    setHasDragged(false);
+    setIsOpen(!isOpen);
   };
 
   const filteredAlerts = activeTab === 'all'
@@ -207,12 +119,8 @@ export default function GlobalAlerts() {
     <>
       {!isOpen && (
         <button
-          onMouseDown={handleMouseDown}
           onClick={handleClick}
-          style={{ left: `${position.x}px`, top: `${position.y}px` }}
-          className={`fixed z-50 w-14 h-14 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center ${
-            isDragging ? 'cursor-grabbing' : 'cursor-pointer'
-          }`}
+          className="fixed bottom-24 right-4 z-50 w-14 h-14 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 hover:shadow-xl transition-all flex items-center justify-center cursor-pointer"
           aria-label="Alerts"
         >
           <Bell className="w-6 h-6" />

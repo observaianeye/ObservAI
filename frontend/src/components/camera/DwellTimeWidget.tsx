@@ -1,12 +1,62 @@
 import { Clock } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { analyticsDataService, DwellTimeMetrics } from '../../services/analyticsDataService';
+import { useDataMode } from '../../contexts/DataModeContext';
 
 export default function DwellTimeWidget() {
+  const { dataMode } = useDataMode();
+  const [dwellTime, setDwellTime] = useState<DwellTimeMetrics>({
+    average: 0,
+    min: 0,
+    max: 0
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    analyticsDataService.setMode(dataMode);
+
+    const loadData = async () => {
+      setLoading(true);
+      const data = await analyticsDataService.getData();
+      setDwellTime(data.dwellTime);
+      setLoading(false);
+    };
+
+    loadData();
+
+    analyticsDataService.startRealtimeUpdates((data) => {
+      setDwellTime(data.dwellTime);
+    });
+
+    return () => {
+      analyticsDataService.stopRealtimeUpdates();
+    };
+  }, [dataMode]);
+
+  // Format seconds to minutes
+  const avgMinutes = (dwellTime.average / 60).toFixed(1);
+
+  // Sample weekly trend data (in demo mode, show realistic pattern)
+  const weeklyData = [
+    (dwellTime.average * 0.85) / 60,
+    (dwellTime.average * 0.78) / 60,
+    (dwellTime.average * 1.05) / 60,
+    (dwellTime.average * 0.97) / 60,
+    (dwellTime.average * 1.10) / 60,
+    (dwellTime.average * 1.28) / 60,
+    (dwellTime.average * 1.20) / 60
+  ].map(v => Number(v.toFixed(1)));
+
   const option = {
     tooltip: {
       trigger: 'axis',
       axisPointer: {
         type: 'line'
+      },
+      formatter: (params: any) => {
+        const value = params[0].value;
+        return `${params[0].axisValue}: ${value} min`;
       }
     },
     grid: {
@@ -27,7 +77,7 @@ export default function DwellTimeWidget() {
     },
     series: [
       {
-        data: [4.2, 3.8, 5.1, 4.7, 5.3, 6.2, 5.8],
+        data: weeklyData,
         type: 'line',
         smooth: true,
         symbol: 'circle',
@@ -60,17 +110,35 @@ export default function DwellTimeWidget() {
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <p className="text-sm font-medium text-gray-600">Avg. Dwell Time</p>
-          <p className="text-3xl font-bold text-gray-900">4.8 <span className="text-lg text-gray-500">min</span></p>
+      {loading ? (
+        <div className="h-40 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-600"></div>
         </div>
-        <div className="w-12 h-12 bg-cyan-50 rounded-xl flex items-center justify-center">
-          <Clock className="w-6 h-6 text-cyan-600" />
-        </div>
-      </div>
-      <ReactECharts option={option} style={{ height: '80px' }} />
-      <p className="text-xs text-gray-500 mt-2">Weekly average visitor dwell time</p>
+      ) : (
+        <>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Avg. Dwell Time</p>
+              <p className="text-3xl font-bold text-gray-900">
+                {avgMinutes} <span className="text-lg text-gray-500">min</span>
+              </p>
+            </div>
+            <div className="w-12 h-12 bg-cyan-50 rounded-xl flex items-center justify-center">
+              <Clock className="w-6 h-6 text-cyan-600" />
+            </div>
+          </div>
+          {dwellTime.average > 0 ? (
+            <>
+              <ReactECharts option={option} style={{ height: '80px' }} />
+              <p className="text-xs text-gray-500 mt-2">Weekly average visitor dwell time</p>
+            </>
+          ) : (
+            <div className="h-24 flex items-center justify-center text-gray-400 text-xs">
+              {dataMode === 'live' ? 'No dwell time data available' : 'Switch to Demo mode'}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

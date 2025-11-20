@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useState, useRef, useEffect } from 'react';
 import NotificationCenter from '../NotificationCenter';
+import DataModeToggle from '../DataModeToggle';
 
 interface TopNavbarProps {
   onMenuClick?: () => void;
@@ -56,6 +57,8 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
         </div>
 
         <div className="flex items-center space-x-2 lg:space-x-4">
+          <DataModeToggle />
+
           <NotificationCenter />
 
           <button className="hidden md:flex p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">

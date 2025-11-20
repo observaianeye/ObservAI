@@ -1,6 +1,57 @@
+import { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { analyticsDataService, AgeDistribution } from '../../services/analyticsDataService';
+import { useDataMode } from '../../contexts/DataModeContext';
 
 export default function AgeChart() {
+  const { dataMode } = useDataMode();
+  const [ageData, setAgeData] = useState<AgeDistribution>({
+    '0-17': 0,
+    '18-24': 0,
+    '25-34': 0,
+    '35-44': 0,
+    '45-54': 0,
+    '55-64': 0,
+    '65+': 0
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Set mode in service
+    analyticsDataService.setMode(dataMode);
+
+    // Load initial data
+    const loadData = async () => {
+      setLoading(true);
+      const data = await analyticsDataService.getData();
+      setAgeData(data.age);
+      setLoading(false);
+    };
+
+    loadData();
+
+    // Start real-time updates
+    analyticsDataService.startRealtimeUpdates((data) => {
+      setAgeData(data.age);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      analyticsDataService.stopRealtimeUpdates();
+    };
+  }, [dataMode]);
+
+  const totalVisitors = Object.values(ageData).reduce((sum, val) => sum + val, 0);
+  const ageValues = [
+    ageData['0-17'],
+    ageData['18-24'],
+    ageData['25-34'],
+    ageData['35-44'],
+    ageData['45-54'],
+    ageData['55-64'],
+    ageData['65+']
+  ];
+
   const option = {
     title: {
       text: 'Age Distribution',
@@ -40,7 +91,7 @@ export default function AgeChart() {
     },
     series: [
       {
-        data: [45, 178, 312, 268, 156, 89, 52],
+        data: ageValues,
         type: 'bar',
         itemStyle: {
           color: {
@@ -68,7 +119,20 @@ export default function AgeChart() {
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
-      <ReactECharts option={option} style={{ height: '300px' }} />
+      {loading ? (
+        <div className="h-[300px] flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      ) : totalVisitors === 0 ? (
+        <div className="h-[300px] flex flex-col items-center justify-center text-gray-500">
+          <p className="text-sm font-medium">No data available</p>
+          <p className="text-xs mt-1">
+            {dataMode === 'live' ? 'No camera connected or no visitors detected' : 'Switch to Demo mode to see sample data'}
+          </p>
+        </div>
+      ) : (
+        <ReactECharts option={option} style={{ height: '300px' }} />
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, Trash2, Save, Tag } from 'lucide-react';
+import { Plus, Trash2, Save, Tag, Camera, AlertCircle } from 'lucide-react';
 
 interface Zone {
   id: string;
@@ -14,14 +14,24 @@ interface Zone {
 
 export default function ZoneCanvas() {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [zones, setZones] = useState<Zone[]>([
-    { id: '1', name: 'Main Entrance', type: 'entrance', x: 50, y: 50, width: 150, height: 100, color: '#3b82f6' },
-    { id: '2', name: 'Exit Door', type: 'exit', x: 400, y: 200, width: 120, height: 90, color: '#ef4444' }
-  ]);
+  const [zones, setZones] = useState<Zone[]>(() => {
+    // Load saved zones from localStorage
+    const saved = localStorage.getItem('cameraZones');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [newZone, setNewZone] = useState<Partial<Zone> | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [backgroundImage, setBackgroundImage] = useState<string>('');
+  const [captureError, setCaptureError] = useState<string>('');
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDrawing) return;
@@ -87,18 +97,95 @@ export default function ZoneCanvas() {
   };
 
   const saveZones = () => {
-    console.log('Saving zones:', zones);
-    alert('Zones saved successfully!');
+    try {
+      // Save zones to localStorage
+      localStorage.setItem('cameraZones', JSON.stringify(zones));
+      console.log('Zones saved to localStorage:', zones);
+      alert(`Successfully saved ${zones.length} zone${zones.length !== 1 ? 's' : ''}!`);
+    } catch (error) {
+      console.error('Failed to save zones:', error);
+      alert('Failed to save zones. Please try again.');
+    }
   };
+
+  const captureCameraSnapshot = () => {
+    setCaptureError('');
+    
+    // Try to find video element from camera feed
+    const videoElements = document.querySelectorAll('video');
+    console.log('[ZoneCanvas] Found video elements:', videoElements.length);
+    
+    let videoElement: HTMLVideoElement | null = null;
+    
+    // Find the first video element that's actually playing
+    for (const video of videoElements) {
+      console.log('[ZoneCanvas] Video check:', {
+        readyState: video.readyState,
+        paused: video.paused,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight
+      });
+      
+      // Try to use any video element that has loaded metadata
+      if (video.readyState >= 2) {
+        videoElement = video;
+        break;
+      }
+    }
+    
+    if (!videoElement) {
+      setCaptureError('No active camera feed found. Please start the camera first from the Camera Analytics page in Live mode.');
+      return;
+    }
+    
+    // Check if video has valid dimensions
+    if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+      setCaptureError('Camera video not fully loaded. Please wait a moment and try again.');
+      return;
+    }
+    
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoElement.videoWidth || 1920;
+      canvas.height = videoElement.videoHeight || 1080;
+      
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+        setBackgroundImage(imageData);
+        localStorage.setItem('zoneLabelingBackground', imageData);
+        console.log('Camera snapshot captured successfully');
+      }
+    } catch (error) {
+      console.error('Failed to capture snapshot:', error);
+      setCaptureError('Failed to capture camera snapshot. Please try again.');
+    }
+  };
+
+  // Load saved background image on mount
+  useEffect(() => {
+    const savedBackground = localStorage.getItem('zoneLabelingBackground');
+    if (savedBackground) {
+      setBackgroundImage(savedBackground);
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Zone Labeling</h2>
-          <p className="text-sm text-gray-600 mt-1">Draw rectangles to define entrance and exit zones</p>
+          <p className="text-sm text-gray-600 mt-1">Draw rectangles to define entrance and exit zones on your camera view</p>
         </div>
         <div className="flex items-center space-x-3">
+          <button
+            onClick={captureCameraSnapshot}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium text-sm hover:bg-purple-700 transition-colors flex items-center space-x-2"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Capture Camera</span>
+          </button>
           <button
             onClick={() => setIsDrawing(true)}
             className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center space-x-2 ${
@@ -120,6 +207,16 @@ export default function ZoneCanvas() {
         </div>
       </div>
 
+      {captureError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-red-900">Capture Failed</p>
+            <p className="text-sm text-red-700 mt-1">{captureError}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <div className="bg-white rounded-xl border-2 border-gray-300 overflow-hidden shadow-lg">
@@ -128,12 +225,24 @@ export default function ZoneCanvas() {
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
-              className="relative bg-gray-100 aspect-video cursor-crosshair"
-              style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Crect width=\'20\' height=\'20\' fill=\'%23f3f4f6\'/%3E%3Cpath d=\'M0 0h20v20H0z\' fill=\'none\' stroke=\'%23e5e7eb\' stroke-width=\'1\'/%3E%3C/svg%3E")' }}
+              className="relative bg-gray-900 aspect-video cursor-crosshair"
+              style={{
+                backgroundImage: backgroundImage 
+                  ? `url(${backgroundImage})` 
+                  : 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Crect width=\'20\' height=\'20\' fill=\'%23374151\'/%3E%3Cpath d=\'M0 0h20v20H0z\' fill=\'none\' stroke=\'%234b5563\' stroke-width=\'1\'/%3E%3C/svg%3E")',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat'
+              }}
             >
-              <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm font-medium pointer-events-none">
-                Store Layout View
-              </div>
+              {!backgroundImage && (
+                <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm font-medium pointer-events-none">
+                  <div className="text-center">
+                    <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>Click "Capture Camera" to use your camera view as background</p>
+                  </div>
+                </div>
+              )}
 
               {zones.map((zone) => (
                 <div

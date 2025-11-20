@@ -24,12 +24,6 @@ const demoResponses: Record<string, string> = {
   'default': 'I can help you understand your data better. Try asking about specific KPIs, staffing needs, or anomalies in your operations.'
 };
 
-// Collision detection utility
-function checkCollision(pos1: { x: number; y: number }, pos2: { x: number; y: number }, size: number = 64, margin: number = 10) {
-  const distance = Math.sqrt(Math.pow(pos1.x - pos2.x, 2) + Math.pow(pos1.y - pos2.y, 2));
-  return distance < (size + margin);
-}
-
 export default function GlobalChatbot() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
@@ -39,14 +33,6 @@ export default function GlobalChatbot() {
     return saved ? JSON.parse(saved) : [];
   });
   const [input, setInput] = useState('');
-  const [position, setPosition] = useState(() => {
-    const saved = localStorage.getItem('chatbotPosition');
-    return saved ? JSON.parse(saved) : { x: window.innerWidth - 90, y: window.innerHeight - 90 };
-  });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [hasDragged, setHasDragged] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -60,81 +46,11 @@ export default function GlobalChatbot() {
   }, [messages]);
 
   useEffect(() => {
-    localStorage.setItem('chatbotPosition', JSON.stringify(position));
-    // Broadcast position change for collision detection
-    window.dispatchEvent(new CustomEvent('chatbotPositionChange', { detail: position }));
-  }, [position]);
-
-  useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       inputRef.current?.focus();
     }
   }, [messages, isOpen]);
-
-  // Listen for alerts position to avoid collision
-  useEffect(() => {
-    const handleAlertsPosition = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      const alertsPos = customEvent.detail;
-      if (checkCollision(position, alertsPos)) {
-        // Move chatbot to avoid collision
-        setPosition({ x: window.innerWidth - 90, y: window.innerHeight - 170 });
-      }
-    };
-    window.addEventListener('alertsPositionChange', handleAlertsPosition);
-    return () => window.removeEventListener('alertsPositionChange', handleAlertsPosition);
-  }, [position]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (isOpen) return; // Don't drag when panel is open
-    e.preventDefault();
-    setHasDragged(false);
-    setDragStartPos({ x: e.clientX, y: e.clientY });
-    setDragOffset({
-      x: e.clientX - position.x,
-      y: e.clientY - position.y
-    });
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (dragStartPos.x === 0 && dragStartPos.y === 0) return;
-
-      const distanceMoved = Math.sqrt(
-        Math.pow(e.clientX - dragStartPos.x, 2) +
-        Math.pow(e.clientY - dragStartPos.y, 2)
-      );
-
-      if (distanceMoved > 5 && !hasDragged) {
-        setIsDragging(true);
-        setHasDragged(true);
-      }
-
-      if (isDragging) {
-        const newX = Math.max(0, Math.min(e.clientX - dragOffset.x, window.innerWidth - 64));
-        const newY = Math.max(0, Math.min(e.clientY - dragOffset.y, window.innerHeight - 64));
-        setPosition({ x: newX, y: newY });
-      }
-    };
-
-    const handleMouseUp = () => {
-      if (isDragging) {
-        setIsDragging(false);
-        setDragStartPos({ x: 0, y: 0 });
-      }
-    };
-
-    if (dragStartPos.x !== 0 || dragStartPos.y !== 0) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, dragOffset, dragStartPos, hasDragged]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -182,22 +98,15 @@ export default function GlobalChatbot() {
   };
 
   const handleClick = () => {
-    if (!hasDragged) {
-      setIsOpen(!isOpen);
-    }
-    setHasDragged(false);
+    setIsOpen(!isOpen);
   };
 
   return (
     <>
       {!isOpen && (
         <button
-          onMouseDown={handleMouseDown}
           onClick={handleClick}
-          style={{ left: `${position.x}px`, top: `${position.y}px` }}
-          className={`fixed z-50 w-14 h-14 bg-gradient-to-br from-purple-600 to-blue-600 text-white rounded-full shadow-lg hover:shadow-xl transition-shadow flex items-center justify-center ${
-            isDragging ? 'cursor-grabbing' : 'cursor-pointer'
-          }`}
+          className="fixed bottom-4 right-4 z-50 w-14 h-14 bg-gradient-to-br from-purple-600 to-blue-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all flex items-center justify-center cursor-pointer"
           aria-label="AI Assistant"
         >
           <Sparkles className="w-6 h-6" />

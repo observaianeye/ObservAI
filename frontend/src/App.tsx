@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { DataModeProvider } from './contexts/DataModeContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalAlerts from './components/GlobalAlerts';
 import GlobalChatbot from './components/GlobalChatbot';
@@ -22,7 +23,8 @@ const SettingsPage = lazy(() => import('./pages/dashboard/SettingsPage'));
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <DataModeProvider>
+        <Router>
         <Suspense fallback={<LoadingScreen />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -93,6 +95,7 @@ function App() {
         <GlobalAlerts />
         <GlobalChatbot />
       </Router>
+      </DataModeProvider>
     </AuthProvider>
   );
 }

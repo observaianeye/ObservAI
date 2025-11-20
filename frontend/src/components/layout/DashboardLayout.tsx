@@ -1,7 +1,6 @@
 import { ReactNode, useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import TopNavbar from './TopNavbar';
-import QuickActions from '../QuickActions';
 import OnboardingTour from '../OnboardingTour';
 
 interface DashboardLayoutProps {
@@ -81,9 +80,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           {children}
         </div>
       </main>
-
-      {/* Quick actions */}
-      <QuickActions />
     </div>
   );
 }
