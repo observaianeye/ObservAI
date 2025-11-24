@@ -43,31 +43,31 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
       <aside
         className={`
-          w-64 bg-white border-r border-gray-200 flex flex-col fixed left-0 top-0 h-screen z-50
+          w-64 bg-[#0a0b10]/90 backdrop-blur-xl border-r border-white/10 flex flex-col fixed left-0 top-0 h-screen z-50
           transform transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
-        <div className="h-16 flex items-center justify-between px-6 border-b border-gray-200">
+        <div className="h-16 flex items-center justify-between px-6 border-b border-white/10">
           <Link to="/" className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-teal-500 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(37,99,235,0.5)]">
               <Camera className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-semibold text-gray-900">ObservAI</span>
+            <span className="text-xl font-bold text-white tracking-tight">ObservAI</span>
           </Link>
           <button
             onClick={onClose}
-            className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="lg:hidden p-2 hover:bg-white/5 rounded-lg transition-colors"
             aria-label="Close menu"
           >
-            <X className="w-5 h-5 text-gray-500" />
+            <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto py-6 px-3">
           {userRole === 'employee' && (
             <div className="px-3 py-2 mb-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee Portal</p>
+              <p className="text-xs font-mono font-semibold text-blue-400 uppercase tracking-wider">Employee Portal</p>
             </div>
           )}
 
@@ -81,13 +81,12 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                   key={item.path}
                   to={item.path}
                   onClick={() => onClose && onClose()}
-                  className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
+                  className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${isActive
+                    ? 'bg-blue-500/10 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.1)] border border-blue-500/20'
+                    : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                    }`}
                 >
-                  <Icon className={`w-5 h-5 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-blue-400' : 'text-gray-500 group-hover:text-gray-300'}`} />
                   <span>{item.label}</span>
                 </Link>
               );
@@ -95,7 +94,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
 
             <button
               onClick={() => setShowHelpCenter(true)}
-              className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+              className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-white/5 hover:text-white transition-colors"
             >
               <HelpCircle className="w-5 h-5 text-gray-500" />
               <span>Help Center</span>
@@ -103,19 +102,20 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           </div>
         </nav>
 
-        <div className="p-4 border-t border-gray-200">
-          <div className="bg-gradient-to-br from-blue-50 to-violet-50 rounded-lg p-4 border border-blue-200">
-            <p className="text-xs font-bold text-gray-900 mb-1">
-              Quick Tip
+        <div className="p-4 border-t border-white/10">
+          <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 rounded-lg p-4 border border-white/10 backdrop-blur-sm">
+            <p className="text-xs font-bold text-white mb-1 font-mono">
+              SYSTEM STATUS
             </p>
-            <p className="text-xs text-gray-600 mb-3">
-              Click the Help Center button above for tutorials and FAQs
-            </p>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <p className="text-xs text-gray-400">All Systems Operational</p>
+            </div>
             <button
               onClick={() => setShowHelpCenter(true)}
-              className="w-full px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+              className="w-full px-3 py-2 bg-blue-600/20 border border-blue-500/50 text-blue-400 text-xs font-semibold rounded-lg hover:bg-blue-600/30 transition-all hover:shadow-[0_0_15px_rgba(37,99,235,0.3)]"
             >
-              Open Help Center
+              Diagnostics
             </button>
           </div>
         </div>

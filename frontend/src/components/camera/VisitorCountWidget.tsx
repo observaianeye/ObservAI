@@ -41,7 +41,7 @@ export default function VisitorCountWidget() {
   }, [dataMode]);
 
   return (
-    <div className="bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all text-white">
+    <div className="bg-[#0a0b10]/40 backdrop-blur-md rounded-xl border border-white/10 p-6 shadow-sm hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] transition-all duration-300 text-white">
       {loading ? (
         <div className="h-40 flex items-center justify-center">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white"></div>
@@ -49,29 +49,28 @@ export default function VisitorCountWidget() {
       ) : (
         <>
           <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
-              <Users className="w-6 h-6" />
+            <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center">
+              <Users className="w-6 h-6 text-blue-400" />
             </div>
             {trend !== 0 && (
-              <div className={`flex items-center space-x-1 text-sm backdrop-blur-sm px-3 py-1 rounded-full ${
-                trend > 0 ? 'bg-green-500/30' : 'bg-red-500/30'
-              }`}>
+              <div className={`flex items-center space-x-1 text-sm backdrop-blur-sm px-3 py-1 rounded-full ${trend > 0 ? 'bg-[#39ff14]/10 text-[#39ff14]' : 'bg-red-500/10 text-red-400'
+                }`}>
                 {trend > 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
                 <span className="font-semibold">{trend > 0 ? '+' : ''}{trend}%</span>
               </div>
             )}
           </div>
           <div className="mb-1">
-            <p className="text-sm font-medium text-blue-100">Current Visitors</p>
-            <p className="text-4xl font-bold tracking-tight">{metrics.current}</p>
+            <p className="text-sm font-medium text-gray-400">Current Visitors</p>
+            <p className="text-4xl font-bold tracking-tight text-white">{metrics.current}</p>
           </div>
-          <div className="pt-3 border-t border-white/20 grid grid-cols-2 gap-2">
+          <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-2">
             <div>
-              <p className="text-xs text-blue-100">Entry</p>
+              <p className="text-xs text-gray-400">Entry</p>
               <p className="font-bold text-white">{metrics.entryCount}</p>
             </div>
             <div>
-              <p className="text-xs text-blue-100">Exit</p>
+              <p className="text-xs text-gray-400">Exit</p>
               <p className="font-bold text-white">{metrics.exitCount}</p>
             </div>
           </div>

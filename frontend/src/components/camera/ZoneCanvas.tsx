@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Plus, Trash2, Save, Tag, Camera, AlertCircle } from 'lucide-react';
+import { cameraBackendService } from '../../services/cameraBackendService';
 
 interface Zone {
   id: string;
@@ -108,58 +109,27 @@ export default function ZoneCanvas() {
     }
   };
 
-  const captureCameraSnapshot = () => {
+  const captureCameraSnapshot = async () => {
     setCaptureError('');
-    
-    // Try to find video element from camera feed
-    const videoElements = document.querySelectorAll('video');
-    console.log('[ZoneCanvas] Found video elements:', videoElements.length);
-    
-    let videoElement: HTMLVideoElement | null = null;
-    
-    // Find the first video element that's actually playing
-    for (const video of videoElements) {
-      console.log('[ZoneCanvas] Video check:', {
-        readyState: video.readyState,
-        paused: video.paused,
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight
-      });
-      
-      // Try to use any video element that has loaded metadata
-      if (video.readyState >= 2) {
-        videoElement = video;
-        break;
-      }
-    }
-    
-    if (!videoElement) {
-      setCaptureError('No active camera feed found. Please start the camera first from the Camera Analytics page in Live mode.');
-      return;
-    }
-    
-    // Check if video has valid dimensions
-    if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
-      setCaptureError('Camera video not fully loaded. Please wait a moment and try again.');
-      return;
-    }
-    
+
     try {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoElement.videoWidth || 1920;
-      canvas.height = videoElement.videoHeight || 1080;
-      
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-        const imageData = canvas.toDataURL('image/jpeg', 0.8);
-        setBackgroundImage(imageData);
-        localStorage.setItem('zoneLabelingBackground', imageData);
-        console.log('Camera snapshot captured successfully');
+      // Ensure connected
+      if (!cameraBackendService.getConnectionStatus()) {
+        cameraBackendService.connect();
+        // Wait a bit for connection
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
-    } catch (error) {
+
+      console.log('[ZoneCanvas] Requesting snapshot from backend...');
+      const imageData = await cameraBackendService.getSnapshot();
+
+      setBackgroundImage(imageData);
+      localStorage.setItem('zoneLabelingBackground', imageData);
+      console.log('Camera snapshot captured successfully');
+
+    } catch (error: any) {
       console.error('Failed to capture snapshot:', error);
-      setCaptureError('Failed to capture camera snapshot. Please try again.');
+      setCaptureError(error.message || 'Failed to capture camera snapshot. Please try again.');
     }
   };
 
@@ -188,11 +158,10 @@ export default function ZoneCanvas() {
           </button>
           <button
             onClick={() => setIsDrawing(true)}
-            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center space-x-2 ${
-              isDrawing
-                ? 'bg-blue-600 text-white shadow-lg'
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center space-x-2 ${isDrawing
+              ? 'bg-blue-600 text-white shadow-lg'
+              : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
           >
             <Plus className="w-4 h-4" />
             <span>{isDrawing ? 'Drawing...' : 'Add Zone'}</span>
@@ -227,8 +196,8 @@ export default function ZoneCanvas() {
               onMouseUp={handleMouseUp}
               className="relative bg-gray-900 aspect-video cursor-crosshair"
               style={{
-                backgroundImage: backgroundImage 
-                  ? `url(${backgroundImage})` 
+                backgroundImage: backgroundImage
+                  ? `url(${backgroundImage})`
                   : 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Crect width=\'20\' height=\'20\' fill=\'%23374151\'/%3E%3Cpath d=\'M0 0h20v20H0z\' fill=\'none\' stroke=\'%234b5563\' stroke-width=\'1\'/%3E%3C/svg%3E")',
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
@@ -248,9 +217,8 @@ export default function ZoneCanvas() {
                 <div
                   key={zone.id}
                   onClick={() => setSelectedZone(zone.id)}
-                  className={`absolute border-2 rounded cursor-move transition-all ${
-                    selectedZone === zone.id ? 'ring-4 ring-blue-300 ring-opacity-50' : ''
-                  }`}
+                  className={`absolute border-2 rounded cursor-move transition-all ${selectedZone === zone.id ? 'ring-4 ring-blue-300 ring-opacity-50' : ''
+                    }`}
                   style={{
                     left: zone.x,
                     top: zone.y,
@@ -315,11 +283,10 @@ export default function ZoneCanvas() {
                 {zones.map((zone) => (
                   <div
                     key={zone.id}
-                    className={`p-3 rounded-lg border transition-all cursor-pointer ${
-                      selectedZone === zone.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300 bg-white'
-                    }`}
+                    className={`p-3 rounded-lg border transition-all cursor-pointer ${selectedZone === zone.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300 bg-white'
+                      }`}
                     onClick={() => setSelectedZone(zone.id)}
                   >
                     <div className="flex items-start justify-between mb-2">

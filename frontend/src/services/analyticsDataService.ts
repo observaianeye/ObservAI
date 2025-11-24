@@ -5,6 +5,7 @@ import { cameraBackendService, AnalyticsData as BackendAnalytics } from './camer
 export interface GenderData {
   male: number;
   female: number;
+  unknown: number;
 }
 
 export interface AgeDistribution {
@@ -87,7 +88,8 @@ class DemoDataProvider {
     return {
       gender: {
         male: maleCount,
-        female: femaleCount
+        female: femaleCount,
+        unknown: 0
       },
       age: {
         '0-17': Math.round(ageTotal * 0.08), // 8% children/teens
@@ -136,7 +138,7 @@ class DemoDataProvider {
 // Live Data Provider - Connects to backend via Socket.IO
 class LiveDataProvider {
   private latestData: AnalyticsData | null = null;
-  private readonly BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  private readonly BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
   private unsubscribeAnalytics: (() => void) | null = null;
 
   async getAnalyticsData(): Promise<AnalyticsData> {
@@ -146,7 +148,7 @@ class LiveDataProvider {
 
     // Return empty/zero state when no data is available yet
     return {
-      gender: { male: 0, female: 0 },
+      gender: { male: 0, female: 0, unknown: 0 },
       age: { '0-17': 0, '18-24': 0, '25-34': 0, '35-44': 0, '45-54': 0, '55-64': 0, '65+': 0 },
       visitors: { current: 0, entryCount: 0, exitCount: 0, totalToday: 0 },
       dwellTime: { average: 0, min: 0, max: 0 },
@@ -163,7 +165,8 @@ class LiveDataProvider {
     return {
       gender: {
         male: backendData.demographics.gender.male || 0,
-        female: backendData.demographics.gender.female || 0
+        female: backendData.demographics.gender.female || 0,
+        unknown: backendData.demographics.gender.unknown || 0
       },
       age: {
         '0-17': mapAgeBucket('child'),      // child: 0-17

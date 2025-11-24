@@ -1,143 +1,188 @@
-import { Link } from 'react-router-dom';
-import { Camera, Mail, Lock, User, Building } from 'lucide-react';
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Link, useNavigate } from 'react-router-dom';
+import { Activity, Lock, Mail, User, ArrowRight, Loader2, Building } from 'lucide-react';
+import ParticleBackground from '../components/visuals/ParticleBackground';
 
 export default function RegisterPage() {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    company: '',
+    password: '',
+    confirmPassword: ''
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+
+    setIsLoading(true);
+
+    // Simulate registration delay
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    setIsLoading(false);
+    // For demo purposes, redirect to login
+    navigate('/login');
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6 py-12">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center justify-center space-x-2 mb-6">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-teal-500 rounded-xl flex items-center justify-center">
-              <Camera className="w-7 h-7 text-white" />
-            </div>
-            <span className="text-2xl font-semibold text-gray-900">ObservAI</span>
-          </Link>
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Create your account</h1>
-          <p className="text-sm text-gray-600">Start your 14-day free trial. No credit card required.</p>
-        </div>
+    <div className="relative min-h-screen flex items-center justify-center bg-[#050505] overflow-hidden py-12">
+      <ParticleBackground />
 
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8">
-          <form className="space-y-5">
-            <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-900 mb-2">
-                Full name
-              </label>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5 }}
+        className="relative z-10 w-full max-w-md px-4"
+      >
+        <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600/20 mb-4">
+              <Activity className="w-6 h-6 text-blue-400" />
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">Request Access</h2>
+            <p className="text-gray-400 text-sm">Join the next generation of retail analytics.</p>
+          </div>
+
+          <form onSubmit={handleRegister} className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Full Name</label>
               <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                  <User className="w-5 h-5 text-gray-400" />
-                </div>
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
-                  id="name"
                   type="text"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
                   placeholder="John Doe"
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  required
                 />
               </div>
             </div>
 
-            <div>
-              <label htmlFor="business" className="block text-sm font-medium text-gray-900 mb-2">
-                Business name
-              </label>
+            <div className="space-y-2">
+              <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Email Address</label>
               <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                  <Building className="w-5 h-5 text-gray-400" />
-                </div>
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
-                  id="business"
-                  type="text"
-                  placeholder="My Café"
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-900 mb-2">
-                Email address
-              </label>
-              <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                  <Mail className="w-5 h-5 text-gray-400" />
-                </div>
-                <input
-                  id="email"
                   type="email"
-                  placeholder="john@example.com"
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
+                  placeholder="john@company.com"
+                  required
                 />
               </div>
             </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-900 mb-2">
-                Password
-              </label>
+            <div className="space-y-2">
+              <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Company Name</label>
               <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                  <Lock className="w-5 h-5 text-gray-400" />
-                </div>
+                <Building className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  type="text"
+                  name="company"
+                  value={formData.company}
+                  onChange={handleChange}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
+                  placeholder="Acme Corp"
+                  required
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-2">Must be at least 8 characters long</p>
             </div>
 
-            <div className="flex items-start">
-              <input
-                id="terms"
-                type="checkbox"
-                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 mt-0.5"
-              />
-              <label htmlFor="terms" className="ml-2 text-sm text-gray-700">
-                I agree to the{' '}
-                <a href="#" className="text-blue-600 hover:text-blue-700 underline">
-                  Terms of Service
-                </a>{' '}
-                and{' '}
-                <a href="#" className="text-blue-600 hover:text-blue-700 underline">
-                  Privacy Policy
-                </a>
-              </label>
+            <div className="space-y-2">
+              <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input
+                  type="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
             </div>
 
-            <Link
-              to="/dashboard"
-              className="block w-full px-6 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors text-center"
+            <div className="space-y-2">
+              <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Confirm Password</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input
+                  type="password"
+                  name="confirmPassword"
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              Create account
-            </Link>
+              {isLoading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <>
+                  Submit Request
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
+          {error && (
+            <div className="mt-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg">
+              <p className="text-sm text-red-400 text-center">{error}</p>
+            </div>
+          )}
+
+          <div className="mt-8 text-center">
+            <p className="text-sm text-gray-500">
               Already have an account?{' '}
-              <Link to="/login" className="font-medium text-blue-600 hover:text-blue-700">
-                Sign in
+              <Link to="/login" className="text-blue-400 hover:text-blue-300 font-medium transition-colors">
+                Sign In
               </Link>
             </p>
           </div>
         </div>
 
-        <div className="mt-8 grid grid-cols-3 gap-4 text-center">
-          <div>
-            <p className="text-2xl font-semibold text-gray-900">14</p>
-            <p className="text-xs text-gray-600">Day trial</p>
-          </div>
-          <div>
-            <p className="text-2xl font-semibold text-gray-900">500+</p>
-            <p className="text-xs text-gray-600">Customers</p>
-          </div>
-          <div>
-            <p className="text-2xl font-semibold text-gray-900">24/7</p>
-            <p className="text-xs text-gray-600">Support</p>
-          </div>
-        </div>
-      </div>
+        {/* Decorative elements */}
+        <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -z-10" />
+        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl -z-10" />
+      </motion.div>
     </div>
   );
 }

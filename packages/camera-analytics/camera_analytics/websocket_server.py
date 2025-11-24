@@ -9,7 +9,7 @@ import json
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 
 from aiohttp import web
 import socketio
@@ -39,6 +39,16 @@ class AnalyticsWebSocketServer:
         # Connected clients
         self.clients: Set[str] = set()
 
+        # Zone configuration storage
+        self.zones: List[Dict] = []
+        self.zones_file = Path("config/zones.json")
+        self._load_zones()
+
+        # Callbacks
+        self.on_start_stream = None
+        self.on_stop_stream = None
+        self.on_snapshot = None
+
         # Setup event handlers
         self._setup_handlers()
 
@@ -63,6 +73,52 @@ class AnalyticsWebSocketServer:
             """Handle ping for heartbeat"""
             await self.sio.emit("pong", room=sid)
 
+        @self.sio.event
+        async def save_zones(sid, data):
+            """Handle zone configuration from client"""
+            try:
+                zones = data.get("zones", [])
+                self.zones = zones
+                self._save_zones()
+                logger.info(f"Saved {len(zones)} zones from client {sid}")
+                await self.sio.emit("zones_saved", {"status": "success"}, room=sid)
+            except Exception as e:
+                logger.error(f"Error saving zones: {e}")
+                await self.sio.emit("zones_saved", {"status": "error", "message": str(e)}, room=sid)
+
+        @self.sio.event
+        async def get_zones(sid):
+            """Send current zone configuration to client"""
+            await self.sio.emit("zones_config", {"zones": self.zones}, room=sid)
+
+        @self.sio.event
+        async def get_snapshot(sid):
+            """Handle snapshot request"""
+            if self.on_snapshot:
+                snapshot = await self.on_snapshot()
+                if snapshot:
+                    await self.sio.emit("snapshot_data", {"image": snapshot}, room=sid)
+                else:
+                    await self.sio.emit("snapshot_error", {"message": "Failed to capture snapshot"}, room=sid)
+            else:
+                await self.sio.emit("snapshot_error", {"message": "Snapshot handler not configured"}, room=sid)
+
+        @self.sio.event
+        async def start_stream(sid):
+            """Handle start stream request"""
+            logger.info(f"Start stream requested by {sid}")
+            if self.on_start_stream:
+                await self.on_start_stream()
+            await self.sio.emit("stream_status", {"status": "started"}, room=sid)
+
+        @self.sio.event
+        async def stop_stream(sid):
+            """Handle stop stream request"""
+            logger.info(f"Stop stream requested by {sid}")
+            if self.on_stop_stream:
+                await self.on_stop_stream()
+            await self.sio.emit("stream_status", {"status": "stopped"}, room=sid)
+
     async def broadcast_global_stream(self, data: Dict):
         """Broadcast GlobalStream data to all clients"""
         await self.sio.emit("global", data)
@@ -74,6 +130,37 @@ class AnalyticsWebSocketServer:
     async def broadcast_table_region(self, region: Dict):
         """Broadcast TableRegion data to all clients"""
         await self.sio.emit("table", region)
+
+    async def broadcast_zone_insights(self, insights: List[Dict]):
+        """Broadcast zone occupancy insights to all clients"""
+        await self.sio.emit("zone_insights", insights)
+
+    def _load_zones(self):
+        """Load zones from file"""
+        try:
+            if self.zones_file.exists():
+                with open(self.zones_file, "r") as f:
+                    self.zones = json.load(f)
+                logger.info(f"Loaded {len(self.zones)} zones from {self.zones_file}")
+            else:
+                logger.info("No zones file found, starting with empty zones")
+        except Exception as e:
+            logger.error(f"Error loading zones: {e}")
+            self.zones = []
+
+    def _save_zones(self):
+        """Save zones to file"""
+        try:
+            self.zones_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.zones_file, "w") as f:
+                json.dump(self.zones, f, indent=2)
+            logger.info(f"Saved {len(self.zones)} zones to {self.zones_file}")
+        except Exception as e:
+            logger.error(f"Error saving zones: {e}")
+
+    def get_zones(self) -> List[Dict]:
+        """Get current zones configuration"""
+        return self.zones
 
     async def start(self):
         """Start the WebSocket server"""

@@ -7,6 +7,7 @@ import GlobalAlerts from './components/GlobalAlerts';
 import GlobalChatbot from './components/GlobalChatbot';
 import LoadingScreen from './components/LoadingScreen';
 
+const LandingPage = lazy(() => import('./pages/LandingPage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const RegisterPage = lazy(() => import('./pages/RegisterPage'));
@@ -25,76 +26,77 @@ function App() {
     <AuthProvider>
       <DataModeProvider>
         <Router>
-        <Suspense fallback={<LoadingScreen />}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
+          <Suspense fallback={<LoadingScreen />}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/home" element={<HomePage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
 
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout><CameraAnalyticsPage /></DashboardLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/zone-labeling"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout><ZoneLabelingPage /></DashboardLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/camera-selection"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout><CameraSelectionPage /></DashboardLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/ai-insights"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout><AIInsightsPage /></DashboardLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/historical"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout><HistoricalAnalyticsPage /></DashboardLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/notifications"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout><NotificationsPage /></DashboardLayout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/settings"
-            element={
-              <ProtectedRoute>
-                <DashboardLayout><SettingsPage /></DashboardLayout>
-              </ProtectedRoute>
-            }
-          />
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><CameraAnalyticsPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/zone-labeling"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><ZoneLabelingPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/camera-selection"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><CameraSelectionPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/ai-insights"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><AIInsightsPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/historical"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><HistoricalAnalyticsPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/notifications"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><NotificationsPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/settings"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><SettingsPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
 
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-        </Suspense>
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Suspense>
 
-        <GlobalAlerts />
-        <GlobalChatbot />
-      </Router>
+          <GlobalAlerts />
+          <GlobalChatbot />
+        </Router>
       </DataModeProvider>
     </AuthProvider>
   );

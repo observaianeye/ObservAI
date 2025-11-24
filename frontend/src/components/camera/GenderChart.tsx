@@ -5,7 +5,7 @@ import { useDataMode } from '../../contexts/DataModeContext';
 
 export default function GenderChart() {
   const { dataMode } = useDataMode();
-  const [genderData, setGenderData] = useState<GenderData>({ male: 0, female: 0 });
+  const [genderData, setGenderData] = useState<GenderData>({ male: 0, female: 0, unknown: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function GenderChart() {
     };
   }, [dataMode]);
 
-  const totalVisitors = genderData.male + genderData.female;
+  const totalVisitors = genderData.male + genderData.female + genderData.unknown;
 
   const option = {
     title: {
@@ -42,16 +42,24 @@ export default function GenderChart() {
       textStyle: {
         fontSize: 16,
         fontWeight: 600,
-        color: '#1f2937'
+        color: '#ffffff'
       }
     },
     tooltip: {
       trigger: 'item',
-      formatter: '{b}: {c} ({d}%)'
+      formatter: '{b}: {c} ({d}%)',
+      backgroundColor: 'rgba(10, 11, 16, 0.9)',
+      borderColor: 'rgba(255, 255, 255, 0.1)',
+      textStyle: {
+        color: '#fff'
+      }
     },
     legend: {
       bottom: 10,
-      left: 'center'
+      left: 'center',
+      textStyle: {
+        color: '#9ca3af'
+      }
     },
     series: [
       {
@@ -61,7 +69,7 @@ export default function GenderChart() {
         avoidLabelOverlap: false,
         itemStyle: {
           borderRadius: 10,
-          borderColor: '#fff',
+          borderColor: '#0a0b10',
           borderWidth: 2
         },
         label: {
@@ -72,7 +80,8 @@ export default function GenderChart() {
           label: {
             show: true,
             fontSize: 20,
-            fontWeight: 'bold'
+            fontWeight: 'bold',
+            color: '#fff'
           }
         },
         labelLine: {
@@ -80,20 +89,21 @@ export default function GenderChart() {
         },
         data: [
           { value: genderData.male, name: 'Male', itemStyle: { color: '#3b82f6' } },
-          { value: genderData.female, name: 'Female', itemStyle: { color: '#ec4899' } }
+          { value: genderData.female, name: 'Female', itemStyle: { color: '#ec4899' } },
+          { value: genderData.unknown, name: 'Unknown', itemStyle: { color: '#6b7280' } }
         ]
       }
     ]
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-[#0a0b10]/40 backdrop-blur-md rounded-xl border border-white/10 p-6 shadow-sm hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] transition-all duration-300">
       {loading ? (
         <div className="h-[300px] flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
       ) : totalVisitors === 0 ? (
-        <div className="h-[300px] flex flex-col items-center justify-center text-gray-500">
+        <div className="h-[300px] flex flex-col items-center justify-center text-gray-400">
           <p className="text-sm font-medium">No data available</p>
           <p className="text-xs mt-1">
             {dataMode === 'live' ? 'No camera connected or no visitors detected' : 'Switch to Demo mode to see sample data'}

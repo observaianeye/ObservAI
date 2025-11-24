@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 from .analytics import CameraAnalyticsEngine
 from .config import load_config
-from .run import get_live_stream_url
+from .sources import prepare_source
 from .websocket_server import AnalyticsWebSocketServer
 
 
@@ -40,16 +40,30 @@ class CameraAnalyticsWithWebSocket:
         )
 
         self.ws_server = AnalyticsWebSocketServer(host=ws_host, port=ws_port)
+        self.ws_server.on_start_stream = self.start_analytics
+        self.ws_server.on_stop_stream = self.stop_analytics
+        self.ws_server.on_snapshot = self.handle_snapshot
+        
         self.engine: Optional[CameraAnalyticsEngine] = None
+        self.analytics_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         await self.ws_server.start()
         print(
             f"✓ WebSocket server started on {self.ws_server.host}:{self.ws_server.port}"
         )
-        await self.run_analytics()
+        # Do not start analytics automatically
+        print("✓ Waiting for client to start stream...")
+        
+        # Keep the main loop running
+        await asyncio.Event().wait()
 
-    async def run_analytics(self) -> None:
+    async def start_analytics(self) -> None:
+        if self.engine and self.engine.running:
+            print("⚠ Analytics already running")
+            return
+
+        print("🚀 Starting analytics stream...")
         loop = asyncio.get_running_loop()
 
         def emit_metrics(payload: Dict[str, object]) -> None:
@@ -62,37 +76,83 @@ class CameraAnalyticsWithWebSocket:
                 self.ws_server.broadcast_tracks(payload), loop
             )
 
-        source = self._resolve_source(self.source)
+        def emit_zone_insights(payload: List[Dict[str, object]]) -> None:
+            asyncio.run_coroutine_threadsafe(
+                self.ws_server.broadcast_zone_insights(payload), loop
+            )
 
         self.engine = CameraAnalyticsEngine(
             config=self.config,
-            source=source,
+            source=self.source,
             output_path=self.output_path,
             model_path=self.model_path,
             sample_interval=1.0,
             display=self.display,
             on_metrics=emit_metrics,
             on_tracks=emit_tracks,
+            on_zone_insights=emit_zone_insights,
         )
 
+        # Run engine in a separate thread
+        self.analytics_task = asyncio.create_task(asyncio.to_thread(self._run_engine_safe))
+
+    def _run_engine_safe(self):
         try:
-            await asyncio.to_thread(self.engine.run)
-        except Exception as exc:  # pragma: no cover
-            print(f"❌ Analytics engine stopped: {exc}")
-            raise
+            if self.engine:
+                self.engine.run()
+        except Exception as exc:
+            print(f"❌ Analytics engine stopped with error: {exc}")
+
+    async def stop_analytics(self) -> None:
+        if not self.engine or not self.engine.running:
+            print("⚠ Analytics not running")
+            return
+
+        print("🛑 Stopping analytics stream...")
+        self.engine.stop()
+        
+        if self.analytics_task:
+            await self.analytics_task
+            self.analytics_task = None
+        
+        self.engine = None
+        print("✓ Analytics stopped")
+
+    async def handle_snapshot(self) -> Optional[str]:
+        """Handle snapshot request from client"""
+        print("📸 Snapshot requested...")
+        
+        # If engine is running, we can't easily grab a frame from it asynchronously without thread safety issues
+        # or modifying the engine to store the last frame.
+        # However, if we open a NEW capture while the engine is running on the SAME device (webcam), it will likely fail.
+        
+        # Ideally, the engine should expose a 'get_latest_frame' method if it's running.
+        # But for now, let's assume we can just create a temporary engine if not running.
+        
+        if self.engine and self.engine.running:
+            # TODO: Implement thread-safe way to get frame from running engine
+            # For now, we'll try to open a new capture, but expect it might fail on webcams
+            print("⚠ Engine is running, attempting to capture from source (might conflict)...")
+            return await asyncio.to_thread(self.engine.get_snapshot)
+            
+        # Create a temporary engine just for the snapshot
+        print("   Creating temporary engine for snapshot...")
+        try:
+            temp_engine = CameraAnalyticsEngine(
+                config=self.config,
+                source=self.source,
+                output_path=self.output_path,
+                model_path=self.model_path
+            )
+            snapshot = await asyncio.to_thread(temp_engine.get_snapshot)
+            print("   ✓ Snapshot captured")
+            return snapshot
+        except Exception as e:
+            print(f"❌ Snapshot failed: {e}")
+            return None
 
     def _resolve_source(self, source: str | int) -> str | int:
-        if isinstance(source, str) and any(
-            domain in source for domain in ["youtube.com", "youtu.be", "twitch.tv"]
-        ):
-            print(f"🌐 Extracting stream URL from: {source}")
-            extracted = get_live_stream_url(source)
-            if extracted and extracted != source:
-                print("✓ Live stream URL resolved")
-                return extracted
-            print(
-                "⚠ Unable to extract live stream. Install yt-dlp (brew install yt-dlp) for YouTube streams."
-            )
+        """Deprecated: Source resolution is now handled by CameraAnalyticsEngine"""
         return source
 
 
@@ -103,7 +163,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run ObservAI analytics pipeline with WebSocket streaming"
     )
-    parser.add_argument("--source", required=True, help="Camera index or stream URL")
+    parser.add_argument(
+        "--source",
+        required=True,
+        help="Video source: webcam index (0,1,2...), video file path (.mp4, .avi), "
+             "RTSP/RTMP stream URL, YouTube Live URL, or 'screen' for screen capture",
+    )
     parser.add_argument(
         "--config",
         type=Path,

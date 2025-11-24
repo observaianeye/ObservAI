@@ -30,7 +30,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number>();
-  
+
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSourceSelect, setShowSourceSelect] = useState(false);
@@ -41,7 +41,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
   const [backendConnected, setBackendConnected] = useState(false);
   const [showZones] = useState(true); // Can be made toggleable in future
   const [zones, setZones] = useState<any[]>([]);
-  
+
   // Advanced settings
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [streamUrl, setStreamUrl] = useState('');
@@ -73,11 +73,16 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
   // Connect to backend Socket.IO for detections
   useEffect(() => {
     if (dataMode === 'live' && isStreaming) {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
       console.log('[CameraFeed] Connecting to backend:', backendUrl);
-      
+
       cameraBackendService.connect(backendUrl);
       setBackendConnected(cameraBackendService.getConnectionStatus());
+
+      // Start the analytics stream on the backend
+      cameraBackendService.startStream()
+        .then(() => console.log('[CameraFeed] Backend stream started'))
+        .catch(err => console.error('[CameraFeed] Failed to start backend stream:', err));
 
       const unsubscribeDetections = cameraBackendService.onDetections((tracks) => {
         console.log('[CameraFeed] Received detections:', tracks.length);
@@ -87,6 +92,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
 
       return () => {
         unsubscribeDetections();
+        cameraBackendService.stopStream().catch(console.error);
       };
     } else {
       setBackendConnected(false);
@@ -173,7 +179,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
       // Draw detections
       detections.forEach((detection) => {
         const [x, y, w, h] = detection.bbox; // Normalized coordinates [0-1]
-        
+
         // Convert to pixel coordinates
         const px = x * canvas.width;
         const py = y * canvas.height;
@@ -181,17 +187,17 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
         const ph = h * canvas.height;
 
         // Draw bounding box
-        ctx.strokeStyle = detection.state === 'entering' ? '#10b981' : 
-                         detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
+        ctx.strokeStyle = detection.state === 'entering' ? '#10b981' :
+          detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
         ctx.lineWidth = 3;
         ctx.strokeRect(px, py, pw, ph);
 
         // Draw label background
-        const gender = detection.gender === 'male' ? 'M' : 
-                      detection.gender === 'female' ? 'F' : '?';
-        
+        const gender = detection.gender === 'male' ? 'M' :
+          detection.gender === 'female' ? 'F' : '?';
+
         // Map backend age buckets to readable labels
-        const ageBucketMap: {[key: string]: string} = {
+        const ageBucketMap: { [key: string]: string } = {
           'child': '0-17',
           'young': '18-35',
           'adult': '36-50',
@@ -201,13 +207,13 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
         const ageBucket = ageBucketMap[detection.ageBucket || ''] || 'Unknown';
         const dwellTime = Math.floor(detection.dwellSec);
         const labelText = `${gender} | ${ageBucket} | ${dwellTime}s`;
-        
+
         ctx.font = '14px sans-serif';
         const textMetrics = ctx.measureText(labelText);
         const textHeight = 20;
 
-        ctx.fillStyle = detection.state === 'entering' ? '#10b981' : 
-                       detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
+        ctx.fillStyle = detection.state === 'entering' ? '#10b981' :
+          detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
         ctx.fillRect(px, py - textHeight, textMetrics.width + 10, textHeight);
 
         // Draw label text
@@ -338,7 +344,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
               },
               audio: false
             });
-            
+
             // Add track end listener
             mediaStream.getVideoTracks()[0].addEventListener('ended', () => {
               console.log('[CameraFeed] Screen sharing stopped by user');
@@ -461,7 +467,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
   };
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
     >
@@ -513,9 +519,9 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
           >
             <RotateCcw className="w-4 h-4 text-gray-300" />
           </button>
-          <button 
+          <button
             onClick={handleFullscreen}
-            className="p-2 hover:bg-white/10 rounded-lg transition-colors" 
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
             {isFullscreen ? (
@@ -539,35 +545,32 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
               {showAdvancedSettings ? 'Basic' : 'Advanced'}
             </button>
           </div>
-          
+
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
             <button
               onClick={() => handleSourceChange('webcam')}
-              className={`px-3 py-2 text-xs rounded-lg transition-colors ${
-                currentSource.type === 'webcam'
+              className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'webcam'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
+                }`}
             >
               MacBook Cam
             </button>
             <button
               onClick={() => handleSourceChange('iphone')}
-              className={`px-3 py-2 text-xs rounded-lg transition-colors ${
-                currentSource.type === 'iphone'
+              className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'iphone'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
+                }`}
             >
               iPhone
             </button>
             <button
               onClick={() => handleSourceChange('zoom')}
-              className={`px-3 py-2 text-xs rounded-lg transition-colors ${
-                currentSource.type === 'zoom'
+              className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'zoom'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
+                }`}
             >
               Screen Capture
             </button>

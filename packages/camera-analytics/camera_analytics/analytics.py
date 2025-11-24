@@ -99,6 +99,7 @@ class CameraAnalyticsEngine:
     show_zones: bool = False,
     on_metrics: Optional[Callable[[Dict[str, object]], None]] = None,
     on_tracks: Optional[Callable[[List[Dict[str, object]]], None]] = None,
+    on_zone_insights: Optional[Callable[[List[Dict[str, object]]], None]] = None,
   ) -> None:
     self.config = config
     self.source = source
@@ -108,12 +109,26 @@ class CameraAnalyticsEngine:
     self.show_zones = show_zones
     self.on_metrics = on_metrics
     self.on_tracks = on_tracks
+    self.on_zone_insights = on_zone_insights
+
+    self.conf = config.confidence_threshold
+    self.snapshot_interval = config.snapshot_interval
+    self.last_metrics_write = 0.0
+
+    # Auto-switch to ONNX if available for CPU optimization
+    if model_path.endswith(".pt"):
+      onnx_path = model_path.replace(".pt", ".onnx")
+      if Path(onnx_path).exists():
+        print(f"[INFO] Found optimized ONNX model: {onnx_path}")
+        model_path = onnx_path
 
     self.model = YOLO(model_path)
+    
     # Optimize YOLO runtime configuration
+    # Note: overrides might not apply to ONNX in the same way, so we pass them in track() too
     try:
       self.model.overrides['verbose'] = False
-      self.model.overrides['conf'] = 0.5
+      self.model.overrides['conf'] = self.conf
       self.model.overrides['iou'] = 0.45
       self.model.overrides['max_det'] = 50
       self.model.overrides['half'] = False
@@ -125,13 +140,17 @@ class CameraAnalyticsEngine:
     self.face_detection_interval = 10
     self.frame_count = 0
 
-    # Adjust video stride for remote streams to improve stability
-    self.vid_stride = 1
-    if isinstance(self.source, str):
-      source_str = str(self.source)
-      if source_str.startswith(("rtsp://", "rtmp://", "http://", "https://")):
-        self.vid_stride = 2
-        print(f"[INFO] Remote stream detected. Using vid_stride={self.vid_stride} for efficiency")
+    # Resolve source using Factory
+    from .sources import SourceFactory
+    
+    video_source = SourceFactory.create_source(source)
+    self.source = video_source.get_source()
+    self.vid_stride = video_source.vid_stride
+    
+    print(f"[INFO] Source type: {type(video_source).__name__}")
+    print(f"[INFO] Video stride: {self.vid_stride}")
+    if self.source != source:
+        print(f"[INFO] Resolved source: {str(self.source)[:50]}...")
 
     if FaceAnalysis is not None:
       try:
@@ -166,14 +185,66 @@ class CameraAnalyticsEngine:
     self.zone_active_members: Dict[str, Dict[int, float]] = defaultdict(dict)
     self.zone_completed_durations: Dict[str, list[float]] = defaultdict(list)
 
+    # Zone insights tracking (track IDs that have already triggered insights)
+    self.zone_insight_triggered: Dict[str, set[int]] = defaultdict(set)
+    self.zone_insight_threshold = 600.0  # 10 minutes in seconds
+
     # Performance metrics
     self.fps = 0.0
     self.fps_counter = 0
     self.fps_start_time = time.time()
+    self.running = False
+
+  def stop(self) -> None:
+    """Stop the analytics engine"""
+    print("[INFO] Stopping analytics engine...")
+    self.running = False
+
+  def get_snapshot(self) -> Optional[str]:
+    """Capture a single frame and return as base64 string"""
+    import base64
+    
+    # If running, we might need to grab from the active stream or just open a new capture briefly
+    # Opening a new capture while running might conflict on some systems (e.g. webcam)
+    # Ideally we should grab the latest frame from the running loop if possible.
+    # But since the loop is blocking, we can't easily access it unless we store the latest frame.
+    
+    # For now, let's try opening the source. If it fails (busy), we might need another approach.
+    # But if the engine is NOT running, we definitely need to open it.
+    
+    cap = cv2.VideoCapture(self.source)
+    if not cap.isOpened():
+        return None
+        
+    # Read a few frames to settle auto-exposure
+    for _ in range(5):
+        cap.grab()
+        
+    ret, frame = cap.read()
+    cap.release()
+    
+    if not ret:
+        return None
+        
+    # Encode as JPEG
+    _, buffer = cv2.imencode('.jpg', frame)
+    jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+    return f"data:image/jpeg;base64,{jpg_as_text}"
 
   def run(self) -> None:
-    last_write = 0.0
+    print("[INFO] Starting camera analytics pipeline...")
+    print(f"[INFO] Face detection interval: every {self.face_detection_interval} frames")
+    print(f"[INFO] Video stride: {self.vid_stride} (source: {self.source})")
+    print(f"[INFO] Confidence threshold: {self.conf}")
 
+    self.running = True
+    if self.snapshot_interval > 0:
+      print(f"[INFO] Snapshot mode enabled: every {self.snapshot_interval}s")
+      self._run_snapshots()
+    else:
+      self._run_continuous()
+
+  def _run_continuous(self) -> None:
     results = self.model.track(
       source=self.source,
       stream=True,
@@ -184,46 +255,97 @@ class CameraAnalyticsEngine:
       imgsz=512,
       device='cpu',
       vid_stride=self.vid_stride,
+      conf=self.conf,
+      iou=0.45,
     )
-
-    print("[INFO] Starting camera analytics pipeline...")
-    print(f"[INFO] Face detection interval: every {self.face_detection_interval} frames")
-    print(f"[INFO] Video stride: {self.vid_stride} (source: {self.source})")
 
     try:
       for result in results:
-        frame = result.orig_img
-        frame_h, frame_w = frame.shape[:2]
-        timestamp = time.time()
-        self._update_tracks(result, frame_w, frame_h, timestamp)
-        self._update_demographics(frame)
-        self._emit_track_stream(timestamp)
-
-        self.fps_counter += 1
-        if timestamp - self.fps_start_time >= 1.0:
-          self.fps = self.fps_counter / (timestamp - self.fps_start_time)
-          self.fps_counter = 0
-          self.fps_start_time = timestamp
-
-        if self.display:
-          annotated = self._draw_overlay(frame.copy(), frame_w, frame_h)
-        else:
-          annotated = None
-
-        if timestamp - last_write >= self.sample_interval:
-          metrics = self._build_metrics()
-          self._emit_metrics_stream(metrics, int(timestamp * 1000))
-          self._write_metrics(metrics)
-          last_write = timestamp
-
-        if self.display and annotated is not None:
-          cv2.imshow("ObservAI Camera Analytics", annotated)
-          key = cv2.waitKey(1) & 0xFF
-          if key in (ord("q"), 27):
-            break
+        if not self.running:
+          break
+        if not self._process_result(result):
+          break
     finally:
       if self.display:
         cv2.destroyAllWindows()
+
+  def _run_snapshots(self) -> None:
+    cap = cv2.VideoCapture(self.source)
+    last_snapshot = 0.0
+    
+    try:
+      while cap.isOpened() and self.running:
+        now = time.time()
+        if now - last_snapshot < self.snapshot_interval:
+          if self.display:
+            if cv2.waitKey(100) & 0xFF in (ord('q'), 27):
+              break
+          else:
+            time.sleep(0.1)
+          continue
+        
+        # Clear buffer (read a few frames) to get fresh image
+        for _ in range(5):
+          cap.grab()
+        
+        ret, frame = cap.read()
+        if not ret:
+          break
+        
+        results = self.model.track(
+          frame,
+          persist=True,
+          verbose=False,
+          classes=[0],
+          tracker="bytetrack.yaml",
+          imgsz=512,
+          device='cpu',
+          conf=self.conf,
+          iou=0.45
+        )
+        
+        for result in results:
+          if not self._process_result(result):
+            return
+        
+        last_snapshot = now
+    finally:
+      cap.release()
+      if self.display:
+        cv2.destroyAllWindows()
+
+  def _process_result(self, result) -> bool:
+    frame = result.orig_img
+    frame_h, frame_w = frame.shape[:2]
+    timestamp = time.time()
+    self._update_tracks(result, frame_w, frame_h, timestamp)
+    self._update_demographics(frame)
+    self._emit_track_stream(timestamp)
+
+    self.fps_counter += 1
+    if timestamp - self.fps_start_time >= 1.0:
+      self.fps = self.fps_counter / (timestamp - self.fps_start_time)
+      self.fps_counter = 0
+      self.fps_start_time = timestamp
+
+    annotated = None
+    if self.display:
+      annotated = self._draw_overlay(frame.copy(), frame_w, frame_h)
+
+    if timestamp - self.last_metrics_write >= self.sample_interval:
+      metrics = self._build_metrics()
+      self._emit_metrics_stream(metrics, int(timestamp * 1000))
+      self._emit_zone_insights(timestamp)
+      self._write_metrics(metrics)
+      self.last_metrics_write = timestamp
+
+    if self.display and annotated is not None:
+      cv2.imshow("ObservAI Camera Analytics", annotated)
+      key = cv2.waitKey(1) & 0xFF
+      if key in (ord("q"), 27):
+        return False
+    
+    return True
 
   def _update_tracks(self, result, frame_w: int, frame_h: int, now: float) -> None:
     active_ids = set()
@@ -324,6 +446,45 @@ class CameraAnalyticsEngine:
       self.zone_active_members[zone_id].pop(person.track_id, None)
       person.active_zones.pop(zone_id, None)
 
+  def _check_zone_insights(self, now: float) -> List[Dict[str, object]]:
+    """Check for persons who have been in zones for >10 minutes and generate insights"""
+    insights = []
+
+    for zone_id, active_members in self.zone_active_members.items():
+      zone_name = self.zone_definitions.get(zone_id, None)
+      if zone_name is None:
+        continue
+
+      for track_id, entered_at in active_members.items():
+        duration = now - entered_at
+
+        # Check if person has been in zone for more than threshold
+        if duration >= self.zone_insight_threshold:
+          # Only trigger insight once per person per zone
+          if track_id not in self.zone_insight_triggered[zone_id]:
+            self.zone_insight_triggered[zone_id].add(track_id)
+
+            person = self.tracks.get(track_id)
+            insight = {
+              "zoneId": zone_id,
+              "zoneName": getattr(zone_name, 'name', zone_id),
+              "personId": f"track_{track_id}",
+              "duration": duration,
+              "timestamp": now,
+              "message": f"Person has been in {getattr(zone_name, 'name', zone_id)} for over {int(duration / 60)} minutes"
+            }
+
+            # Add demographic info if available
+            if person:
+              insight["demographics"] = {
+                "gender": person.gender,
+                "age": int(person.age) if person.age else None
+              }
+
+            insights.append(insight)
+
+    return insights
+
   def _update_heatmap(self, center_norm: Tuple[float, float]) -> None:
     row, col = heatmap_bin(
       center_norm, self.config.heatmap.grid_width, self.config.heatmap.grid_height
@@ -357,6 +518,7 @@ class CameraAnalyticsEngine:
       best_distance = float("inf")
 
       for person in self.tracks.values():
+        # Calculate Intersection over Union (IoU) for better matching
         x1, y1, x2, y2 = person.bbox_norm
         px1, py1, px2, py2 = (
           x1 * frame.shape[1],
@@ -364,15 +526,34 @@ class CameraAnalyticsEngine:
           x2 * frame.shape[1],
           y2 * frame.shape[0],
         )
-        if px1 <= fcx <= px2 and py1 <= fcy <= py2:
-          center_px = (
-            person.center_norm[0] * frame.shape[1],
-            person.center_norm[1] * frame.shape[0],
-          )
-          distance = (fcx - center_px[0]) ** 2 + (fcy - center_px[1]) ** 2
-          if distance < best_distance:
-            best_track = person
-            best_distance = distance
+        
+        # Face box
+        fx1, fy1, fx2, fy2 = bbox.tolist()
+        
+        # Intersection
+        ix1 = max(px1, fx1)
+        iy1 = max(py1, fy1)
+        ix2 = min(px2, fx2)
+        iy2 = min(py2, fy2)
+        
+        if ix2 > ix1 and iy2 > iy1:
+          intersection = (ix2 - ix1) * (iy2 - iy1)
+          # We care if the face is INSIDE the person box mostly
+          face_area = (fx2 - fx1) * (fy2 - fy1)
+          overlap_ratio = intersection / face_area
+          
+          # If face is mostly inside the person box
+          if overlap_ratio > 0.5:
+            # Use distance to center as tie-breaker
+            center_px = (
+              person.center_norm[0] * frame.shape[1],
+              person.center_norm[1] * frame.shape[0],
+            )
+            distance = (fcx - center_px[0]) ** 2 + (fcy - center_px[1]) ** 2
+            
+            if distance < best_distance:
+              best_track = person
+              best_distance = distance
 
       if best_track and best_distance < 10000:
         # Use temporal smoothing for better accuracy
@@ -546,6 +727,13 @@ class CameraAnalyticsEngine:
       return
     payload = self._build_track_stream(now)
     self.on_tracks(payload)
+
+  def _emit_zone_insights(self, now: float) -> None:
+    if self.on_zone_insights is None:
+      return
+    insights = self._check_zone_insights(now)
+    if insights:
+      self.on_zone_insights(insights)
 
   def _write_metrics(self, metrics: CameraMetrics) -> None:
     self.output_path.parent.mkdir(parents=True, exist_ok=True)

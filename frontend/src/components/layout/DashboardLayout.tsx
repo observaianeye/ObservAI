@@ -2,6 +2,7 @@ import { ReactNode, useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import TopNavbar from './TopNavbar';
 import OnboardingTour from '../OnboardingTour';
+import ParticleBackground from '../visuals/ParticleBackground';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -52,7 +53,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[#050505] text-gray-100 font-sans selection:bg-blue-500/30 relative overflow-hidden">
+      {/* Background Particles */}
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-40">
+        <ParticleBackground />
+      </div>
+
       {showOnboarding && (
         <OnboardingTour
           onComplete={handleCompleteOnboarding}
@@ -63,19 +69,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Mobile overlay */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <Sidebar isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
+      <div className="relative z-30">
+        <Sidebar isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
+      </div>
 
       {/* Top navbar */}
-      <TopNavbar onMenuClick={() => setMobileMenuOpen(true)} />
+      <div className="relative z-20">
+        <TopNavbar onMenuClick={() => setMobileMenuOpen(true)} />
+      </div>
 
       {/* Main content */}
-      <main className="lg:ml-64 pt-16">
+      <main className="lg:ml-64 pt-16 relative z-10">
         <div className="p-4 lg:p-6">
           {children}
         </div>

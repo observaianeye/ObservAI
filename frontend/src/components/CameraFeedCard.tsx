@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Users, Clock, TrendingUp, Maximize2, Activity } from 'lucide-react';
+import { Users, Clock, TrendingUp, Maximize2, Activity, Wifi, WifiOff } from 'lucide-react';
+import { cameraBackendService, AnalyticsData, Detection } from '../services/cameraBackendService';
 
 interface CameraMetrics {
   peopleCount: number;
@@ -36,34 +37,74 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
   const [expandedMetric, setExpandedMetric] = useState<string | null>(null);
   const [people, setPeople] = useState<Array<{ x: number; y: number; id: number }>>([]);
 
+  const [isConnected, setIsConnected] = useState(false);
+  const [isMonitoring, setIsMonitoring] = useState(false);
+
+  const handleToggleMonitoring = async () => {
+    try {
+      if (isMonitoring) {
+        await cameraBackendService.stopStream();
+        setIsMonitoring(false);
+      } else {
+        await cameraBackendService.startStream();
+        setIsMonitoring(true);
+      }
+    } catch (error) {
+      console.error('Failed to toggle monitoring:', error);
+    }
+  };
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMetrics({
-        peopleCount: Math.floor(Math.random() * 20) + 5,
-        queueLength: Math.floor(Math.random() * 8),
-        avgWaitTime: `${(Math.random() * 5 + 1).toFixed(1)} min`,
-        demographics: {
-          male: `${Math.floor(Math.random() * 30 + 55)}%`,
-          female: `${Math.floor(Math.random() * 30 + 25)}%`
-        },
-        ageGroups: {
-          '18-24': `${Math.floor(Math.random() * 15 + 15)}%`,
-          '25-34': `${Math.floor(Math.random() * 15 + 30)}%`,
-          '35-44': `${Math.floor(Math.random() * 15 + 20)}%`
-        }
+    // Connect to backend
+    cameraBackendService.connect();
+    setIsConnected(cameraBackendService.getConnectionStatus());
+
+    const unsubscribeAnalytics = cameraBackendService.onAnalytics((data: AnalyticsData) => {
+      // Calculate demographics percentages
+      const totalGender = data.demographics.gender.male + data.demographics.gender.female + data.demographics.gender.unknown || 1;
+      const malePct = Math.round((data.demographics.gender.male / totalGender) * 100);
+      const femalePct = Math.round((data.demographics.gender.female / totalGender) * 100);
+
+      // Calculate age percentages
+      const totalAge = Object.values(data.demographics.ages).reduce((a: number, b: number) => a + b, 0) || 1;
+      const ageGroupsFormatted: { [key: string]: string } = {};
+      // Map backend buckets to display buckets if needed, or just use as is
+      // Backend: child, young, adult, senior
+      // Component expects: 18-24, 25-34, etc. 
+      // For prototype, we'll map available buckets
+      Object.entries(data.demographics.ages).forEach(([bucket, count]: [string, number]) => {
+        ageGroupsFormatted[bucket] = `${Math.round((count / totalAge) * 100)}%`;
       });
 
-      setPeople(
-        Array.from({ length: metrics.peopleCount }, (_, i) => ({
-          x: Math.random() * 80 + 10,
-          y: Math.random() * 80 + 10,
-          id: i
-        }))
-      );
-    }, 3000);
+      setMetrics({
+        peopleCount: data.current,
+        queueLength: data.queue,
+        avgWaitTime: '0.0 min', // Backend doesn't send this in global stream yet
+        demographics: {
+          male: `${malePct}%`,
+          female: `${femalePct}%`
+        },
+        ageGroups: ageGroupsFormatted
+      });
+    });
 
-    return () => clearInterval(interval);
-  }, [metrics.peopleCount]);
+    const unsubscribeDetections = cameraBackendService.onDetections((tracks: Detection[]) => {
+      // Map tracks to people visualization
+      // Backend bbox is [x1, y1, w, h] normalized (0-1)
+      // Component expects x, y in percentages (0-100)
+      const newPeople = tracks.map(track => ({
+        x: track.bbox[0] * 100,
+        y: track.bbox[1] * 100,
+        id: parseInt(track.id.replace('track_', '')) || Math.random()
+      }));
+      setPeople(newPeople);
+    });
+
+    return () => {
+      unsubscribeAnalytics();
+      unsubscribeDetections();
+    };
+  }, []);
 
   const heatmapZones = [
     { x: 15, y: 15, intensity: 0.8, label: 'Counter' },
@@ -73,9 +114,8 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl transition-all duration-300 ${
-        isHovered ? 'scale-105 shadow-2xl' : 'shadow-lg'
-      }`}
+      className={`relative overflow-hidden rounded-2xl transition-all duration-300 ${isHovered ? 'scale-105 shadow-2xl' : 'shadow-lg'
+        }`}
       style={{
         background: 'rgba(255, 255, 255, 0.7)',
         backdropFilter: 'blur(10px)',
@@ -135,12 +175,40 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
           </div>
         ))}
 
-        <div className="absolute top-3 left-3">
+        <div className="absolute top-3 left-3 flex items-center gap-2">
           <div className="bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg flex items-center gap-2">
-            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+            <div className={`w-2 h-2 rounded-full animate-pulse ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
             <span className="text-white text-sm font-semibold">LIVE</span>
+            {isConnected ? <Wifi className="w-3 h-3 text-green-400" /> : <WifiOff className="w-3 h-3 text-red-400" />}
           </div>
+
+          {isMonitoring && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleMonitoring();
+              }}
+              className="bg-red-600/80 hover:bg-red-600 backdrop-blur-sm px-3 py-1.5 rounded-lg text-white text-xs font-bold transition-colors"
+            >
+              STOP
+            </button>
+          )}
         </div>
+
+        {!isMonitoring && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-10">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleMonitoring();
+              }}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg transform hover:scale-105 transition-all flex items-center gap-2"
+            >
+              <Activity className="w-5 h-5" />
+              Start Monitoring
+            </button>
+          </div>
+        )}
 
         <div className="absolute top-3 right-3">
           <span className="bg-black/60 backdrop-blur-sm px-3 py-1.5 rounded-lg text-white text-sm font-semibold">
@@ -269,11 +337,10 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
       <div className="p-4 bg-white/50 backdrop-blur-sm">
         <button
           onClick={() => setShowHeatmap(!showHeatmap)}
-          className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-            showHeatmap
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
+          className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${showHeatmap
+            ? 'bg-blue-600 text-white'
+            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
         >
           {showHeatmap ? 'Hide' : 'Show'} Heatmap
         </button>

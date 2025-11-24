@@ -18,7 +18,7 @@ interface GlassLineChartProps {
 export default function GlassLineChart({
   data,
   height = 300,
-  color = 'rgb(59, 130, 246)',
+  color = '#00f2ea',
   gradient = true,
   animate = true,
   showGrid = true,
@@ -114,7 +114,7 @@ export default function GlassLineChart({
             strokeLinejoin="round"
             className={animate ? 'chart-line-animate' : ''}
             style={{
-              filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1))'
+              filter: `drop-shadow(0 0 8px ${color})`
             }}
           />
 
@@ -124,14 +124,14 @@ export default function GlassLineChart({
                 cx={point.x}
                 cy={point.y}
                 r={hoveredIndex === index ? 6 : 4}
-                fill="white"
+                fill="#0a0b10"
                 stroke={color}
                 strokeWidth="2"
                 className="transition-all duration-200 cursor-pointer"
                 onMouseEnter={() => showTooltip && setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
                 style={{
-                  filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))',
+                  filter: `drop-shadow(0 0 8px ${color})`,
                   animationDelay: `${index * 50}ms`
                 }}
               />
@@ -144,14 +144,15 @@ export default function GlassLineChart({
                     width="70"
                     height="35"
                     rx="8"
-                    fill="rgba(0, 0, 0, 0.8)"
+                    fill="rgba(10, 11, 16, 0.9)"
+                    stroke="rgba(255, 255, 255, 0.1)"
                     className="animate-fade-in"
                   />
                   <text
                     x={point.x}
                     y={point.y - 30}
                     textAnchor="middle"
-                    className="fill-white font-semibold"
+                    className="fill-gray-300 font-semibold"
                     style={{ fontSize: '11px' }}
                   >
                     {point.label}
@@ -204,11 +205,11 @@ export default function GlassLineChart({
         }
 
         .glass-chart {
-          background: rgba(255, 255, 255, 0.7);
-          backdrop-filter: blur(10px);
+          background: rgba(10, 11, 16, 0.4);
+          backdrop-filter: blur(12px);
           border-radius: 16px;
-          border: 1px solid rgba(255, 255, 255, 0.3);
-          box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         }
 
         @keyframes fade-in {

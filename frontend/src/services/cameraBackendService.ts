@@ -43,13 +43,35 @@ export interface AnalyticsData {
   fps: number;
 }
 
+export interface Zone {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: 'entrance' | 'exit';
+  color: string;
+}
+
+export interface ZoneInsight {
+  zoneId: string;
+  zoneName: string;
+  personId: string;
+  duration: number;
+  timestamp: number;
+  message: string;
+}
+
 type AnalyticsCallback = (data: AnalyticsData) => void;
 type DetectionsCallback = (detections: Detection[]) => void;
+type ZoneInsightsCallback = (insights: ZoneInsight[]) => void;
 
 class CameraBackendService {
   private socket: Socket | null = null;
   private analyticsCallbacks: Set<AnalyticsCallback> = new Set();
   private detectionsCallbacks: Set<DetectionsCallback> = new Set();
+  private zoneInsightsCallbacks: Set<ZoneInsightsCallback> = new Set();
   private isConnected: boolean = false;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
@@ -98,6 +120,11 @@ class CameraBackendService {
       this.detectionsCallbacks.forEach(callback => callback(tracks));
     });
 
+    // Listen for zone insights
+    this.socket.on('zone_insights', (insights: ZoneInsight[]) => {
+      this.zoneInsightsCallbacks.forEach(callback => callback(insights));
+    });
+
     this.socket.on('connect_error', (error: Error) => {
       console.error('[CameraBackend] Connection error:', error.message);
       this.reconnectAttempts++;
@@ -130,8 +157,124 @@ class CameraBackendService {
     };
   }
 
+  onZoneInsights(callback: ZoneInsightsCallback): () => void {
+    this.zoneInsightsCallbacks.add(callback);
+    return () => {
+      this.zoneInsightsCallbacks.delete(callback);
+    };
+  }
+
   getConnectionStatus(): boolean {
     return this.isConnected;
+  }
+
+  saveZones(zones: Zone[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        reject(new Error('Not connected to backend'));
+        return;
+      }
+
+      this.socket.emit('save_zones', { zones }, (response: any) => {
+        if (response?.status === 'success') {
+          resolve();
+        } else {
+          reject(new Error(response?.message || 'Failed to save zones'));
+        }
+      });
+
+      this.socket.once('zones_saved', (response: any) => {
+        if (response?.status === 'success') {
+          resolve();
+        } else {
+          reject(new Error(response?.message || 'Failed to save zones'));
+        }
+      });
+    });
+  }
+
+  getZones(): Promise<Zone[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        reject(new Error('Not connected to backend'));
+        return;
+      }
+
+      this.socket.emit('get_zones');
+
+      this.socket.once('zones_config', (response: any) => {
+        resolve(response?.zones || []);
+      });
+
+      setTimeout(() => {
+        reject(new Error('Timeout waiting for zones'));
+      }, 5000);
+    });
+  }
+
+  startStream(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        reject(new Error('Not connected to backend'));
+        return;
+      }
+
+      this.socket.emit('start_stream');
+
+      this.socket.once('stream_status', (response: any) => {
+        if (response?.status === 'started') {
+          resolve();
+        } else {
+          reject(new Error('Failed to start stream'));
+        }
+      });
+    });
+  }
+
+  stopStream(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        reject(new Error('Not connected to backend'));
+        return;
+      }
+
+      this.socket.emit('stop_stream');
+
+      this.socket.once('stream_status', (response: any) => {
+        if (response?.status === 'stopped') {
+          resolve();
+        } else {
+          reject(new Error('Failed to stop stream'));
+        }
+      });
+    });
+  }
+
+  getSnapshot(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        reject(new Error('Not connected to backend'));
+        return;
+      }
+
+      this.socket.emit('get_snapshot');
+
+      this.socket.once('snapshot_data', (response: any) => {
+        if (response?.image) {
+          resolve(response.image);
+        } else {
+          reject(new Error('Invalid snapshot data'));
+        }
+      });
+
+      this.socket.once('snapshot_error', (response: any) => {
+        reject(new Error(response?.message || 'Failed to capture snapshot'));
+      });
+
+      setTimeout(() => {
+        reject(new Error('Timeout waiting for snapshot'));
+      }, 10000);
+    });
   }
 
   ping(): void {

@@ -12,7 +12,7 @@ export default function GlassGaugeChart({
   max = 100,
   label = 'Progress',
   size = 200,
-  color = 'rgb(59, 130, 246)',
+  color = '#bf00ff',
   animate = true
 }: GlassGaugeChartProps) {
   const percentage = Math.min((value / max) * 100, 100);
@@ -49,9 +49,9 @@ export default function GlassGaugeChart({
   ].join(' ');
 
   const getColor = () => {
-    if (percentage < 30) return 'rgb(239, 68, 68)';
-    if (percentage < 70) return 'rgb(251, 146, 60)';
-    return 'rgb(34, 197, 94)';
+    if (percentage < 30) return '#ef4444'; // Red
+    if (percentage < 70) return '#f59e0b'; // Amber
+    return '#39ff14'; // Neon Lime
   };
 
   const gaugeColor = color === 'auto' ? getColor() : color;
@@ -65,14 +65,14 @@ export default function GlassGaugeChart({
             <stop offset="100%" stopColor={gaugeColor} stopOpacity="0.9" />
           </linearGradient>
           <filter id="gauge-shadow">
-            <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.3"/>
+            <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.3" />
           </filter>
         </defs>
 
         <path
           d={backgroundPath}
           fill="none"
-          stroke="rgba(200, 200, 200, 0.2)"
+          stroke="rgba(255, 255, 255, 0.1)"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
         />
@@ -87,7 +87,8 @@ export default function GlassGaugeChart({
           className={animate ? 'gauge-animate' : ''}
           style={{
             strokeDasharray: 1000,
-            strokeDashoffset: animate ? 1000 : 0
+            strokeDashoffset: animate ? 1000 : 0,
+            filter: `drop-shadow(0 0 8px ${gaugeColor})`
           }}
         />
 
@@ -95,7 +96,7 @@ export default function GlassGaugeChart({
           cx={current.x}
           cy={current.y}
           r={strokeWidth / 2 + 2}
-          fill="white"
+          fill="#0a0b10"
           stroke={gaugeColor}
           strokeWidth="3"
           filter="url(#gauge-shadow)"
@@ -106,7 +107,7 @@ export default function GlassGaugeChart({
           x={centerX}
           y={centerY - 10}
           textAnchor="middle"
-          className="fill-gray-900 font-bold"
+          className="fill-white font-bold"
           style={{ fontSize: '32px' }}
         >
           {value}
@@ -115,7 +116,7 @@ export default function GlassGaugeChart({
           x={centerX}
           y={centerY + 15}
           textAnchor="middle"
-          className="fill-gray-600 font-semibold"
+          className="fill-gray-400 font-semibold"
           style={{ fontSize: '14px' }}
         >
           / {max}
@@ -123,8 +124,8 @@ export default function GlassGaugeChart({
       </svg>
 
       <div className="text-center">
-        <p className="text-sm font-semibold text-gray-900">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 mt-1">{percentage.toFixed(1)}%</p>
+        <p className="text-sm font-semibold text-gray-300">{label}</p>
+        <p className="text-2xl font-bold text-white mt-1">{percentage.toFixed(1)}%</p>
       </div>
 
       <style>{`
@@ -155,11 +156,11 @@ export default function GlassGaugeChart({
         }
 
         .glass-chart {
-          background: rgba(255, 255, 255, 0.7);
-          backdrop-filter: blur(10px);
+          background: rgba(10, 11, 16, 0.4);
+          backdrop-filter: blur(12px);
           border-radius: 16px;
-          border: 1px solid rgba(255, 255, 255, 0.3);
-          box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         }
       `}</style>
     </div>

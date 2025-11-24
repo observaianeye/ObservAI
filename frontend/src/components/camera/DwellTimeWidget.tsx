@@ -84,10 +84,10 @@ export default function DwellTimeWidget() {
         symbolSize: 6,
         lineStyle: {
           width: 3,
-          color: '#06b6d4'
+          color: '#00f2ea'
         },
         itemStyle: {
-          color: '#06b6d4',
+          color: '#00f2ea',
           borderWidth: 2,
           borderColor: '#fff'
         },
@@ -99,8 +99,8 @@ export default function DwellTimeWidget() {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(6, 182, 212, 0.3)' },
-              { offset: 1, color: 'rgba(6, 182, 212, 0.05)' }
+              { offset: 0, color: 'rgba(0, 242, 234, 0.3)' },
+              { offset: 1, color: 'rgba(0, 242, 234, 0.05)' }
             ]
           }
         }
@@ -109,22 +109,22 @@ export default function DwellTimeWidget() {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-[#0a0b10]/40 backdrop-blur-md rounded-xl border border-white/10 p-6 shadow-sm hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] transition-all duration-300">
       {loading ? (
         <div className="h-40 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-600"></div>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-500"></div>
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="text-sm font-medium text-gray-600">Avg. Dwell Time</p>
-              <p className="text-3xl font-bold text-gray-900">
+              <p className="text-sm font-medium text-gray-400">Avg. Dwell Time</p>
+              <p className="text-3xl font-bold text-white">
                 {avgMinutes} <span className="text-lg text-gray-500">min</span>
               </p>
             </div>
-            <div className="w-12 h-12 bg-cyan-50 rounded-xl flex items-center justify-center">
-              <Clock className="w-6 h-6 text-cyan-600" />
+            <div className="w-12 h-12 bg-cyan-500/10 rounded-xl flex items-center justify-center">
+              <Clock className="w-6 h-6 text-cyan-400" />
             </div>
           </div>
           {dwellTime.average > 0 ? (
@@ -133,7 +133,7 @@ export default function DwellTimeWidget() {
               <p className="text-xs text-gray-500 mt-2">Weekly average visitor dwell time</p>
             </>
           ) : (
-            <div className="h-24 flex items-center justify-center text-gray-400 text-xs">
+            <div className="h-24 flex items-center justify-center text-gray-500 text-xs">
               {dataMode === 'live' ? 'No dwell time data available' : 'Switch to Demo mode'}
             </div>
           )}

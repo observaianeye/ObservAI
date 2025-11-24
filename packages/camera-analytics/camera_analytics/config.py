@@ -35,6 +35,8 @@ class AnalyticsConfig:
   queue_zone: Optional[Zone] = None
   tables: List[Zone] = field(default_factory=list)
   heatmap: HeatmapConfig = field(default_factory=HeatmapConfig)
+  confidence_threshold: float = 0.5
+  snapshot_interval: float = 0.0
 
 
 def _load_normalized_point(raw: Sequence[float]) -> NormalizedPoint:
@@ -87,4 +89,6 @@ def load_config(path: Path) -> AnalyticsConfig:
     queue_zone=queue_zone,
     tables=tables,
     heatmap=heatmap,
+    confidence_threshold=float(data.get("confidence_threshold", 0.5)),
+    snapshot_interval=float(data.get("snapshot_interval", 0.0)),
   )
