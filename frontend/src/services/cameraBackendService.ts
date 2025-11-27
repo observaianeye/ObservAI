@@ -80,7 +80,7 @@ class CameraBackendService {
     // Socket.IO will be initialized when connect() is called
   }
 
-  connect(url: string = 'http://localhost:5000'): void {
+  connect(url: string = 'http://localhost:5001'): void {
     if (this.socket?.connected) {
       console.log('[CameraBackend] Already connected');
       return;
@@ -273,6 +273,31 @@ class CameraBackendService {
 
       setTimeout(() => {
         reject(new Error('Timeout waiting for snapshot'));
+      }, 10000);
+    });
+  }
+
+  changeSource(source: number | string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        reject(new Error('Not connected to backend'));
+        return;
+      }
+
+      console.log('[CameraBackend] Changing source to:', source);
+      this.socket.emit('change_source', { source });
+
+      this.socket.once('source_changed', (response: any) => {
+        if (response?.status === 'success') {
+          console.log('[CameraBackend] Source changed successfully to:', response.source);
+          resolve();
+        } else {
+          reject(new Error(response?.message || 'Failed to change source'));
+        }
+      });
+
+      setTimeout(() => {
+        reject(new Error('Timeout waiting for source change'));
       }, 10000);
     });
   }

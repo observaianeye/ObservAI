@@ -1,282 +1,249 @@
-# ObservAI Backend API
+# Backend - ObservAI API Sunucusu
 
-REST API server for ObservAI camera analytics platform. Handles database operations, user management, and data persistence.
+Bu klasör, ObservAI platformunun REST API sunucusunu içerir.
 
-## Tech Stack
+## İçerik
 
-- **Runtime**: Node.js 18+
-- **Framework**: Express.js
-- **Database**: PostgreSQL
-- **ORM**: Prisma
-- **Validation**: Zod
-- **Authentication**: bcryptjs + JWT
+Bu klasörde şunlar bulunur:
+- **Express.js** tabanlı REST API
+- **PostgreSQL** veritabanı yönetimi
+- **Prisma ORM** ile veritabanı işlemleri
+- Kullanıcı kimlik doğrulama ve yetkilendirme
+- Kamera, bölge ve analitik veri yönetimi
 
-## Setup
+## Klasör Yapısı
 
-### 1. Install Dependencies
+```
+backend/
+├── src/
+│   ├── routes/         # API endpoint'leri
+│   ├── controllers/    # İş mantığı
+│   ├── middleware/     # Express middleware'ler
+│   ├── models/         # Veri modelleri
+│   └── server.ts       # Ana sunucu dosyası
+├── prisma/
+│   ├── schema.prisma   # Veritabanı şeması
+│   ├── migrations/     # Veritabanı migration'ları
+│   └── seed.ts         # Test verisi
+└── package.json
+```
+
+## Kullanılan Teknolojiler
+
+- **Node.js 18+** - Runtime
+- **Express.js** - Web framework
+- **TypeScript** - Tip güvenliği
+- **Prisma** - Modern ORM
+- **PostgreSQL** - İlişkisel veritabanı
+- **Zod** - Schema validation
+- **bcryptjs** - Şifre hashleme
+- **JWT** - Token bazlı kimlik doğrulama
+
+## Kurulum ve Çalıştırma
+
+### 1. Bağımlılıkları Yükle
 
 ```bash
 cd backend
-npm install
+pnpm install
 ```
 
-### 2. Configure Environment
-
-Create `.env` file from example:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and configure your database:
-
-```env
-DATABASE_URL="postgresql://username:password@localhost:5432/observai?schema=public"
-```
-
-### 3. Set Up PostgreSQL Database
-
-Install PostgreSQL (if not already installed):
+### 2. PostgreSQL Veritabanı Kur
 
 ```bash
 # macOS
 brew install postgresql@15
 brew services start postgresql@15
 
-# Create database
+# Veritabanı oluştur
 createdb observai
 ```
 
-### 4. Run Database Migrations
+### 3. Ortam Değişkenleri
+
+`.env` dosyası oluşturun:
+
+```env
+DATABASE_URL="postgresql://username:password@localhost:5432/observai?schema=public"
+JWT_SECRET="your-secret-key"
+PORT=3001
+```
+
+### 4. Veritabanı Migration'larını Çalıştır
 
 ```bash
-npm run db:generate  # Generate Prisma client
-npm run db:migrate   # Run migrations
+pnpm db:generate  # Prisma client oluştur
+pnpm db:migrate   # Migration'ları uygula
+pnpm db:seed      # Test verisi ekle (opsiyonel)
 ```
 
-### 5. Seed Database (Optional)
+### 5. Geliştirme Modu
 
 ```bash
-npm run db:seed
+pnpm dev
 ```
 
-Creates test users:
-- **Admin**: admin@observai.com / admin123
-- **Manager**: manager@observai.com / manager123
+API sunucusu `http://localhost:3001` adresinde çalışır.
 
-### 6. Start Development Server
+### Production Build
 
 ```bash
-npm run dev
+pnpm build
+pnpm start
 ```
 
-Server runs on `http://localhost:3001`
+## Veritabanı Şeması
 
-## Database Schema
+### Ana Tablolar
 
-### Tables
+1. **users** - Kullanıcı hesapları
+   - id, email, password, role, createdAt
 
-1. **users** - User accounts and authentication
-2. **sessions** - User session management
-3. **cameras** - Video source configurations
-4. **zones** - Drawn zones on camera feeds
-5. **analytics_logs** - Time-series analytics data
-6. **zone_insights** - Zone occupancy alerts
-7. **analytics_summaries** - Aggregated historical data
+2. **sessions** - Oturum yönetimi
+   - id, userId, token, expiresAt
 
-### Entity Relationships
+3. **cameras** - Kamera konfigürasyonları
+   - id, name, sourceType, sourceValue, createdBy
 
+4. **zones** - Bölge tanımları
+   - id, cameraId, name, type, coordinates, createdBy
+
+5. **analytics_logs** - Analitik veri kayıtları
+   - id, cameraId, peopleIn, peopleOut, currentCount, demographics, timestamp
+
+6. **zone_insights** - Bölge öngörüleri
+   - id, zoneId, occupancy, alerts, timestamp
+
+7. **analytics_summaries** - Özet raporlar
+   - id, cameraId, dailyVisitors, peakHours, demographics, date
+
+## API Endpoint'leri
+
+### Sağlık Kontrolü
 ```
-User (1) ──> (N) Camera
-User (1) ──> (N) Zone
-Camera (1) ──> (N) Zone
-Camera (1) ──> (N) AnalyticsLog
-Zone (1) ──> (N) ZoneInsight
-```
-
-## API Endpoints
-
-### Health Check
-```
-GET /health
-```
-
-### Users
-```
-GET    /api/users         - List all users
-POST   /api/users         - Create new user
-GET    /api/users/:id     - Get user by ID
+GET /health - Sunucu durumu
 ```
 
-### Cameras
+### Kullanıcılar
 ```
-GET    /api/cameras       - List all cameras
-POST   /api/cameras       - Create new camera
-GET    /api/cameras/:id   - Get camera by ID
-PUT    /api/cameras/:id   - Update camera
-DELETE /api/cameras/:id   - Delete camera
+GET    /api/users         - Tüm kullanıcıları listele
+POST   /api/users         - Yeni kullanıcı oluştur
+GET    /api/users/:id     - Kullanıcı detayı
 ```
 
-### Zones
+### Kameralar
 ```
-GET    /api/zones/:cameraId     - Get zones for camera
-POST   /api/zones               - Create new zone
-PUT    /api/zones/:id           - Update zone
-DELETE /api/zones/:id           - Delete zone
-POST   /api/zones/batch         - Batch create/update zones
-```
-
-### Analytics
-```
-POST   /api/analytics                - Log analytics data
-GET    /api/analytics/:cameraId      - Get analytics for camera
-GET    /api/analytics/:cameraId/summary  - Get aggregated summary
-POST   /api/analytics/insights       - Log zone insight
-GET    /api/analytics/insights/:zoneId   - Get insights for zone
+GET    /api/cameras       - Tüm kameraları listele
+POST   /api/cameras       - Yeni kamera ekle
+GET    /api/cameras/:id   - Kamera detayı
+PUT    /api/cameras/:id   - Kamera güncelle
+DELETE /api/cameras/:id   - Kamera sil
 ```
 
-## API Usage Examples
-
-### Create Camera
-```bash
-curl -X POST http://localhost:3001/api/cameras \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Main Entrance",
-    "sourceType": "WEBCAM",
-    "sourceValue": "0",
-    "createdBy": "user-uuid"
-  }'
+### Bölgeler (Zones)
+```
+GET    /api/zones/:cameraId     - Kameraya ait bölgeleri getir
+POST   /api/zones               - Yeni bölge oluştur
+PUT    /api/zones/:id           - Bölge güncelle
+DELETE /api/zones/:id           - Bölge sil
+POST   /api/zones/batch         - Toplu bölge işlemi
 ```
 
-### Create Zone
-```bash
-curl -X POST http://localhost:3001/api/zones \
-  -H "Content-Type: application/json" \
-  -d '{
-    "cameraId": "camera-uuid",
-    "name": "Entrance Zone",
-    "type": "ENTRANCE",
-    "coordinates": [
-      {"x": 0.1, "y": 0.1},
-      {"x": 0.4, "y": 0.1},
-      {"x": 0.4, "y": 0.3},
-      {"x": 0.1, "y": 0.3}
-    ],
-    "createdBy": "user-uuid"
-  }'
+### Analitik Veriler
+```
+POST   /api/analytics                    - Analitik veri kaydet
+GET    /api/analytics/:cameraId          - Kamera analitiklerini getir
+GET    /api/analytics/:cameraId/summary  - Özet rapor
+POST   /api/analytics/insights           - Bölge öngörüsü kaydet
+GET    /api/analytics/insights/:zoneId   - Bölge öngörülerini getir
 ```
 
-### Log Analytics Data
-```bash
-curl -X POST http://localhost:3001/api/analytics \
-  -H "Content-Type: application/json" \
-  -d '{
-    "cameraId": "camera-uuid",
-    "peopleIn": 10,
-    "peopleOut": 5,
-    "currentCount": 5,
-    "demographics": {
-      "gender": {"male": 3, "female": 2},
-      "ages": {"adult": 4, "young": 1}
-    }
-  }'
-```
-
-## Development Commands
+## Önemli Komutlar
 
 ```bash
-npm run dev           # Start development server with hot reload
-npm run build         # Build TypeScript to JavaScript
-npm start             # Start production server
+# Geliştirme
+pnpm dev              # Hot reload ile sunucu başlat
 
-npm run db:generate   # Generate Prisma client
-npm run db:migrate    # Run database migrations
-npm run db:studio     # Open Prisma Studio (GUI for database)
-npm run db:seed       # Seed database with sample data
-npm run db:reset      # Reset database (WARNING: deletes all data)
-```
+# Veritabanı
+pnpm db:generate      # Prisma client oluştur
+pnpm db:migrate       # Migration uygula
+pnpm db:studio        # Prisma Studio aç (GUI)
+pnpm db:seed          # Test verisi ekle
+pnpm db:reset         # Veritabanını sıfırla (DİKKAT!)
 
-## Database Migrations
-
-### Create New Migration
-
-After modifying `prisma/schema.prisma`:
-
-```bash
-npm run db:migrate
-```
-
-Enter migration name when prompted.
-
-### View Migration Status
-
-```bash
-npx prisma migrate status
+# Production
+pnpm build            # TypeScript derle
+pnpm start            # Production sunucu
 ```
 
 ## Prisma Studio
 
-Visual database editor:
+Veritabanını görsel olarak yönetmek için:
 
 ```bash
-npm run db:studio
+pnpm db:studio
 ```
 
-Opens at `http://localhost:5555`
+`http://localhost:5555` adresinde açılır.
 
-## Integration with Python Analytics
+## Python Backend ile Entegrasyon
 
-The Python camera analytics backend can send data to this API:
+Python kamera analitik backend'i bu API'ye veri gönderir:
 
 ```python
 import requests
 
-# Log analytics data
-requests.post('http://localhost:3001/api/analytics', json={
-    'cameraId': camera_id,
-    'peopleIn': metrics.people_in,
-    'peopleOut': metrics.people_out,
-    'currentCount': metrics.current,
+# Analitik veri gönder
+response = requests.post('http://localhost:3001/api/analytics', json={
+    'cameraId': 'camera-uuid',
+    'peopleIn': 10,
+    'peopleOut': 5,
+    'currentCount': 5,
     'demographics': {
-        'gender': metrics.gender,
-        'ages': metrics.age_buckets
+        'gender': {'male': 3, 'female': 2},
+        'ages': {'adult': 4, 'young': 1}
     }
 })
 ```
 
-## Production Deployment
+## Güvenlik
 
-1. Set `NODE_ENV=production`
-2. Use secure `DATABASE_URL` with SSL
-3. Set strong `JWT_SECRET`
-4. Run migrations: `npm run db:migrate:prod`
-5. Start server: `npm start`
+- Tüm şifreler bcryptjs ile hash'lenir
+- JWT token'lar kullanıcı oturumları için kullanılır
+- Zod ile gelen veri validasyonu yapılır
+- SQL injection'a karşı Prisma ORM kullanılır
 
-## Troubleshooting
+## Sorun Giderme
 
-### Database Connection Failed
+### Veritabanı Bağlantı Hatası
 
 ```bash
-# Check PostgreSQL is running
+# PostgreSQL çalışıyor mu kontrol et
 brew services list
 
-# Restart PostgreSQL
+# PostgreSQL'i yeniden başlat
 brew services restart postgresql@15
 
-# Test connection
+# Bağlantıyı test et
 psql -d observai -c "SELECT 1"
 ```
 
-### Migration Failed
+### Migration Hatası
 
 ```bash
-# Reset and retry
-npm run db:reset
-npm run db:migrate
-npm run db:seed
+# Veritabanını sıfırla ve yeniden kur
+pnpm db:reset
+pnpm db:migrate
+pnpm db:seed
 ```
 
-## License
+## Test Kullanıcıları (Seed Sonrası)
 
-Proprietary - ObservAI Platform
+- **Admin**: admin@observai.com / admin123
+- **Manager**: manager@observai.com / manager123
+
+## Notlar
+
+- Production'da güçlü bir JWT_SECRET kullanın
+- SSL ile güvenli DATABASE_URL kullanın
+- Düzenli olarak veritabanı yedeklemesi yapın

@@ -43,7 +43,8 @@ class CameraAnalyticsWithWebSocket:
         self.ws_server.on_start_stream = self.start_analytics
         self.ws_server.on_stop_stream = self.stop_analytics
         self.ws_server.on_snapshot = self.handle_snapshot
-        
+        self.ws_server.on_change_source = self.change_source
+
         self.engine: Optional[CameraAnalyticsEngine] = None
         self.analytics_task: Optional[asyncio.Task] = None
 
@@ -117,6 +118,27 @@ class CameraAnalyticsWithWebSocket:
         
         self.engine = None
         print("✓ Analytics stopped")
+
+    async def change_source(self, new_source: int | str) -> bool:
+        """Change camera source and restart analytics"""
+        try:
+            print(f"🔄 Changing source to: {new_source}")
+
+            # Stop current analytics if running
+            if self.engine and self.engine.running:
+                await self.stop_analytics()
+
+            # Update source
+            self.source = new_source
+
+            # Restart analytics with new source
+            await self.start_analytics()
+
+            print(f"✓ Source changed to: {new_source}")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to change source: {e}")
+            return False
 
     async def handle_snapshot(self) -> Optional[str]:
         """Handle snapshot request from client"""

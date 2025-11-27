@@ -38,6 +38,7 @@ class AnalyticsWebSocketServer:
 
         # Connected clients
         self.clients: Set[str] = set()
+        self.disconnect_timer = None
 
         # Zone configuration storage
         self.zones: List[Dict] = []
@@ -48,6 +49,7 @@ class AnalyticsWebSocketServer:
         self.on_start_stream = None
         self.on_stop_stream = None
         self.on_snapshot = None
+        self.on_change_source = None
 
         # Setup event handlers
         self._setup_handlers()
@@ -60,6 +62,13 @@ class AnalyticsWebSocketServer:
             """Handle client connection"""
             self.clients.add(sid)
             logger.info(f"Client connected: {sid} (total: {len(self.clients)})")
+
+            # Cancel disconnect timer if a client reconnects
+            if self.disconnect_timer:
+                self.disconnect_timer.cancel()
+                self.disconnect_timer = None
+                logger.info("Client reconnected, cancelled analytics shutdown timer")
+
             await self.sio.emit("connection", {"status": "connected"}, room=sid)
 
         @self.sio.event
@@ -67,6 +76,23 @@ class AnalyticsWebSocketServer:
             """Handle client disconnection"""
             self.clients.discard(sid)
             logger.info(f"Client disconnected: {sid} (total: {len(self.clients)})")
+
+            # If no clients left, stop analytics after a delay
+            if len(self.clients) == 0:
+                logger.info("No clients connected, will stop analytics in 10 seconds if no new connections...")
+
+                # Cancel any existing timer
+                if self.disconnect_timer:
+                    self.disconnect_timer.cancel()
+
+                # Create new timer to stop analytics
+                async def stop_analytics_delayed():
+                    await asyncio.sleep(10)
+                    if len(self.clients) == 0 and self.on_stop_stream:
+                        logger.info("No clients reconnected, stopping analytics to release camera...")
+                        await self.on_stop_stream()
+
+                self.disconnect_timer = asyncio.create_task(stop_analytics_delayed())
 
         @self.sio.event
         async def ping(sid):
@@ -118,6 +144,20 @@ class AnalyticsWebSocketServer:
             if self.on_stop_stream:
                 await self.on_stop_stream()
             await self.sio.emit("stream_status", {"status": "stopped"}, room=sid)
+
+        @self.sio.event
+        async def change_source(sid, data):
+            """Handle source change request"""
+            source = data.get("source", 0)
+            logger.info(f"Source change requested by {sid}: {source}")
+            if self.on_change_source:
+                success = await self.on_change_source(source)
+                if success:
+                    await self.sio.emit("source_changed", {"status": "success", "source": source}, room=sid)
+                else:
+                    await self.sio.emit("source_changed", {"status": "error", "message": "Failed to change source"}, room=sid)
+            else:
+                await self.sio.emit("source_changed", {"status": "error", "message": "Source change not supported"}, room=sid)
 
     async def broadcast_global_stream(self, data: Dict):
         """Broadcast GlobalStream data to all clients"""

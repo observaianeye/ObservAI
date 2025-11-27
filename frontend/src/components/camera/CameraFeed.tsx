@@ -159,20 +159,25 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
       // Draw zones if enabled
       if (showZones && zones.length > 0) {
         zones.forEach((zone: any) => {
-          // Zone coordinates are in pixels relative to canvas
+          // Zone coordinates are normalized (0-1), convert to pixels
+          const zoneX = zone.x * canvas.width;
+          const zoneY = zone.y * canvas.height;
+          const zoneWidth = zone.width * canvas.width;
+          const zoneHeight = zone.height * canvas.height;
+
           ctx.strokeStyle = zone.type === 'entrance' ? '#10b981' : '#ef4444';
           ctx.lineWidth = 2;
           ctx.setLineDash([5, 5]);
-          ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+          ctx.strokeRect(zoneX, zoneY, zoneWidth, zoneHeight);
           ctx.setLineDash([]);
 
           // Draw zone label
           ctx.fillStyle = zone.type === 'entrance' ? '#10b981' : '#ef4444';
           ctx.font = '14px sans-serif';
           const textMetrics = ctx.measureText(zone.name);
-          ctx.fillRect(zone.x, zone.y - 20, textMetrics.width + 10, 20);
+          ctx.fillRect(zoneX, zoneY - 20, textMetrics.width + 10, 20);
           ctx.fillStyle = '#ffffff';
-          ctx.fillText(zone.name, zone.x + 5, zone.y - 5);
+          ctx.fillText(zone.name, zoneX + 5, zoneY - 5);
         });
       }
 
@@ -400,11 +405,60 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
     setDetections([]);
   };
 
-  const handleSourceChange = (type: CameraSource, config?: Partial<CameraSourceConfig>) => {
+  const handleSourceChange = async (type: CameraSource, config?: Partial<CameraSourceConfig>) => {
+    // Stop current camera first
     stopCamera();
-    setCurrentSource({ type, ...config });
+
     setShowSourceSelect(false);
     setShowAdvancedSettings(false);
+
+    // Notify backend about source change FIRST if in live mode
+    if (dataMode === 'live' && backendConnected) {
+      try {
+        let backendSource: number | string = 0;
+
+        // Map frontend source type to backend source
+        switch (type) {
+          case 'webcam':
+            backendSource = 0; // MacBook camera
+            break;
+          case 'iphone':
+            backendSource = 1; // iPhone camera (Continuity Camera)
+            break;
+          case 'ip':
+            if (config?.ipCameraId) {
+              const camera = ipCameras.find(cam => cam.id === config.ipCameraId);
+              if (camera) {
+                backendSource = camera.url;
+              }
+            }
+            break;
+          case 'youtube':
+            if (config?.url) {
+              backendSource = config.url;
+            }
+            break;
+          // For 'file' and 'zoom', backend doesn't process them
+        }
+
+        console.log('[CameraFeed] Changing backend source to:', backendSource);
+
+        // Wait for backend to switch source before updating frontend
+        await cameraBackendService.changeSource(backendSource);
+        console.log('[CameraFeed] Backend source changed successfully');
+
+        // Small delay to ensure backend has fully switched
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+      } catch (err) {
+        console.error('[CameraFeed] Failed to change backend source:', err);
+        setError(`Failed to switch backend to ${type} camera: ${err}`);
+        return;
+      }
+    }
+
+    // Update frontend source AFTER backend has switched
+    setCurrentSource({ type, ...config });
   };
 
   const handleFullscreen = () => {

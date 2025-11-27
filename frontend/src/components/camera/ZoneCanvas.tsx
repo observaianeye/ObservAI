@@ -76,7 +76,18 @@ export default function ZoneCanvas() {
 
   const handleMouseUp = () => {
     if (newZone && newZone.width && newZone.width > 20 && newZone.height && newZone.height > 20) {
-      setZones([...zones, newZone as Zone]);
+      // Normalize coordinates before saving (0-1 range)
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        const normalizedZone = {
+          ...newZone,
+          x: newZone.x! / rect.width,
+          y: newZone.y! / rect.height,
+          width: newZone.width / rect.width,
+          height: newZone.height / rect.height
+        };
+        setZones([...zones, normalizedZone as Zone]);
+      }
     }
     setNewZone(null);
     setDragStart(null);
@@ -213,29 +224,38 @@ export default function ZoneCanvas() {
                 </div>
               )}
 
-              {zones.map((zone) => (
-                <div
-                  key={zone.id}
-                  onClick={() => setSelectedZone(zone.id)}
-                  className={`absolute border-2 rounded cursor-move transition-all ${selectedZone === zone.id ? 'ring-4 ring-blue-300 ring-opacity-50' : ''
-                    }`}
-                  style={{
-                    left: zone.x,
-                    top: zone.y,
-                    width: zone.width,
-                    height: zone.height,
-                    borderColor: zone.color,
-                    backgroundColor: `${zone.color}20`
-                  }}
-                >
+              {zones.map((zone) => {
+                // Denormalize coordinates for display
+                const rect = canvasRef.current?.getBoundingClientRect();
+                const displayX = rect ? zone.x * rect.width : zone.x;
+                const displayY = rect ? zone.y * rect.height : zone.y;
+                const displayWidth = rect ? zone.width * rect.width : zone.width;
+                const displayHeight = rect ? zone.height * rect.height : zone.height;
+
+                return (
                   <div
-                    className="absolute top-0 left-0 px-2 py-1 text-xs font-semibold text-white rounded-br"
-                    style={{ backgroundColor: zone.color }}
+                    key={zone.id}
+                    onClick={() => setSelectedZone(zone.id)}
+                    className={`absolute border-2 rounded cursor-move transition-all ${selectedZone === zone.id ? 'ring-4 ring-blue-300 ring-opacity-50' : ''
+                      }`}
+                    style={{
+                      left: displayX,
+                      top: displayY,
+                      width: displayWidth,
+                      height: displayHeight,
+                      borderColor: zone.color,
+                      backgroundColor: `${zone.color}20`
+                    }}
                   >
-                    {zone.name}
+                    <div
+                      className="absolute top-0 left-0 px-2 py-1 text-xs font-semibold text-white rounded-br"
+                      style={{ backgroundColor: zone.color }}
+                    >
+                      {zone.name}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {newZone && newZone.width && newZone.height && (
                 <div
@@ -317,9 +337,9 @@ export default function ZoneCanvas() {
                       <option value="exit">Exit</option>
                     </select>
                     <div className="mt-2 text-xs text-gray-500">
-                      Position: ({Math.round(zone.x)}, {Math.round(zone.y)})
+                      Position: ({(zone.x * 100).toFixed(1)}%, {(zone.y * 100).toFixed(1)}%)
                       <br />
-                      Size: {Math.round(zone.width)} × {Math.round(zone.height)}
+                      Size: {(zone.width * 100).toFixed(1)}% × {(zone.height * 100).toFixed(1)}%
                     </div>
                   </div>
                 ))}
