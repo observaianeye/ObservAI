@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
+import { requireManager, requireAdmin } from '../middleware/roleCheck';
 
 const router = Router();
 
@@ -77,7 +78,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // POST /api/cameras - Create new camera
-router.post('/', async (req: Request, res: Response) => {
+// Requires MANAGER role or higher
+router.post('/', requireManager, async (req: Request, res: Response) => {
   try {
     const data = CreateCameraSchema.parse(req.body);
 
@@ -113,7 +115,8 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // PUT /api/cameras/:id - Update camera
-router.put('/:id', async (req: Request, res: Response) => {
+// Requires MANAGER role or higher
+router.put('/:id', requireManager, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const data = req.body;
@@ -137,7 +140,8 @@ router.put('/:id', async (req: Request, res: Response) => {
 });
 
 // DELETE /api/cameras/:id - Delete camera
-router.delete('/:id', async (req: Request, res: Response) => {
+// Requires ADMIN role only
+router.delete('/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

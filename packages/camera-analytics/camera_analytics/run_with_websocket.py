@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import signal
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -49,6 +50,17 @@ class CameraAnalyticsWithWebSocket:
         self.analytics_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
+        # Signal handling
+        loop = asyncio.get_running_loop()
+        stop_event = asyncio.Event()
+
+        def signal_handler():
+            print("\nReceived shutdown signal")
+            stop_event.set()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, signal_handler)
+
         await self.ws_server.start()
         print(
             f"✓ WebSocket server started on {self.ws_server.host}:{self.ws_server.port}"
@@ -56,8 +68,12 @@ class CameraAnalyticsWithWebSocket:
         # Do not start analytics automatically
         print("✓ Waiting for client to start stream...")
         
-        # Keep the main loop running
-        await asyncio.Event().wait()
+        # Keep the main loop running until signal
+        await stop_event.wait()
+        
+        # Cleanup
+        await self.stop_analytics()
+        # self.ws_server.stop() # If implemented in future
 
     async def start_analytics(self) -> None:
         if self.engine and self.engine.running:

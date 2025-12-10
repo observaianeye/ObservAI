@@ -37,6 +37,7 @@ class AnalyticsConfig:
   heatmap: HeatmapConfig = field(default_factory=HeatmapConfig)
   confidence_threshold: float = 0.5
   snapshot_interval: float = 0.0
+  privacy_mode: bool = False  # GDPR/KVKK compliance: blur faces/bodies in streams
 
 
 def _load_normalized_point(raw: Sequence[float]) -> NormalizedPoint:
@@ -91,4 +92,5 @@ def load_config(path: Path) -> AnalyticsConfig:
     heatmap=heatmap,
     confidence_threshold=float(data.get("confidence_threshold", 0.5)),
     snapshot_interval=float(data.get("snapshot_interval", 0.0)),
+    privacy_mode=bool(data.get("privacy_mode", False)),
   )

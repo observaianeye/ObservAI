@@ -14,13 +14,21 @@ from typing import Dict, List, Set, Optional
 from aiohttp import web
 import socketio
 
+from .kafka_producer import get_kafka_producer
+
 logger = logging.getLogger(__name__)
 
 
 class AnalyticsWebSocketServer:
     """WebSocket server for streaming analytics data to clients"""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 5000):
+    def __init__(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 5000,
+        kafka_enabled: bool = False,
+        kafka_bootstrap_servers: str = "localhost:9092"
+    ):
         self.host = host
         self.port = port
 
@@ -44,6 +52,13 @@ class AnalyticsWebSocketServer:
         self.zones: List[Dict] = []
         self.zones_file = Path("config/zones.json")
         self._load_zones()
+
+        # Kafka producer
+        self.kafka_producer = get_kafka_producer(
+            bootstrap_servers=kafka_bootstrap_servers,
+            enabled=kafka_enabled
+        )
+        self.camera_id = "default"  # Default camera ID
 
         # Callbacks
         self.on_start_stream = None
@@ -130,7 +145,7 @@ class AnalyticsWebSocketServer:
                 await self.sio.emit("snapshot_error", {"message": "Snapshot handler not configured"}, room=sid)
 
         @self.sio.event
-        async def start_stream(sid):
+        async def start_stream(sid, data=None):
             """Handle start stream request"""
             logger.info(f"Start stream requested by {sid}")
             if self.on_start_stream:
@@ -138,7 +153,7 @@ class AnalyticsWebSocketServer:
             await self.sio.emit("stream_status", {"status": "started"}, room=sid)
 
         @self.sio.event
-        async def stop_stream(sid):
+        async def stop_stream(sid, data=None):
             """Handle stop stream request"""
             logger.info(f"Stop stream requested by {sid}")
             if self.on_stop_stream:
@@ -160,8 +175,15 @@ class AnalyticsWebSocketServer:
                 await self.sio.emit("source_changed", {"status": "error", "message": "Source change not supported"}, room=sid)
 
     async def broadcast_global_stream(self, data: Dict):
-        """Broadcast GlobalStream data to all clients"""
+        """Broadcast GlobalStream data to all clients and publish to Kafka"""
         await self.sio.emit("global", data)
+
+        # Publish to Kafka if enabled
+        if self.kafka_producer.enabled and 'metrics' in data:
+            self.kafka_producer.publish_analytics(
+                metrics=data['metrics'],
+                camera_id=self.camera_id
+            )
 
     async def broadcast_tracks(self, tracks: List[Dict]):
         """Broadcast TrackStream data to all clients"""
@@ -172,8 +194,16 @@ class AnalyticsWebSocketServer:
         await self.sio.emit("table", region)
 
     async def broadcast_zone_insights(self, insights: List[Dict]):
-        """Broadcast zone occupancy insights to all clients"""
+        """Broadcast zone occupancy insights to all clients and publish to Kafka"""
         await self.sio.emit("zone_insights", insights)
+
+        # Publish insights to Kafka if enabled
+        if self.kafka_producer.enabled:
+            for insight in insights:
+                self.kafka_producer.publish_insight(
+                    insight=insight,
+                    camera_id=self.camera_id
+                )
 
     def _load_zones(self):
         """Load zones from file"""

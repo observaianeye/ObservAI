@@ -28,7 +28,21 @@ export interface AnalyticsData {
       unknown: number;
     };
     ages: {
-      [key: string]: number;
+      '0-17': number;
+      '18-24': number;
+      '25-34': number;
+      '35-44': number;
+      '45-54': number;
+      '55-64': number;
+      '65+': number;
+      [key: string]: number; // Fallback index signature
+    };
+    genderByAge: {
+      [ageRange: string]: {
+        male: number;
+        female: number;
+        unknown: number;
+      };
     };
   };
   heatmap: {
@@ -63,21 +77,36 @@ export interface ZoneInsight {
   message: string;
 }
 
+export type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting' | 'failed';
+
 type AnalyticsCallback = (data: AnalyticsData) => void;
 type DetectionsCallback = (detections: Detection[]) => void;
 type ZoneInsightsCallback = (insights: ZoneInsight[]) => void;
+type ConnectionStatusCallback = (status: ConnectionStatus, attempts?: number) => void;
 
 class CameraBackendService {
   private socket: Socket | null = null;
   private analyticsCallbacks: Set<AnalyticsCallback> = new Set();
   private detectionsCallbacks: Set<DetectionsCallback> = new Set();
   private zoneInsightsCallbacks: Set<ZoneInsightsCallback> = new Set();
+  private connectionStatusCallbacks: Set<ConnectionStatusCallback> = new Set();
   private isConnected: boolean = false;
   private reconnectAttempts: number = 0;
-  private maxReconnectAttempts: number = 5;
+  private maxReconnectAttempts: number = 10;
+  private connectionStatus: ConnectionStatus = 'disconnected';
+
+  // Data caching for fallback
+  private lastAnalyticsData: AnalyticsData | null = null;
+  private lastDetections: Detection[] = [];
+  private lastZoneInsights: ZoneInsight[] = [];
 
   constructor() {
     // Socket.IO will be initialized when connect() is called
+  }
+
+  private updateConnectionStatus(status: ConnectionStatus, attempts?: number): void {
+    this.connectionStatus = status;
+    this.connectionStatusCallbacks.forEach(callback => callback(status, attempts));
   }
 
   connect(url: string = 'http://localhost:5001'): void {
@@ -99,11 +128,18 @@ class CameraBackendService {
       console.log('[CameraBackend] Connected to backend');
       this.isConnected = true;
       this.reconnectAttempts = 0;
+      this.updateConnectionStatus('connected');
     });
 
     this.socket.on('disconnect', () => {
       console.log('[CameraBackend] Disconnected from backend');
       this.isConnected = false;
+      this.updateConnectionStatus('disconnected');
+    });
+
+    this.socket.on('reconnect_attempt', () => {
+      console.log(`[CameraBackend] Reconnecting... (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+      this.updateConnectionStatus('reconnecting', this.reconnectAttempts + 1);
     });
 
     this.socket.on('connection', (data: any) => {
@@ -112,24 +148,30 @@ class CameraBackendService {
 
     // Listen for analytics data (global stream)
     this.socket.on('global', (data: AnalyticsData) => {
+      this.lastAnalyticsData = data; // Cache for fallback
       this.analyticsCallbacks.forEach(callback => callback(data));
     });
 
     // Listen for detection tracks
     this.socket.on('tracks', (tracks: Detection[]) => {
+      this.lastDetections = tracks; // Cache for fallback
       this.detectionsCallbacks.forEach(callback => callback(tracks));
     });
 
     // Listen for zone insights
     this.socket.on('zone_insights', (insights: ZoneInsight[]) => {
+      this.lastZoneInsights = insights; // Cache for fallback
       this.zoneInsightsCallbacks.forEach(callback => callback(insights));
     });
 
     this.socket.on('connect_error', (error: Error) => {
       console.error('[CameraBackend] Connection error:', error.message);
       this.reconnectAttempts++;
+      this.updateConnectionStatus('reconnecting', this.reconnectAttempts);
+
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
         console.error('[CameraBackend] Max reconnect attempts reached');
+        this.updateConnectionStatus('failed');
       }
     });
   }
@@ -164,8 +206,34 @@ class CameraBackendService {
     };
   }
 
+  onConnectionStatus(callback: ConnectionStatusCallback): () => void {
+    this.connectionStatusCallbacks.add(callback);
+    // Immediately call with current status
+    callback(this.connectionStatus, this.reconnectAttempts);
+    return () => {
+      this.connectionStatusCallbacks.delete(callback);
+    };
+  }
+
   getConnectionStatus(): boolean {
     return this.isConnected;
+  }
+
+  getCurrentConnectionStatus(): ConnectionStatus {
+    return this.connectionStatus;
+  }
+
+  // Get cached data for fallback when disconnected
+  getLastAnalyticsData(): AnalyticsData | null {
+    return this.lastAnalyticsData;
+  }
+
+  getLastDetections(): Detection[] {
+    return this.lastDetections;
+  }
+
+  getLastZoneInsights(): ZoneInsight[] {
+    return this.lastZoneInsights;
   }
 
   saveZones(zones: Zone[]): Promise<void> {
@@ -208,7 +276,7 @@ class CameraBackendService {
 
       setTimeout(() => {
         reject(new Error('Timeout waiting for zones'));
-      }, 5000);
+      }, 30000);
     });
   }
 
@@ -273,7 +341,7 @@ class CameraBackendService {
 
       setTimeout(() => {
         reject(new Error('Timeout waiting for snapshot'));
-      }, 10000);
+      }, 30000);
     });
   }
 
@@ -298,7 +366,7 @@ class CameraBackendService {
 
       setTimeout(() => {
         reject(new Error('Timeout waiting for source change'));
-      }, 10000);
+      }, 30000);
     });
   }
 

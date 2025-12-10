@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, GenderData } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
+import { GlassCard } from '../ui/GlassCard';
 
 export default function GenderChart() {
   const { dataMode } = useDataMode();
@@ -97,7 +98,7 @@ export default function GenderChart() {
   };
 
   return (
-    <div className="bg-[#0a0b10]/40 backdrop-blur-md rounded-xl border border-white/10 p-6 shadow-sm hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] transition-all duration-300">
+    <GlassCard variant="neon" className="p-6 h-full">
       {loading ? (
         <div className="h-[300px] flex items-center justify-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -112,6 +113,6 @@ export default function GenderChart() {
       ) : (
         <ReactECharts option={option} style={{ height: '300px' }} />
       )}
-    </div>
+    </GlassCard>
   );
 }

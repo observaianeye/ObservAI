@@ -11,6 +11,11 @@ import camerasRouter from './routes/cameras';
 import zonesRouter from './routes/zones';
 import analyticsRouter from './routes/analytics';
 import usersRouter from './routes/users';
+import pythonBackendRouter from './routes/python-backend';
+import aiRouter from './routes/ai';
+import exportRouter from './routes/export';
+import { pythonBackendManager } from './lib/pythonBackendManager';
+import { getKafkaConsumer } from './lib/kafkaConsumer';
 
 // Load environment variables
 dotenv.config();
@@ -46,6 +51,9 @@ app.use('/api/cameras', camerasRouter);
 app.use('/api/zones', zonesRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/python-backend', pythonBackendRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/export', exportRouter);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
@@ -61,14 +69,47 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 // Start server
 async function startServer() {
   try {
-    // Connect to database
-    await connectDatabase();
+    // Try to connect to database (optional for now)
+    try {
+      await connectDatabase();
+      console.log('✅ Database connected');
+    } catch (dbError) {
+      console.warn('⚠️  Database connection failed (continuing without DB):', (dbError as Error).message);
+      console.warn('   Python backend manager will still work!');
+    }
+
+    // Auto-start Python backend
+    try {
+      console.log('🔄 Auto-starting Python backend on port 5001...');
+      // Default to source 0 (Webcam)
+      await pythonBackendManager.start({
+        source: 0,
+        wsPort: 5001
+      });
+    } catch (pyError) {
+      console.error('⚠️ Failed to auto-start Python backend:', pyError);
+    }
+
+    // Start Kafka consumer if enabled
+    try {
+      const kafkaConsumer = getKafkaConsumer();
+      if (kafkaConsumer.isConnected() || process.env.KAFKA_ENABLED === 'true') {
+        console.log('🔄 Starting Kafka consumer...');
+        await kafkaConsumer.connect();
+      }
+    } catch (kafkaError) {
+      console.error('⚠️ Failed to start Kafka consumer:', kafkaError);
+    }
 
     // Start Express server
     app.listen(PORT, () => {
       console.log(`🚀 ObservAI Backend API running on http://localhost:${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
+      console.log(`🐍 Python Backend Manager: http://localhost:${PORT}/api/python-backend/status`);
       console.log(`📚 API endpoints:`);
+      console.log(`   - POST   /api/python-backend/start`);
+      console.log(`   - POST   /api/python-backend/stop`);
+      console.log(`   - GET    /api/python-backend/status`);
       console.log(`   - POST   /api/cameras`);
       console.log(`   - GET    /api/cameras`);
       console.log(`   - POST   /api/zones`);
@@ -85,12 +126,18 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
+  await pythonBackendManager.stop();
+  const kafkaConsumer = getKafkaConsumer();
+  await kafkaConsumer.disconnect();
   await disconnectDatabase();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
+  await pythonBackendManager.stop();
+  const kafkaConsumer = getKafkaConsumer();
+  await kafkaConsumer.disconnect();
   await disconnectDatabase();
   process.exit(0);
 });

@@ -2,6 +2,7 @@ import { Users, TrendingUp, TrendingDown } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { analyticsDataService, VisitorMetrics } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
+import { GlassCard } from '../ui/GlassCard';
 
 export default function VisitorCountWidget() {
   const { dataMode } = useDataMode();
@@ -41,7 +42,7 @@ export default function VisitorCountWidget() {
   }, [dataMode]);
 
   return (
-    <div className="bg-[#0a0b10]/40 backdrop-blur-md rounded-xl border border-white/10 p-6 shadow-sm hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] transition-all duration-300 text-white">
+    <GlassCard variant="neon" className="p-6 text-white">
       {loading ? (
         <div className="h-40 flex items-center justify-center">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white"></div>
@@ -76,6 +77,6 @@ export default function VisitorCountWidget() {
           </div>
         </>
       )}
-    </div>
+    </GlassCard>
   );
 }

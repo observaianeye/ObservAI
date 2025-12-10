@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Users, Clock, TrendingUp, Maximize2, Activity, Wifi, WifiOff } from 'lucide-react';
+import { Users, Clock, TrendingUp, Maximize2, Activity, Wifi, WifiOff, BarChart3, LineChart } from 'lucide-react';
 import { cameraBackendService, AnalyticsData, Detection } from '../services/cameraBackendService';
+import { LineChart as RechartsLine, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface CameraMetrics {
   peopleCount: number;
@@ -40,6 +41,10 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
   const [isConnected, setIsConnected] = useState(false);
   const [isMonitoring, setIsMonitoring] = useState(false);
 
+  // Historical data for charts
+  const [visitorHistory, setVisitorHistory] = useState<Array<{ time: string; count: number }>>([]);
+  const [demographicData, setDemographicData] = useState<Array<{ name: string; value: number }>>([]);
+
   const handleToggleMonitoring = async () => {
     try {
       if (isMonitoring) {
@@ -70,7 +75,7 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
       const ageGroupsFormatted: { [key: string]: string } = {};
       // Map backend buckets to display buckets if needed, or just use as is
       // Backend: child, young, adult, senior
-      // Component expects: 18-24, 25-34, etc. 
+      // Component expects: 18-24, 25-34, etc.
       // For prototype, we'll map available buckets
       Object.entries(data.demographics.ages).forEach(([bucket, count]: [string, number]) => {
         ageGroupsFormatted[bucket] = `${Math.round((count / totalAge) * 100)}%`;
@@ -86,6 +91,21 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
         },
         ageGroups: ageGroupsFormatted
       });
+
+      // Update visitor history for line chart (keep last 20 data points)
+      const now = new Date();
+      const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+      setVisitorHistory(prev => {
+        const newHistory = [...prev, { time: timeStr, count: data.current }];
+        return newHistory.slice(-20); // Keep only last 20 points
+      });
+
+      // Update demographic data for charts
+      setDemographicData([
+        { name: 'Male', value: data.demographics.gender.male },
+        { name: 'Female', value: data.demographics.gender.female },
+        { name: 'Unknown', value: data.demographics.gender.unknown }
+      ]);
     });
 
     const unsubscribeDetections = cameraBackendService.onDetections((tracks: Detection[]) => {
@@ -250,7 +270,9 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
               e.stopPropagation();
               setExpandedMetric(expandedMetric === 'demographics' ? null : 'demographics');
             }}
-            className="p-2 bg-black/60 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-colors"
+            className={`p-2 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-colors ${
+              expandedMetric === 'demographics' ? 'bg-blue-600' : 'bg-black/60'
+            }`}
           >
             <Users className="w-5 h-5 text-white" />
           </button>
@@ -259,9 +281,33 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
               e.stopPropagation();
               setExpandedMetric(expandedMetric === 'activity' ? null : 'activity');
             }}
-            className="p-2 bg-black/60 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-colors"
+            className={`p-2 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-colors ${
+              expandedMetric === 'activity' ? 'bg-blue-600' : 'bg-black/60'
+            }`}
           >
             <TrendingUp className="w-5 h-5 text-white" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpandedMetric(expandedMetric === 'visitorTrends' ? null : 'visitorTrends');
+            }}
+            className={`p-2 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-colors ${
+              expandedMetric === 'visitorTrends' ? 'bg-blue-600' : 'bg-black/60'
+            }`}
+          >
+            <LineChart className="w-5 h-5 text-white" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpandedMetric(expandedMetric === 'demographicChart' ? null : 'demographicChart');
+            }}
+            className={`p-2 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-colors ${
+              expandedMetric === 'demographicChart' ? 'bg-blue-600' : 'bg-black/60'
+            }`}
+          >
+            <BarChart3 className="w-5 h-5 text-white" />
           </button>
         </div>
 
@@ -317,6 +363,106 @@ export default function CameraFeedCard({ location, cameraId, onExpand }: CameraF
                 <span className="text-gray-300 text-sm">Conversion Rate</span>
                 <span className="text-white font-bold">73%</span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {expandedMetric === 'visitorTrends' && (
+          <div
+            className="absolute right-16 top-1/2 transform -translate-y-1/2 w-96 bg-black/90 backdrop-blur-xl rounded-xl p-4 shadow-2xl animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-white font-bold mb-3 flex items-center gap-2">
+              <LineChart className="w-5 h-5" />
+              Visitor Trends
+            </h3>
+            <div className="h-48">
+              {visitorHistory.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsLine
+                    data={visitorHistory}
+                    margin={{ top: 5, right: 5, left: -20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                    <XAxis
+                      dataKey="time"
+                      stroke="rgba(255,255,255,0.5)"
+                      tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 10 }}
+                    />
+                    <YAxis
+                      stroke="rgba(255,255,255,0.5)"
+                      tick={{ fill: 'rgba(255,255,255,0.7)', fontSize: 10 }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'rgba(0,0,0,0.9)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '8px',
+                        color: '#fff'
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="count"
+                      stroke="#3b82f6"
+                      strokeWidth={3}
+                      dot={{ fill: '#3b82f6', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </RechartsLine>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                  Waiting for data...
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {expandedMetric === 'demographicChart' && (
+          <div
+            className="absolute right-16 top-1/2 transform -translate-y-1/2 w-96 bg-black/90 backdrop-blur-xl rounded-xl p-4 shadow-2xl animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-white font-bold mb-3 flex items-center gap-2">
+              <BarChart3 className="w-5 h-5" />
+              Gender Distribution
+            </h3>
+            <div className="h-48">
+              {demographicData.length > 0 && demographicData.some(d => d.value > 0) ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={demographicData.filter(d => d.value > 0)}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                      outerRadius={70}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {demographicData.map((_, index) => {
+                        const colors = ['#3b82f6', '#ec4899', '#8b5cf6'];
+                        return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                      })}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'rgba(0,0,0,0.9)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '8px',
+                        color: '#fff'
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                  Waiting for data...
+                </div>
+              )}
             </div>
           </div>
         )}

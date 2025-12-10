@@ -91,36 +91,34 @@ class YouTubeSource(VideoSource):
         url = str(self.source_input)
         print(f"   Extracting YouTube Live stream URL from {url}...")
         
-        # Try yt-dlp
+        # Try yt-dlp with improved arguments
         try:
             print("   Trying yt-dlp...")
+            # Use best mp4 video or best available if mp4 not found
+            cmd = ['yt-dlp', '-f', 'best[ext=mp4]/best', '-g', url]
+            print(f"   Command: {' '.join(cmd)}")
+            
             result = subprocess.run(
-                ['yt-dlp', '-f', '95/96/best', '-g', url],
+                cmd,
                 capture_output=True,
                 text=True,
-                timeout=15
+                timeout=30  # Increased timeout
             )
+            
             if result.returncode == 0 and result.stdout.strip():
                 stream_url = result.stdout.strip().split('\n')[0]
                 print(f"   ✓ Found stream using yt-dlp")
                 return stream_url
+            else:
+                print(f"   ⚠️  yt-dlp failed with code {result.returncode}")
+                if result.stderr:
+                    print(f"   stderr: {result.stderr.strip()}")
+                    
         except Exception as e:
             print(f"   ⚠️  yt-dlp error: {e}")
 
-        # Try streamlink
-        try:
-            print("   Trying streamlink...")
-            result = subprocess.run(
-                ['streamlink', '--stream-url', url, 'best'],
-                capture_output=True,
-                text=True,
-                timeout=15
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                print(f"   ✓ Found stream using streamlink")
-                return result.stdout.strip()
-        except Exception as e:
-            print(f"   ⚠️  streamlink error: {e}")
+        # Streamlink fallback removed as it is not installed in the environment
+        # If installed in future, can be re-enabled here
 
         print("   ❌ Could not extract stream URL, using original")
         return url

@@ -34,6 +34,13 @@ export interface DwellTimeMetrics {
 export interface AnalyticsData {
   gender: GenderData;
   age: AgeDistribution;
+  genderByAge?: {
+    [ageRange: string]: {
+      male: number;
+      female: number;
+      unknown: number;
+    };
+  };
   visitors: VisitorMetrics;
   dwellTime: DwellTimeMetrics;
   lastUpdated: Date;
@@ -157,10 +164,8 @@ class LiveDataProvider {
   }
 
   private transformBackendData(backendData: BackendAnalytics): AnalyticsData {
-    // Map backend age buckets to our age ranges
-    // Backend buckets: child (0-17), young (18-35), adult (36-50), mature (51-70), senior (70+)
+    // Map backend data directly to frontend state
     const ages = backendData.demographics.ages;
-    const mapAgeBucket = (bucket: string): number => ages[bucket] || 0;
 
     return {
       gender: {
@@ -169,14 +174,15 @@ class LiveDataProvider {
         unknown: backendData.demographics.gender.unknown || 0
       },
       age: {
-        '0-17': mapAgeBucket('child'),      // child: 0-17
-        '18-24': Math.round(mapAgeBucket('young') * 0.35), // young: 18-35 (split 35%)
-        '25-34': Math.round(mapAgeBucket('young') * 0.65), // young: 18-35 (split 65%)
-        '35-44': Math.round(mapAgeBucket('adult') * 0.6),  // adult: 36-50 (split 60%)
-        '45-54': Math.round(mapAgeBucket('adult') * 0.4) + Math.round(mapAgeBucket('mature') * 0.4), // adult + mature
-        '55-64': Math.round(mapAgeBucket('mature') * 0.6), // mature: 51-70 (split 60%)
-        '65+': mapAgeBucket('senior')       // senior: 70+
+        '0-17': ages['0-17'] || 0,
+        '18-24': ages['18-24'] || 0,
+        '25-34': ages['25-34'] || 0,
+        '35-44': ages['35-44'] || 0,
+        '45-54': ages['45-54'] || 0,
+        '55-64': ages['55-64'] || 0,
+        '65+': ages['65+'] || 0
       },
+      genderByAge: backendData.demographics.genderByAge,
       visitors: {
         current: backendData.current || 0,
         entryCount: backendData.entries || 0,
@@ -184,7 +190,7 @@ class LiveDataProvider {
         totalToday: backendData.entries || 0
       },
       dwellTime: {
-        average: 0, // Backend doesn't provide individual dwell stats in global stream
+        average: 0, // Backend doesn't provide individual dwell stats in global stream yet
         min: 0,
         max: 0
       },

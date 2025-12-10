@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
+import { requireManager } from '../middleware/roleCheck';
 
 const router = Router();
 
@@ -54,7 +55,8 @@ router.get('/:cameraId', async (req: Request, res: Response) => {
 });
 
 // POST /api/zones - Create new zone
-router.post('/', async (req: Request, res: Response) => {
+// Requires MANAGER role or higher
+router.post('/', requireManager, async (req: Request, res: Response) => {
   try {
     const data = CreateZoneSchema.parse(req.body);
 
@@ -91,7 +93,8 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // PUT /api/zones/:id - Update zone
-router.put('/:id', async (req: Request, res: Response) => {
+// Requires MANAGER role or higher
+router.put('/:id', requireManager, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const data = req.body;
@@ -114,7 +117,8 @@ router.put('/:id', async (req: Request, res: Response) => {
 });
 
 // DELETE /api/zones/:id - Delete zone
-router.delete('/:id', async (req: Request, res: Response) => {
+// Requires MANAGER role or higher
+router.delete('/:id', requireManager, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -130,7 +134,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // POST /api/zones/batch - Batch create/update zones for a camera
-router.post('/batch', async (req: Request, res: Response) => {
+// Requires MANAGER role or higher
+router.post('/batch', requireManager, async (req: Request, res: Response) => {
   try {
     const { cameraId, zones, createdBy } = req.body;
 

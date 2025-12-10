@@ -6,30 +6,44 @@ from typing import Dict, List, Optional
 
 
 def default_age_buckets() -> Dict[str, int]:
-  return {"child": 0, "young": 0, "adult": 0, "mature": 0, "senior": 0}
+  return {
+    "0-17": 0,
+    "18-24": 0,
+    "25-34": 0,
+    "35-44": 0,
+    "45-54": 0,
+    "55-64": 0,
+    "65+": 0,
+  }
 
 
 def bucket_for_age(age: Optional[float]) -> str:
   """
-  Categorize age into meaningful life stages:
-  - child: 0-17 (Çocuk)
-  - young: 18-35 (Genç)
-  - adult: 36-50 (Orta yaş)
-  - mature: 51-70 (Deneyimli)
-  - senior: 70+ (İleri yaş)
+  Categorize age into granular ranges:
+  - 0-17
+  - 18-24
+  - 25-34
+  - 35-44
+  - 45-54
+  - 55-64
+  - 65+
   """
   if age is None:
     return "unknown"
   age_val = float(age)
   if age_val < 18:
-    return "child"
-  if age_val < 36:
-    return "young"
-  if age_val < 51:
-    return "adult"
-  if age_val < 71:
-    return "mature"
-  return "senior"
+    return "0-17"
+  if age_val < 25:
+    return "18-24"
+  if age_val < 35:
+    return "25-34"
+  if age_val < 45:
+    return "35-44"
+  if age_val < 55:
+    return "45-54"
+  if age_val < 65:
+    return "55-64"
+  return "65+"
 
 
 @dataclass
@@ -64,6 +78,7 @@ class CameraMetrics:
   current: int = 0
   age_buckets: Dict[str, int] = field(default_factory=default_age_buckets)
   gender: Dict[str, int] = field(default_factory=lambda: {"male": 0, "female": 0, "unknown": 0})
+  gender_by_age: Dict[str, Dict[str, int]] = field(default_factory=dict)
   queue: QueueSnapshot = field(default_factory=lambda: QueueSnapshot(0, 0.0, 0.0))
   tables: List[TableSnapshot] = field(default_factory=list)
   heatmap: List[List[int]] = field(default_factory=list)
@@ -80,6 +95,7 @@ class CameraMetrics:
       "current": self.current,
       "ageBuckets": self.age_buckets,
       "gender": self.gender,
+      "genderByAge": self.gender_by_age,
       "queue": {
         "current": self.queue.current,
         "averageWaitSeconds": round(self.queue.average_wait_seconds, 1),

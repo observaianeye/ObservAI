@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, DwellTimeMetrics } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
+import { GlassCard } from '../ui/GlassCard';
 
 export default function DwellTimeWidget() {
   const { dataMode } = useDataMode();
@@ -109,7 +110,7 @@ export default function DwellTimeWidget() {
   };
 
   return (
-    <div className="bg-[#0a0b10]/40 backdrop-blur-md rounded-xl border border-white/10 p-6 shadow-sm hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] transition-all duration-300">
+    <GlassCard variant="neon" className="p-6">
       {loading ? (
         <div className="h-40 flex items-center justify-center">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-500"></div>
@@ -139,6 +140,6 @@ export default function DwellTimeWidget() {
           )}
         </>
       )}
-    </div>
+    </GlassCard>
   );
 }

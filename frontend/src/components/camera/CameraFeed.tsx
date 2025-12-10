@@ -1,7 +1,9 @@
-import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus } from 'lucide-react';
+import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, BarChart3, LineChart as LineChartIcon } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { cameraBackendService, Detection } from '../../services/cameraBackendService';
+import { LineChart as RechartsLine, Line, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { GlassCard } from '../ui/GlassCard';
 
 interface CameraFeedProps {
   showHeatmap?: boolean;
@@ -52,6 +54,44 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
   const [showAddIPCamera, setShowAddIPCamera] = useState(false);
   const [newIPCamera, setNewIPCamera] = useState({ name: '', url: '', type: 'rtsp' as 'rtsp' | 'http' });
 
+  // Chart overlays
+  const [expandedChart, setExpandedChart] = useState<string | null>(null);
+  const [visitorHistory, setVisitorHistory] = useState<Array<{ time: string; count: number }>>([]);
+  const [demographicData, setDemographicData] = useState<Array<{ name: string; value: number }>>([]);
+  const [ageData, setAgeData] = useState<Array<{ name: string; value: number }>>([]);
+
+  /**
+   * Start Python backend automatically when camera source changes
+   */
+  const startPythonBackend = async (source: string | number) => {
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      console.log('[CameraFeed] Starting Python backend for source:', source);
+
+      const response = await fetch(`${apiUrl}/api/python-backend/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source,
+          wsPort: 5001,
+          wsHost: '0.0.0.0'
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[CameraFeed] Python backend started:', data);
+      } else {
+        const error = await response.json();
+        console.error('[CameraFeed] Failed to start Python backend:', error);
+      }
+    } catch (error) {
+      console.error('[CameraFeed] Error starting Python backend:', error);
+    }
+  };
+
   // Load IP cameras from localStorage
   useEffect(() => {
     localStorage.setItem('ipCameras', JSON.stringify(ipCameras));
@@ -90,8 +130,39 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
         setBackendConnected(true);
       });
 
+      // Subscribe to analytics for charts
+      const unsubscribeAnalytics = cameraBackendService.onAnalytics((data) => {
+        // Update visitor history for line chart
+        const now = new Date();
+        const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+        setVisitorHistory(prev => {
+          const newHistory = [...prev, { time: timeStr, count: data.current }];
+          return newHistory.slice(-20); // Keep last 20 points
+        });
+
+        // Update demographic data for pie chart
+        setDemographicData([
+          { name: 'Male', value: data.demographics.gender.male },
+          { name: 'Female', value: data.demographics.gender.female },
+          { name: 'Unknown', value: data.demographics.gender.unknown }
+        ]);
+
+        // Update age data for bar chart
+        const ages = data.demographics.ages;
+        setAgeData([
+          { name: '0-17', value: ages['0-17'] || 0 },
+          { name: '18-24', value: ages['18-24'] || 0 },
+          { name: '25-34', value: ages['25-34'] || 0 },
+          { name: '35-44', value: ages['35-44'] || 0 },
+          { name: '45-54', value: ages['45-54'] || 0 },
+          { name: '55-64', value: ages['55-64'] || 0 },
+          { name: '65+', value: ages['65+'] || 0 }
+        ]);
+      });
+
       return () => {
         unsubscribeDetections();
+        unsubscribeAnalytics();
         cameraBackendService.stopStream().catch(console.error);
       };
     } else {
@@ -265,13 +336,29 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
           break;
 
         case 'iphone':
-          // iPhone camera - enumerate devices and select secondary camera
+          // iPhone camera - enumerate devices and select by label
           const devices = await navigator.mediaDevices.enumerateDevices();
           const videoDevices = devices.filter(d => d.kind === 'videoinput');
           console.log('[CameraFeed] Available video devices:', videoDevices);
 
-          if (videoDevices.length > 1) {
-            // Use second camera (iPhone via Continuity Camera)
+          // Look for "iPhone" or "Continuity" in label
+          const iphoneDevice = videoDevices.find(d =>
+            d.label.toLowerCase().includes('iphone') ||
+            d.label.toLowerCase().includes('continuity')
+          );
+
+          if (iphoneDevice) {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                deviceId: { exact: iphoneDevice.deviceId },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+              },
+              audio: false
+            });
+          } else if (videoDevices.length > 1) {
+            // Fallback to second camera if no label match (legacy behavior)
+            console.warn('[CameraFeed] No iPhone label found, falling back to second device');
             mediaStream = await navigator.mediaDevices.getUserMedia({
               video: {
                 deviceId: { exact: videoDevices[1].deviceId },
@@ -282,7 +369,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             });
           } else {
             throw new Error(
-              'No secondary camera found.\n\n' +
+              'No iPhone or secondary camera found.\n\n' +
               'For iPhone:\n' +
               '1. Connect iPhone via USB or Wi-Fi\n' +
               '2. Enable Continuity Camera on macOS\n' +
@@ -384,6 +471,29 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
         await videoRef.current.play();
         setStream(mediaStream);
         setIsStreaming(true);
+
+        // Auto-start Python backend when camera starts
+        if (dataMode === 'live') {
+          let backendSource: number | string = 0;
+          switch (currentSource.type) {
+            case 'webcam':
+              backendSource = 0;
+              break;
+            case 'iphone':
+              backendSource = 1;
+              break;
+            case 'ip':
+              if (currentSource.ipCameraId) {
+                const camera = ipCameras.find(cam => cam.id === currentSource.ipCameraId);
+                if (camera) backendSource = camera.url;
+              }
+              break;
+            case 'youtube':
+              if (currentSource.url) backendSource = currentSource.url;
+              break;
+          }
+          await startPythonBackend(backendSource);
+        }
       }
     } catch (err: any) {
       console.error('[CameraFeed] Initialization error:', err);
@@ -412,8 +522,8 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
     setShowSourceSelect(false);
     setShowAdvancedSettings(false);
 
-    // Notify backend about source change FIRST if in live mode
-    if (dataMode === 'live' && backendConnected) {
+    // Start Python backend automatically in live mode
+    if (dataMode === 'live') {
       try {
         let backendSource: number | string = 0;
 
@@ -440,6 +550,9 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             break;
           // For 'file' and 'zoom', backend doesn't process them
         }
+
+        // Automatically start Python backend with the selected source
+        await startPythonBackend(backendSource);
 
         console.log('[CameraFeed] Changing backend source to:', backendSource);
 
@@ -521,9 +634,10 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
   };
 
   return (
-    <div
+    <GlassCard
       ref={containerRef}
-      className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+      variant="neon"
+      className="overflow-hidden"
     >
       {/* Header */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 px-4 py-3 flex items-center justify-between">
@@ -535,18 +649,18 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             <h3 className="text-sm font-semibold text-white">{getSourceLabel()}</h3>
             <div className="flex items-center space-x-2">
               <span className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></span>
-              <span className="text-xs text-gray-300">
+              <span className="text-xs text-gray-200">
                 {dataMode === 'demo' ? 'DEMO MODE' : (isStreaming ? 'LIVE' : 'OFFLINE')}
               </span>
               {isStreaming && backendConnected && (
                 <>
-                  <span className="text-xs text-gray-400">•</span>
+                  <span className="text-xs text-gray-200">•</span>
                   <span className="text-xs text-green-400">Backend Connected</span>
                 </>
               )}
               {isStreaming && !backendConnected && dataMode === 'live' && (
                 <>
-                  <span className="text-xs text-gray-400">•</span>
+                  <span className="text-xs text-gray-200">•</span>
                   <span className="text-xs text-yellow-400">Waiting for backend...</span>
                 </>
               )}
@@ -560,7 +674,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
               className="p-2 hover:bg-white/10 rounded-lg transition-colors"
               title="Change camera source"
             >
-              <Settings className="w-4 h-4 text-gray-300" />
+              <Settings className="w-4 h-4 text-gray-200" />
             </button>
           )}
           <button
@@ -571,7 +685,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
             title="Reload camera"
           >
-            <RotateCcw className="w-4 h-4 text-gray-300" />
+            <RotateCcw className="w-4 h-4 text-gray-200" />
           </button>
           <button
             onClick={handleFullscreen}
@@ -579,9 +693,9 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
             {isFullscreen ? (
-              <Minimize2 className="w-4 h-4 text-gray-300" />
+              <Minimize2 className="w-4 h-4 text-gray-200" />
             ) : (
-              <Maximize2 className="w-4 h-4 text-gray-300" />
+              <Maximize2 className="w-4 h-4 text-gray-200" />
             )}
           </button>
         </div>
@@ -591,7 +705,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
       {showSourceSelect && dataMode === 'live' && (
         <div className="bg-gray-800 px-4 py-3 border-t border-gray-700">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs text-gray-400">Select camera source:</p>
+            <p className="text-xs text-gray-300">Select camera source:</p>
             <button
               onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
               className="text-xs text-blue-400 hover:text-blue-300"
@@ -604,8 +718,8 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             <button
               onClick={() => handleSourceChange('webcam')}
               className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'webcam'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
                 }`}
             >
               MacBook Cam
@@ -613,8 +727,8 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             <button
               onClick={() => handleSourceChange('iphone')}
               className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'iphone'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
                 }`}
             >
               iPhone
@@ -622,8 +736,8 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             <button
               onClick={() => handleSourceChange('zoom')}
               className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'zoom'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
                 }`}
             >
               Screen Capture
@@ -635,7 +749,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             <div className="space-y-3 border-t border-gray-700 pt-3">
               {/* Stream URL Input */}
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">
+                <label className="text-xs text-gray-300 mb-1 block">
                   <LinkIcon className="w-3 h-3 inline mr-1" />
                   Stream URL (YouTube, RTSP, HLS)
                 </label>
@@ -659,7 +773,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
 
               {/* File Upload */}
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">
+                <label className="text-xs text-gray-300 mb-1 block">
                   <Upload className="w-3 h-3 inline mr-1" />
                   Local Video File
                 </label>
@@ -674,7 +788,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
               {/* IP Cameras */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-gray-400">IP Cameras</label>
+                  <label className="text-xs text-gray-300">IP Cameras</label>
                   <button
                     onClick={() => setShowAddIPCamera(!showAddIPCamera)}
                     className="text-xs text-blue-400 hover:text-blue-300 flex items-center"
@@ -830,6 +944,122 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
           </div>
         )}
 
+        {/* Chart Control Buttons */}
+        {dataMode === 'live' && isStreaming && backendConnected && (
+          <div className="absolute top-1/2 right-4 transform -translate-y-1/2 flex flex-col gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpandedChart(expandedChart === 'demographics' ? null : 'demographics');
+              }}
+              className={`p-3 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-all ${expandedChart === 'demographics' ? 'bg-blue-600 shadow-lg' : 'bg-black/60'
+                }`}
+              title="Demographics"
+            >
+              <BarChart3 className="w-5 h-5 text-white" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpandedChart(expandedChart === 'age' ? null : 'age');
+              }}
+              className={`p-3 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-all ${expandedChart === 'age' ? 'bg-blue-600 shadow-lg' : 'bg-black/60'
+                }`}
+              title="Age Distribution"
+            >
+              <LineChartIcon className="w-5 h-5 text-white" />
+            </button>
+          </div>
+        )}
+
+        {/* Age Distribution Chart Overlay */}
+        {expandedChart === 'age' && ageData.some(d => d.value > 0) && (
+          <GlassCard
+            variant="dark"
+            intensity="high"
+            className="absolute right-20 top-1/2 transform -translate-y-1/2 w-96 p-4 animate-fade-in z-50"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-white font-bold mb-3 flex items-center gap-2">
+              <LineChartIcon className="w-5 h-5" />
+              Age Distribution
+            </h3>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={ageData}
+                  margin={{ top: 5, right: 5, left: -20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                  <XAxis
+                    dataKey="name"
+                    stroke="rgba(255,255,255,0.8)"
+                    tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 10 }}
+                  />
+                  <YAxis
+                    stroke="rgba(255,255,255,0.8)"
+                    tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 10 }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgba(0,0,0,0.9)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '8px',
+                      color: '#fff'
+                    }}
+                    cursor={{ fill: 'rgba(255,255,255,0.1)' }}
+                  />
+                  <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </GlassCard>
+        )}
+
+        {/* Demographics Chart Overlay */}
+        {expandedChart === 'demographics' && demographicData.some(d => d.value > 0) && (
+          <GlassCard
+            variant="dark"
+            intensity="high"
+            className="absolute right-20 top-1/2 transform -translate-y-1/2 w-96 p-4 animate-fade-in z-50"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-white font-bold mb-3 flex items-center gap-2">
+              <BarChart3 className="w-5 h-5" />
+              Gender Distribution
+            </h3>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={demographicData.filter(d => d.value > 0)}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                    outerRadius={70}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {demographicData.map((_, index) => {
+                      const colors = ['#3b82f6', '#ec4899', '#8b5cf6'];
+                      return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                    })}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgba(0,0,0,0.9)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '8px',
+                      color: '#fff'
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </GlassCard>
+        )}
+
         {/* Timestamp & Stats Overlay */}
         <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
           <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-xs font-mono">
@@ -870,6 +1100,24 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
           </div>
         )}
       </div>
-    </div>
+
+      {/* Animations */}
+      <style>{`
+        @keyframes fade-in {
+          from {
+            opacity: 0;
+            transform: translateX(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+
+        .animate-fade-in {
+          animation: fade-in 0.3s ease-out;
+        }
+      `}</style>
+    </GlassCard>
   );
 }

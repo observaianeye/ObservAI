@@ -11,18 +11,10 @@ interface Message {
 }
 
 const quickActions = [
-  'Explain KPI deltas',
-  'Suggest staffing',
-  'Find anomalies'
+  'What is the current visitor count?',
+  'Show me demographics breakdown',
+  'What are the peak hours today?'
 ];
-
-const demoResponses: Record<string, string> = {
-  'explain kpi deltas': 'Your AOV decreased by 8% this week primarily due to increased single-item orders during afternoon hours (2-4 PM). Consider promoting combo deals during this timeframe.',
-  'suggest staffing': 'Based on traffic patterns, I recommend adding 1 barista during peak hours (12-2 PM) and reducing evening staff by 1 person after 7 PM to optimize labor costs.',
-  'find anomalies': 'I detected 3 anomalies: 1) Milk costs up 15% this week, 2) Queue times spiking at 2 PM daily, 3) Oat milk inventory critically low (<15%).',
-  'why is aov down today': 'AOV is down 8% today due to increased single-item purchases and fewer combo orders. Morning rush shows normal patterns, but afternoon sales lack upsells.',
-  'default': 'I can help you understand your data better. Try asking about specific KPIs, staffing needs, or anomalies in your operations.'
-};
 
 export default function GlobalChatbot() {
   const { isAuthenticated } = useAuth();
@@ -62,7 +54,7 @@ export default function GlobalChatbot() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
 
     const userMessage: Message = {
@@ -73,23 +65,61 @@ export default function GlobalChatbot() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = input;
     setInput('');
 
-    setTimeout(() => {
-      const responseKey = input.toLowerCase();
-      const response = Object.keys(demoResponses).find(key =>
-        responseKey.includes(key)
-      ) || 'default';
+    // Add loading message
+    const loadingMessage: Message = {
+      id: `${Date.now()}-loading`,
+      type: 'assistant',
+      content: 'Thinking...',
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, loadingMessage]);
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'assistant',
-        content: demoResponses[response],
-        timestamp: new Date()
-      };
+    try {
+      // Call backend AI API
+      const response = await fetch('http://localhost:3001/api/ai/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: currentInput
+        })
+      });
 
-      setMessages(prev => [...prev, assistantMessage]);
-    }, 1000);
+      if (!response.ok) {
+        throw new Error('Failed to get AI response');
+      }
+
+      const data = await response.json();
+
+      // Remove loading message and add actual response
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== loadingMessage.id);
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'assistant',
+          content: data.message,
+          timestamp: new Date()
+        };
+        return [...filtered, assistantMessage];
+      });
+    } catch (error) {
+      console.error('AI Chat Error:', error);
+      // Remove loading message and add error response
+      setMessages(prev => {
+        const filtered = prev.filter(m => m.id !== loadingMessage.id);
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'assistant',
+          content: 'Sorry, I encountered an error processing your request. Please try again.',
+          timestamp: new Date()
+        };
+        return [...filtered, errorMessage];
+      });
+    }
   };
 
   const handleQuickAction = (action: string) => {
