@@ -294,7 +294,9 @@ class VideoLinkSource(VideoSource):
 
     @property
     def vid_stride(self) -> int:
-        return 3  # Skip frames for network streams to reduce latency
+        # Process all frames for smooth video playback (no skipping)
+        # YouTube videos will play smoothly without stuttering
+        return 1
 
 
 
