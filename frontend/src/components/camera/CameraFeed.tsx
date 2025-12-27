@@ -486,10 +486,83 @@ export default function CameraFeed() {
     setError(null);
 
     try {
-      // ... same content ...
+      // 1. Cleanup existing subscriptions
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
+
+      // 2. Stop current frontend camera and streams
+      stopCamera();
+
+      // 3. Stop backend stream if active (to release camera hardware)
+      if (dataMode === 'live') {
+        try {
+          await cameraBackendService.stopStream();
+        } catch {
+          // Expected on first run or if already stopped
+        }
+
+        // Give hardware time to release (500ms is safer for camera hardware)
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // 4. Start new backend stream with selected source
+      if (dataMode === 'live') {
+        let backendSource: number | string = 0;
+
+        // Map frontend source type to backend source
+        switch (type) {
+          case 'webcam':
+            backendSource = 0; // MacBook camera
+            break;
+          case 'iphone':
+            backendSource = 1; // iPhone camera (Continuity Camera)
+            break;
+          case 'ip':
+            if (config?.ipCameraId) {
+              const camera = ipCameras.find(cam => cam.id === config.ipCameraId);
+              if (camera) {
+                backendSource = camera.url;
+              }
+            }
+            break;
+          case 'videolink':
+            if (config?.url) {
+              backendSource = config.url;
+            }
+            break;
+          // For 'file', backend doesn't process it (browser handles local playback)
+        }
+
+        // Start Python backend with the selected source
+        await startPythonBackend(backendSource);
+
+        // Ensure backend connection is established
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+        cameraBackendService.connect(backendUrl);
+
+        // Change source on backend - with timeout
+        const changeSourcePromise = cameraBackendService.changeSource(backendSource);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Source change timeout')), 10000)
+        );
+
+        await Promise.race([changeSourcePromise, timeoutPromise]);
+
+        // Start the stream
+        await cameraBackendService.startStream();
+
+        // Wait for stream to initialize
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // 5. Update frontend source state AFTER backend has switched
+      setCurrentSource({ type, ...config });
+
     } catch (err) {
       console.error('[CameraFeed] Source change failed:', err);
-      setError(`${err instanceof Error ? err.message : 'Unknown error'}`);
+      setError(`Failed to switch to ${type}: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       isChangingSourceRef.current = false;
       setIsSwitchingSource(false);
