@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 import sys
 
-def export_model(model_path="yolov8n.pt"):
+def export_model(model_path="yolo11n.pt"):
     print(f"Loading model from {model_path}...")
     try:
         model = YOLO(model_path)

@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, GenderData } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { GlassCard } from '../ui/GlassCard';
 
-export default function GenderChart() {
+const GenderChart = memo(function GenderChart() {
   const { dataMode } = useDataMode();
   const [genderData, setGenderData] = useState<GenderData>({ male: 0, female: 0, unknown: 0 });
   const [loading, setLoading] = useState(true);
@@ -23,20 +23,22 @@ export default function GenderChart() {
 
     loadData();
 
-    // Start real-time updates
-    analyticsDataService.startRealtimeUpdates((data) => {
+    // Subscribe and get unsubscribe function
+    const unsubscribe = analyticsDataService.startRealtimeUpdates((data) => {
       setGenderData(data.gender);
     });
 
     // Cleanup on unmount
     return () => {
-      analyticsDataService.stopRealtimeUpdates();
+      unsubscribe();
     };
   }, [dataMode]);
 
   const totalVisitors = genderData.male + genderData.female + genderData.unknown;
 
   const option = {
+    // Disable animation in Live mode for smoother updates
+    animation: dataMode === 'demo',
     title: {
       text: 'Gender Distribution',
       left: 'center',
@@ -115,4 +117,6 @@ export default function GenderChart() {
       )}
     </GlassCard>
   );
-}
+});
+
+export default GenderChart;

@@ -13,97 +13,85 @@ const helpArticles: HelpArticle[] = [
   {
     id: '1',
     category: 'Getting Started',
-    title: 'How to set up your first camera',
-    content: 'Connect your IP camera to the same network as your ObservAI system. Navigate to Camera > Add New Camera and enter your camera credentials. The system will automatically detect and configure optimal settings.'
+    title: 'Switching between Demo and Live Mode',
+    content: 'ObservAI has two modes: Demo mode uses simulated data for testing, while Live mode connects to your camera for real-time analytics. Toggle between modes using the switch in the top-right corner of the dashboard.'
   },
   {
     id: '2',
     category: 'Getting Started',
     title: 'Understanding your dashboard',
-    content: 'The Overview dashboard provides real-time insights into your restaurant operations. Key metrics include sales, customer traffic, average order value, and labor costs. Each widget is interactive and can be customized.'
+    content: 'The Analytics Dashboard shows real-time visitor metrics, demographics, and traffic patterns. Key metrics include current occupancy, entry/exit counts, age and gender distribution, and movement heatmaps. All data updates in real-time when using Live mode.'
   },
   {
     id: '3',
-    category: 'Sales & POS',
-    title: 'How to view sales reports',
-    content: 'Navigate to Sales in the sidebar. You can view sales by day, week, month, or custom date range. Export reports as CSV or PDF for accounting purposes. Filter by payment method, category, or staff member.'
+    category: 'Live Mode',
+    title: 'Connecting your camera',
+    content: 'In Live mode, select your camera source: MacBook webcam, iPhone (via Continuity Camera), or IP camera. The system uses YOLO object detection and InsightFace for demographics. Ensure camera permissions are granted in your browser.'
   },
   {
     id: '4',
-    category: 'Sales & POS',
-    title: 'Understanding Average Order Value (AOV)',
-    content: 'AOV is calculated by dividing total revenue by the number of orders. A higher AOV indicates customers are purchasing more per transaction. Use this metric to measure the effectiveness of upselling strategies.'
+    category: 'Live Mode',
+    title: 'Starting the Python backend',
+    content: 'The Python analytics backend runs on port 5001. When you switch to Live mode and select a camera, the system automatically starts the backend. Check Diagnostics if connection fails.'
   },
   {
     id: '5',
     category: 'Camera Analytics',
-    title: 'How camera analytics work',
-    content: 'Our AI analyzes video feeds to detect people count, queue length, dwell time, and customer demographics. This data helps optimize staffing, reduce wait times, and improve customer experience. All processing happens locally for privacy.'
+    title: 'Understanding detection overlays',
+    content: 'In Live mode, bounding boxes show detected people with color coding: green for entering, red for exiting, blue for present. Labels display gender (M/F/?), age range (e.g., 18-24), and dwell time in seconds.'
   },
   {
     id: '6',
     category: 'Camera Analytics',
-    title: 'Setting up heat maps',
-    content: 'Heat maps visualize customer traffic patterns. Navigate to Camera > Heat Maps to see which areas receive the most foot traffic. Use this data to optimize product placement and store layout.'
+    title: 'Using heat maps',
+    content: 'Enable the heatmap overlay to visualize movement patterns. The heatmap shows where people spend the most time: red indicates high activity, orange medium, yellow low. This data updates in real-time based on tracking history.'
   },
   {
     id: '7',
-    category: 'Employee Management',
-    title: 'How to request shift changes',
-    content: 'Go to My Shifts and click on an empty day or use the Request Shift button. Select your desired time range and add an optional note. Your manager will be notified and can approve or decline the request.'
+    category: 'Zone Labeling',
+    title: 'Setting up zones',
+    content: 'Use Zone Labeling to define entrance and exit zones. Draw rectangles on the camera feed to mark specific areas. The system tracks when people enter or leave these zones for accurate traffic metrics.'
   },
   {
     id: '8',
-    category: 'Employee Management',
-    title: 'Manager: Approving shift requests',
-    content: 'Navigate to Labor Management to view pending shift requests. You can approve or decline with a single click, or use swipe gestures on mobile. Approved shifts automatically appear in the schedule.'
+    category: 'AI Insights',
+    title: 'Understanding demographics',
+    content: 'ObservAI uses InsightFace AI to estimate age (in 7 ranges: 0-17, 18-24, 25-34, 35-44, 45-54, 55-64, 65+) and gender. This data is displayed in charts and aggregated for privacy - no individual faces are stored.'
   },
   {
     id: '9',
-    category: 'Payroll',
-    title: 'Understanding your pay stub',
-    content: 'Your pay stub shows Regular Hours, Overtime Hours, Tips, and Bonuses. Deductions include taxes and benefits (typically 12%). Net Pay is your take-home amount. Download pay stubs anytime from the Payroll page.'
+    category: 'Historical Data',
+    title: 'Viewing past analytics',
+    content: 'Navigate to Historical Data to view trends over time. Compare different time periods, analyze peak hours, and track demographic changes. Export data as CSV for further analysis.'
   },
   {
     id: '10',
-    category: 'Payroll',
-    title: 'Manager: Processing payroll',
-    content: 'Switch to Manager View in Payroll to see all employee pay. Filter by department or sort by hours/pay. Use Process All for bulk processing or process individually. Export reports for accounting software integration.'
-  },
-  {
-    id: '11',
-    category: 'Inventory',
-    title: 'Setting up inventory tracking',
-    content: 'Add your products in Inventory > Add Item. Set reorder points to receive automatic alerts when stock is low. The system tracks usage patterns and predicts when items will run out.'
-  },
-  {
-    id: '12',
-    category: 'AI Insights',
-    title: 'Understanding AI recommendations',
-    content: 'ObservAI analyzes historical data, weather, events, and trends to provide actionable recommendations. These include optimal staffing levels, inventory orders, pricing adjustments, and menu modifications.'
+    category: 'Privacy & Security',
+    title: 'How ObservAI protects privacy',
+    content: 'All video processing happens locally on your device. We detect patterns and counts without storing individual faces. Data is anonymized and aggregated. You can enable privacy mode to blur faces in recordings.'
   }
 ];
 
 const faqs = [
   {
-    question: 'How does ObservAI protect customer privacy?',
-    answer: 'All video processing happens on-device. We detect patterns and counts without storing individual faces or identifiable information. Data is encrypted at rest and in transit.'
+    question: 'How does ObservAI protect privacy?',
+    answer: 'All video processing happens locally on your device. ObservAI detects patterns and counts without storing individual faces or identifiable information. Demographics are aggregated and anonymized. You can enable privacy mode to blur faces.'
   },
   {
-    question: 'Can I access ObservAI from my phone?',
-    answer: 'Yes! ObservAI is fully responsive and works on all devices. Download our mobile app for push notifications and on-the-go management.'
+    question: 'What is the difference between Demo and Live mode?',
+    answer: 'Demo mode uses simulated, realistic data for testing and demonstrations. Live mode connects to your camera for real-time analytics. Toggle between modes anytime using the switch in the top-right corner.'
   },
   {
     question: 'How accurate is the AI analytics?',
-    answer: 'Our AI achieves 95%+ accuracy in people counting and 92% in demographic detection. Accuracy improves over time as the system learns your specific environment.'
+    answer: 'ObservAI uses YOLOv12 for person detection (95%+ accuracy) and InsightFace for demographics (92% accuracy). Performance depends on camera quality, lighting, and viewing angle. 1080p resolution is recommended.'
   },
   {
-    question: 'What cameras are compatible?',
-    answer: 'Most IP cameras with RTSP/ONVIF support work with ObservAI. We recommend 1080p or higher resolution for best results. Contact support for specific camera compatibility.'
+    question: 'What cameras are supported?',
+    answer: 'ObservAI works with MacBook webcams, iPhone cameras (via Continuity Camera), IP cameras (RTSP/HTTP), and screen sharing for Zoom. For best results, use 1080p or higher resolution cameras with good lighting.'
   },
   {
-    question: 'How do I export my data?',
-    answer: 'Every report page has an Export button. You can download data as CSV, Excel, or PDF. Use our API for automated data integration with other systems.'
+    question: 'How do I troubleshoot connection issues?',
+    answer: 'If Live mode fails to connect: 1) Check that Python backend is running on port 5001, 2) Verify camera permissions in browser settings, 3) Check Diagnostics for detailed status, 4) Try refreshing the page. See Diagnostics for more help.'
   }
 ];
 

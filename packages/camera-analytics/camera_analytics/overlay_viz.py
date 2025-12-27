@@ -179,15 +179,9 @@ class GlassOverlay:
                 gender = person.get('gender')
                 gender_display = "E" if gender == "male" else "K" if gender == "female" else "-"
                 age_bucket = person.get('ageBucket') or "unknown"
-                category_display = {
-                    "child": "Çocuk",
-                    "young": "Genç",
-                    "middleage": "Orta",
-                    "old": "Yaşlı",
-                    "elderly": "İhtiyar",
-                }.get(age_bucket, "Bilinmiyor")
+                # Age bucket is now in format "0-17", "18-24", etc.
                 dwell = int(person.get('dwellSeconds', 0))
-                line = f"ID {person.get('id')} • {dwell} sn • {category_display} • {gender_display}"
+                line = f"ID {person.get('id')} • {dwell} sn • {age_bucket} • {gender_display}"
                 cv2.putText(frame, line, (panel_x + 20, list_y),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.TEXT_SECONDARY, 1)
                 list_y += 22
@@ -246,11 +240,13 @@ class GlassOverlay:
         y_offset += 30
         age_buckets = metrics.get('ageBuckets', {})
         age_data = [
-            ("Çocuk (0-17)", age_buckets.get('child', 0), (255, 200, 100)),
-            ("Genç (18-35)", age_buckets.get('young', 0), (100, 255, 200)),
-            ("Orta (36-50)", age_buckets.get('middleage', 0), (100, 200, 255)),
-            ("Yaşlı (51-70)", age_buckets.get('old', 0), (200, 150, 255)),
-            ("İhtiyar (70+)", age_buckets.get('elderly', 0), (255, 100, 150)),
+            ("0-17", age_buckets.get('0-17', 0), (255, 200, 100)),
+            ("18-24", age_buckets.get('18-24', 0), (100, 255, 200)),
+            ("25-34", age_buckets.get('25-34', 0), (100, 200, 255)),
+            ("35-44", age_buckets.get('35-44', 0), (200, 150, 255)),
+            ("45-54", age_buckets.get('45-54', 0), (150, 200, 255)),
+            ("55-64", age_buckets.get('55-64', 0), (255, 150, 200)),
+            ("65+", age_buckets.get('65+', 0), (255, 100, 150)),
         ]
         
         total_age = max(sum(d[1] for d in age_data), 1)

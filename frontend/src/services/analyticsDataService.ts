@@ -1,4 +1,6 @@
 // Analytics Data Service - Provides both Demo and Live data
+// NOTE: This service acts as a data distribution layer
+// In live mode, it subscribes to cameraBackendService and distributes to multiple UI components
 import { DataMode } from '../contexts/DataModeContext';
 import { cameraBackendService, AnalyticsData as BackendAnalytics } from './cameraBackendService';
 
@@ -45,6 +47,8 @@ export interface AnalyticsData {
   dwellTime: DwellTimeMetrics;
   lastUpdated: Date;
 }
+
+type AnalyticsCallback = (data: AnalyticsData) => void;
 
 // Demo Data Generator - Realistic café patterns
 class DemoDataProvider {
@@ -143,10 +147,13 @@ class DemoDataProvider {
 }
 
 // Live Data Provider - Connects to backend via Socket.IO
+// Uses a single subscription and distributes to multiple callbacks
 class LiveDataProvider {
   private latestData: AnalyticsData | null = null;
   private readonly BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
   private unsubscribeAnalytics: (() => void) | null = null;
+  private callbacks: Set<AnalyticsCallback> = new Set();
+  private isConnected: boolean = false;
 
   async getAnalyticsData(): Promise<AnalyticsData> {
     if (this.latestData) {
@@ -198,22 +205,46 @@ class LiveDataProvider {
     };
   }
 
-  connectWebSocket(onUpdate: (data: AnalyticsData) => void) {
-    if (this.unsubscribeAnalytics) {
-      return; // Already connected
+  // Add a callback to receive analytics updates
+  // Returns unsubscribe function
+  subscribe(callback: AnalyticsCallback): () => void {
+    this.callbacks.add(callback);
+    
+    // Ensure we're connected when first subscriber joins
+    if (!this.isConnected && this.callbacks.size === 1) {
+      this.connectWebSocket();
+    }
+    
+    // If we have cached data, send it immediately to new subscriber
+    if (this.latestData) {
+      callback(this.latestData);
+    }
+    
+    return () => {
+      this.callbacks.delete(callback);
+      // Disconnect when no more subscribers
+      if (this.callbacks.size === 0) {
+        this.disconnectWebSocket();
+      }
+    };
+  }
+
+  private connectWebSocket() {
+    if (this.isConnected) {
+      return;
     }
 
-    // Connect to backend Socket.IO
+    // Connect to backend Socket.IO (connection managed by cameraBackendService singleton)
     cameraBackendService.connect(this.BACKEND_URL);
+    this.isConnected = true;
 
-    // Subscribe to analytics updates
+    // Subscribe to analytics updates - single subscription
     this.unsubscribeAnalytics = cameraBackendService.onAnalytics((backendData) => {
       const analyticsData = this.transformBackendData(backendData);
       this.latestData = analyticsData;
-      onUpdate(analyticsData);
+      // Distribute to all registered callbacks
+      this.callbacks.forEach(cb => cb(analyticsData));
     });
-
-    console.log('[LiveDataProvider] Connected to camera backend');
   }
 
   disconnectWebSocket() {
@@ -221,18 +252,21 @@ class LiveDataProvider {
       this.unsubscribeAnalytics();
       this.unsubscribeAnalytics = null;
     }
-    cameraBackendService.disconnect();
-    console.log('[LiveDataProvider] Disconnected from camera backend');
+    this.isConnected = false;
+    // Don't disconnect the underlying socket - CameraFeed owns that
   }
 }
 
 // Main Analytics Data Service
+// This is a singleton that manages data flow from backend to UI components
 class AnalyticsDataService {
   private demoProvider: DemoDataProvider;
   private liveProvider: LiveDataProvider;
   private currentMode: DataMode = 'demo';
   private demoData: AnalyticsData | null = null;
-  private updateInterval: number | null = null;
+  private demoCallbacks: Set<AnalyticsCallback> = new Set();
+  private demoUpdateInterval: number | null = null;
+  private liveUnsubscribers: Map<AnalyticsCallback, () => void> = new Map();
 
   constructor() {
     this.demoProvider = new DemoDataProvider();
@@ -240,14 +274,18 @@ class AnalyticsDataService {
   }
 
   setMode(mode: DataMode) {
-    this.currentMode = mode;
-
-    // Clean up when switching modes
-    if (mode === 'live') {
+    if (this.currentMode === mode) return;
+    
+    // Clean up previous mode
+    if (this.currentMode === 'demo') {
       this.stopDemoUpdates();
     } else {
-      this.liveProvider.disconnectWebSocket();
+      // Unsubscribe all live callbacks
+      this.liveUnsubscribers.forEach(unsub => unsub());
+      this.liveUnsubscribers.clear();
     }
+    
+    this.currentMode = mode;
   }
 
   async getData(): Promise<AnalyticsData> {
@@ -261,35 +299,59 @@ class AnalyticsDataService {
     }
   }
 
-  startRealtimeUpdates(onUpdate: (data: AnalyticsData) => void) {
+  // Subscribe to realtime updates
+  // Returns an unsubscribe function that MUST be called on cleanup
+  startRealtimeUpdates(onUpdate: AnalyticsCallback): () => void {
     if (this.currentMode === 'demo') {
-      this.startDemoUpdates(onUpdate);
+      return this.subscribeDemoUpdates(onUpdate);
     } else {
-      this.liveProvider.connectWebSocket(onUpdate);
+      const unsub = this.liveProvider.subscribe(onUpdate);
+      this.liveUnsubscribers.set(onUpdate, unsub);
+      return () => {
+        unsub();
+        this.liveUnsubscribers.delete(onUpdate);
+      };
     }
   }
 
-  private startDemoUpdates(onUpdate: (data: AnalyticsData) => void) {
-    if (this.updateInterval) return;
-
-    this.updateInterval = window.setInterval(() => {
-      if (this.demoData) {
-        this.demoData = this.demoProvider.getUpdatedData(this.demoData);
-        onUpdate(this.demoData);
+  private subscribeDemoUpdates(callback: AnalyticsCallback): () => void {
+    this.demoCallbacks.add(callback);
+    
+    // Start the demo update interval if not already running
+    if (!this.demoUpdateInterval && this.demoCallbacks.size > 0) {
+      this.demoUpdateInterval = window.setInterval(() => {
+        if (this.demoData) {
+          this.demoData = this.demoProvider.getUpdatedData(this.demoData);
+          this.demoCallbacks.forEach(cb => cb(this.demoData!));
+        }
+      }, 5000); // Update every 5 seconds in demo mode
+    }
+    
+    // Send initial data immediately
+    if (this.demoData) {
+      callback(this.demoData);
+    }
+    
+    return () => {
+      this.demoCallbacks.delete(callback);
+      if (this.demoCallbacks.size === 0) {
+        this.stopDemoUpdates();
       }
-    }, 5000); // Update every 5 seconds in demo mode
+    };
   }
 
   private stopDemoUpdates() {
-    if (this.updateInterval) {
-      window.clearInterval(this.updateInterval);
-      this.updateInterval = null;
+    if (this.demoUpdateInterval) {
+      window.clearInterval(this.demoUpdateInterval);
+      this.demoUpdateInterval = null;
     }
   }
 
+  // Legacy method - use startRealtimeUpdates instead which returns unsubscribe
   stopRealtimeUpdates() {
     this.stopDemoUpdates();
-    this.liveProvider.disconnectWebSocket();
+    this.liveUnsubscribers.forEach(unsub => unsub());
+    this.liveUnsubscribers.clear();
   }
 }
 

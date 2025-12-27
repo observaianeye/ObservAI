@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "npm run start:all",
+    "start:node": "tsx watch src/index.ts",
+    "start:python": "cd ../packages/camera-analytics && ./venv/bin/python -m camera_analytics.run_with_websocket --source 0 --ws-port 5001",
+    "start:all": "concurrently --names \"API,AI\" --prefix-colors \"blue,green\" \"npm run start:node\" \"npm run start:python\"",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "prisma migrate deploy",
@@ -34,6 +37,7 @@
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.10.0",
     "@types/pdfkit": "^0.17.4",
+    "concurrently": "^8.2.2",
     "prisma": "^5.22.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"

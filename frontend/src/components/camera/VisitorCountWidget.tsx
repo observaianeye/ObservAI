@@ -1,10 +1,10 @@
 import { Users, TrendingUp, TrendingDown } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, memo } from 'react';
 import { analyticsDataService, VisitorMetrics } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { GlassCard } from '../ui/GlassCard';
 
-export default function VisitorCountWidget() {
+const VisitorCountWidget = memo(function VisitorCountWidget() {
   const { dataMode } = useDataMode();
   const [metrics, setMetrics] = useState<VisitorMetrics>({
     current: 0,
@@ -30,14 +30,15 @@ export default function VisitorCountWidget() {
 
     loadData();
 
-    analyticsDataService.startRealtimeUpdates((data) => {
+    // Subscribe and get unsubscribe function
+    const unsubscribe = analyticsDataService.startRealtimeUpdates((data) => {
       setMetrics(data.visitors);
       const avgOccupancy = 15;
       setTrend(Math.round(((data.visitors.current - avgOccupancy) / avgOccupancy) * 100));
     });
 
     return () => {
-      analyticsDataService.stopRealtimeUpdates();
+      unsubscribe();
     };
   }, [dataMode]);
 
@@ -79,4 +80,6 @@ export default function VisitorCountWidget() {
       )}
     </GlassCard>
   );
-}
+});
+
+export default VisitorCountWidget;

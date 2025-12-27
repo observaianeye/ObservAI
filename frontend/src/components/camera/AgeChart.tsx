@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, AnalyticsData } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { GlassCard } from '../ui/GlassCard';
 
-export default function AgeChart() {
+const AgeChart = memo(function AgeChart() {
   const { dataMode } = useDataMode();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,14 +23,14 @@ export default function AgeChart() {
 
     loadData();
 
-    // Start real-time updates
-    analyticsDataService.startRealtimeUpdates((data) => {
+    // Subscribe and get unsubscribe function
+    const unsubscribe = analyticsDataService.startRealtimeUpdates((data) => {
       setData(data);
     });
 
     // Cleanup on unmount
     return () => {
-      analyticsDataService.stopRealtimeUpdates();
+      unsubscribe();
     };
   }, [dataMode]);
 
@@ -48,6 +48,8 @@ export default function AgeChart() {
   );
 
   const option = {
+    // Disable animation in Live mode for smoother updates
+    animation: dataMode === 'demo',
     title: {
       text: 'Age & Gender Distribution',
       left: 'center',
@@ -151,4 +153,6 @@ export default function AgeChart() {
       )}
     </GlassCard>
   );
-}
+});
+
+export default AgeChart;

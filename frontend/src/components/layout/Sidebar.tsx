@@ -8,10 +8,12 @@ import {
   Video,
   HelpCircle,
   X,
-  Settings
+  Settings,
+  Activity
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import HelpCenter from '../HelpCenter';
+import Diagnostics from '../Diagnostics';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -34,12 +36,14 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const location = useLocation();
   const { userRole } = useAuth();
   const [showHelpCenter, setShowHelpCenter] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const menuItems = userRole === 'manager' ? managerMenuItems : employeeMenuItems;
 
   return (
     <>
       {showHelpCenter && <HelpCenter onClose={() => setShowHelpCenter(false)} />}
+      {showDiagnostics && <Diagnostics onClose={() => setShowDiagnostics(false)} />}
 
       <aside
         className={`
@@ -112,9 +116,10 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               <p className="text-xs text-gray-400">All Systems Operational</p>
             </div>
             <button
-              onClick={() => setShowHelpCenter(true)}
-              className="w-full px-3 py-2 bg-blue-600/20 border border-blue-500/50 text-blue-400 text-xs font-semibold rounded-lg hover:bg-blue-600/30 transition-all hover:shadow-[0_0_15px_rgba(37,99,235,0.3)]"
+              onClick={() => setShowDiagnostics(true)}
+              className="w-full px-3 py-2 bg-blue-600/20 border border-blue-500/50 text-blue-400 text-xs font-semibold rounded-lg hover:bg-blue-600/30 transition-all hover:shadow-[0_0_15px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2"
             >
+              <Activity className="w-3 h-3" />
               Diagnostics
             </button>
           </div>

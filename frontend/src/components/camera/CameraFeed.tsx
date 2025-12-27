@@ -1,15 +1,10 @@
-import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, BarChart3, LineChart as LineChartIcon } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Eye, Activity } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { cameraBackendService, Detection } from '../../services/cameraBackendService';
-import { LineChart as RechartsLine, Line, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { GlassCard } from '../ui/GlassCard';
 
-interface CameraFeedProps {
-  showHeatmap?: boolean;
-}
-
-export type CameraSource = 'webcam' | 'iphone' | 'ip' | 'youtube' | 'file' | 'zoom';
+export type CameraSource = 'webcam' | 'iphone' | 'ip' | 'videolink' | 'file';
 
 interface CameraSourceConfig {
   type: CameraSource;
@@ -26,7 +21,7 @@ interface IPCamera {
   type: 'rtsp' | 'http';
 }
 
-export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
+export default function CameraFeed() {
   const { dataMode } = useDataMode();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,7 +41,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
 
   // Advanced settings
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [streamUrl, setStreamUrl] = useState('');
+  const [videoLinkUrl, setVideoLinkUrl] = useState('');
   const [ipCameras, setIPCameras] = useState<IPCamera[]>(() => {
     const saved = localStorage.getItem('ipCameras');
     return saved ? JSON.parse(saved) : [];
@@ -54,11 +49,22 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
   const [showAddIPCamera, setShowAddIPCamera] = useState(false);
   const [newIPCamera, setNewIPCamera] = useState({ name: '', url: '', type: 'rtsp' as 'rtsp' | 'http' });
 
-  // Chart overlays
-  const [expandedChart, setExpandedChart] = useState<string | null>(null);
-  const [visitorHistory, setVisitorHistory] = useState<Array<{ time: string; count: number }>>([]);
-  const [demographicData, setDemographicData] = useState<Array<{ name: string; value: number }>>([]);
-  const [ageData, setAgeData] = useState<Array<{ name: string; value: number }>>([]);
+  // AI Insights visibility toggle (controls backend overlay)
+  const [showInsights, setShowInsights] = useState(true);
+
+  // Heatmap visibility toggle (separate control from AI Insights)
+  const [showHeatmap, setShowHeatmap] = useState(false);
+
+  // Source switching loading state
+  const [isSwitchingSource, setIsSwitchingSource] = useState(false);
+
+  // Dynamic video dimensions for proper aspect ratio
+  const [videoDimensions, setVideoDimensions] = useState({ width: 16, height: 9 });
+
+  // Refs for cleanup tracking
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const isChangingSourceRef = useRef(false);
+  const mjpegImgRef = useRef<HTMLImageElement>(null);
 
   /**
    * Start Python backend automatically when camera source changes
@@ -66,7 +72,6 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
   const startPythonBackend = async (source: string | number) => {
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      console.log('[CameraFeed] Starting Python backend for source:', source);
 
       const response = await fetch(`${apiUrl}/api/python-backend/start`, {
         method: 'POST',
@@ -80,15 +85,11 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[CameraFeed] Python backend started:', data);
-      } else {
-        const error = await response.json();
-        console.error('[CameraFeed] Failed to start Python backend:', error);
+      if (!response.ok) {
+        // Silently handle - backend might already be running
       }
-    } catch (error) {
-      console.error('[CameraFeed] Error starting Python backend:', error);
+    } catch {
+      // Silently handle - API might not be available
     }
   };
 
@@ -97,73 +98,71 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
     localStorage.setItem('ipCameras', JSON.stringify(ipCameras));
   }, [ipCameras]);
 
-  // Initialize camera stream
+  // Auto-start MacBook camera when entering Live mode
+  const hasAutoStartedRef = useRef(false);
   useEffect(() => {
-    if (dataMode === 'live') {
-      initializeCamera();
-    } else {
+    if (dataMode === 'live' && !hasAutoStartedRef.current) {
+      hasAutoStartedRef.current = true;
+      // Automatically start with MacBook camera (source 0)
+      handleSourceChange('webcam');
+    } else if (dataMode === 'demo') {
+      hasAutoStartedRef.current = false;
       stopCamera();
+    }
+  }, [dataMode]);
+
+  // Initialize camera stream when source changes
+  useEffect(() => {
+    if (dataMode === 'live' && currentSource.type) {
+      initializeCamera();
     }
 
     return () => {
       stopCamera();
     };
-  }, [dataMode, currentSource]);
+  }, [currentSource]);
 
   // Connect to backend Socket.IO for detections
   useEffect(() => {
     if (dataMode === 'live' && isStreaming) {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
-      console.log('[CameraFeed] Connecting to backend:', backendUrl);
 
       cameraBackendService.connect(backendUrl);
       setBackendConnected(cameraBackendService.getConnectionStatus());
 
       // Start the analytics stream on the backend
-      cameraBackendService.startStream()
-        .then(() => console.log('[CameraFeed] Backend stream started'))
-        .catch(err => console.error('[CameraFeed] Failed to start backend stream:', err));
+      cameraBackendService.startStream().catch(() => {
+        // Silently handle - stream might already be running
+      });
 
       const unsubscribeDetections = cameraBackendService.onDetections((tracks) => {
-        console.log('[CameraFeed] Received detections:', tracks.length);
-        setDetections(tracks);
+        // Only update if data actually changed to prevent unnecessary re-renders
+        setDetections(prev => {
+          if (prev.length !== tracks.length) return tracks;
+          // Check if content is the same
+          const changed = tracks.some((t, i) => 
+            !prev[i] || t.id !== prev[i].id || 
+            t.bbox[0] !== prev[i].bbox[0] || t.bbox[1] !== prev[i].bbox[1]
+          );
+          return changed ? tracks : prev;
+        });
         setBackendConnected(true);
       });
 
-      // Subscribe to analytics for charts
-      const unsubscribeAnalytics = cameraBackendService.onAnalytics((data) => {
-        // Update visitor history for line chart
-        const now = new Date();
-        const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-        setVisitorHistory(prev => {
-          const newHistory = [...prev, { time: timeStr, count: data.current }];
-          return newHistory.slice(-20); // Keep last 20 points
-        });
-
-        // Update demographic data for pie chart
-        setDemographicData([
-          { name: 'Male', value: data.demographics.gender.male },
-          { name: 'Female', value: data.demographics.gender.female },
-          { name: 'Unknown', value: data.demographics.gender.unknown }
-        ]);
-
-        // Update age data for bar chart
-        const ages = data.demographics.ages;
-        setAgeData([
-          { name: '0-17', value: ages['0-17'] || 0 },
-          { name: '18-24', value: ages['18-24'] || 0 },
-          { name: '25-34', value: ages['25-34'] || 0 },
-          { name: '35-44', value: ages['35-44'] || 0 },
-          { name: '45-54', value: ages['45-54'] || 0 },
-          { name: '55-64', value: ages['55-64'] || 0 },
-          { name: '65+', value: ages['65+'] || 0 }
-        ]);
-      });
+      // Store cleanup function
+      cleanupRef.current = () => {
+        unsubscribeDetections();
+      };
 
       return () => {
-        unsubscribeDetections();
-        unsubscribeAnalytics();
-        cameraBackendService.stopStream().catch(console.error);
+        if (cleanupRef.current) {
+          cleanupRef.current();
+          cleanupRef.current = null;
+        }
+        // Only stop stream if not changing sources
+        if (!isChangingSourceRef.current) {
+          cameraBackendService.stopStream().catch(() => {});
+        }
       };
     } else {
       setBackendConnected(false);
@@ -316,6 +315,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
     };
   }, [detections, isStreaming, showZones, zones]);
 
+
   const initializeCamera = async () => {
     setError(null);
 
@@ -324,57 +324,65 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
 
       switch (currentSource.type) {
         case 'webcam':
-          // MacBook built-in camera (default device)
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              facingMode: 'user'
-            },
-            audio: false
-          });
-          break;
-
         case 'iphone':
-          // iPhone camera - enumerate devices and select by label
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const videoDevices = devices.filter(d => d.kind === 'videoinput');
-          console.log('[CameraFeed] Available video devices:', videoDevices);
+          // CRITICAL: In Live mode, backend owns the camera exclusively
+          // Frontend should NOT use getUserMedia to avoid conflicts
+          if (dataMode === 'live') {
+            setIsStreaming(true);
+            // Backend will handle camera access and send frames via MJPEG stream
+            return;
+          }
 
-          // Look for "iPhone" or "Continuity" in label
-          const iphoneDevice = videoDevices.find(d =>
-            d.label.toLowerCase().includes('iphone') ||
-            d.label.toLowerCase().includes('continuity')
-          );
-
-          if (iphoneDevice) {
+          // Demo mode: Use getUserMedia for local preview only
+          if (currentSource.type === 'webcam') {
+            // MacBook built-in camera (default device)
             mediaStream = await navigator.mediaDevices.getUserMedia({
               video: {
-                deviceId: { exact: iphoneDevice.deviceId },
                 width: { ideal: 1920 },
-                height: { ideal: 1080 }
-              },
-              audio: false
-            });
-          } else if (videoDevices.length > 1) {
-            // Fallback to second camera if no label match (legacy behavior)
-            console.warn('[CameraFeed] No iPhone label found, falling back to second device');
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                deviceId: { exact: videoDevices[1].deviceId },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
+                height: { ideal: 1080 },
+                facingMode: 'user'
               },
               audio: false
             });
           } else {
-            throw new Error(
-              'No iPhone or secondary camera found.\n\n' +
-              'For iPhone:\n' +
-              '1. Connect iPhone via USB or Wi-Fi\n' +
-              '2. Enable Continuity Camera on macOS\n' +
-              '3. Or: Open this page in iPhone Safari for native camera'
+            // iPhone camera - enumerate devices and select by label
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+            // Look for "iPhone" or "Continuity" in label
+            const iphoneDevice = videoDevices.find(d =>
+              d.label.toLowerCase().includes('iphone') ||
+              d.label.toLowerCase().includes('continuity')
             );
+
+            if (iphoneDevice) {
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  deviceId: { exact: iphoneDevice.deviceId },
+                  width: { ideal: 1920 },
+                  height: { ideal: 1080 }
+                },
+                audio: false
+              });
+            } else if (videoDevices.length > 1) {
+              // Fallback to second camera if no label match
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  deviceId: { exact: videoDevices[1].deviceId },
+                  width: { ideal: 1920 },
+                  height: { ideal: 1080 }
+                },
+                audio: false
+              });
+            } else {
+              throw new Error(
+                'No iPhone or secondary camera found.\n\n' +
+                'For iPhone:\n' +
+                '1. Connect iPhone via USB or Wi-Fi\n' +
+                '2. Enable Continuity Camera on macOS\n' +
+                '3. Or: Open this page in iPhone Safari for native camera'
+              );
+            }
           }
           break;
 
@@ -394,19 +402,18 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
           }
           throw new Error('Please select an IP camera from settings');
 
-        case 'youtube':
-          // YouTube/Stream URL - backend processes with yt-dlp
-          if (currentSource.url) {
-            setError(
-              `Stream URL requires backend processing.\n\n` +
-              `Run in terminal:\n` +
-              `./scripts/start-camera-backend.sh "${currentSource.url}"\n\n` +
-              `Requirements: brew install yt-dlp`
-            );
+        case 'videolink':
+          // Video Link (YouTube, HLS, RTMP, MP4) - backend processes
+          if (dataMode === 'live') {
+            if (!currentSource.url) {
+              throw new Error('Please enter a video URL');
+            }
+            // Backend will handle video link processing
+            // Frontend just shows MJPEG stream from backend
             setIsStreaming(true);
             return;
           }
-          throw new Error('Please enter a stream URL');
+          throw new Error('Video links require Live mode');
 
         case 'file':
           // Local video file - play in browser
@@ -425,45 +432,6 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
           }
           throw new Error('Please select a video file');
 
-        case 'zoom':
-          // Screen capture for Zoom meetings
-          try {
-            mediaStream = await navigator.mediaDevices.getDisplayMedia({
-              video: {
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-                frameRate: { ideal: 30 }
-              },
-              audio: false
-            });
-
-            // Add track end listener
-            mediaStream.getVideoTracks()[0].addEventListener('ended', () => {
-              console.log('[CameraFeed] Screen sharing stopped by user');
-              stopCamera();
-            });
-
-            setError(
-              'Screen capture: Local preview only.\n\n' +
-              'Browser security prevents sending screen content to backend.\n' +
-              'Detections will only work with webcam/iPhone sources.'
-            );
-          } catch (err: any) {
-            if (err.name === 'NotAllowedError') {
-              throw new Error(
-                'Screen recording permission denied.\n\n' +
-                'Grant permission:\n' +
-                'System Settings → Privacy & Security → Screen Recording\n' +
-                'Enable your browser (Chrome/Safari)\n\n' +
-                'Then reload this page and try again.'
-              );
-            } else if (err.name === 'NotFoundError') {
-              throw new Error('No screen/window selected. Please try again.');
-            } else {
-              throw err;
-            }
-          }
-          break;
       }
 
       if (mediaStream && videoRef.current) {
@@ -471,60 +439,75 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
         await videoRef.current.play();
         setStream(mediaStream);
         setIsStreaming(true);
-
-        // Auto-start Python backend when camera starts
-        if (dataMode === 'live') {
-          let backendSource: number | string = 0;
-          switch (currentSource.type) {
-            case 'webcam':
-              backendSource = 0;
-              break;
-            case 'iphone':
-              backendSource = 1;
-              break;
-            case 'ip':
-              if (currentSource.ipCameraId) {
-                const camera = ipCameras.find(cam => cam.id === currentSource.ipCameraId);
-                if (camera) backendSource = camera.url;
-              }
-              break;
-            case 'youtube':
-              if (currentSource.url) backendSource = currentSource.url;
-              break;
-          }
-          await startPythonBackend(backendSource);
-        }
       }
-    } catch (err: any) {
-      console.error('[CameraFeed] Initialization error:', err);
-      setError(err.message || 'Failed to access camera');
+    } catch (err: unknown) {
+      const error = err as Error;
+      setError(error.message || 'Failed to access camera');
       setIsStreaming(false);
     }
   };
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
+    // Stop MediaStream tracks
     if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach(track => {
+        track.stop();
+      });
       setStream(null);
     }
+    
+    // Clear video element
     if (videoRef.current) {
       videoRef.current.srcObject = null;
       videoRef.current.src = '';
+      videoRef.current.load(); // Force release of resources
     }
+    
+    // Stop MJPEG stream by clearing src
+    if (mjpegImgRef.current) {
+      mjpegImgRef.current.src = '';
+    }
+    
     setIsStreaming(false);
     setDetections([]);
-  };
+    setBackendConnected(false);
+  }, [stream]);
 
-  const handleSourceChange = async (type: CameraSource, config?: Partial<CameraSourceConfig>) => {
-    // Stop current camera first
-    stopCamera();
-
+  const handleSourceChange = useCallback(async (type: CameraSource, config?: Partial<CameraSourceConfig>) => {
+    // Prevent multiple simultaneous source changes
+    if (isChangingSourceRef.current) {
+      return;
+    }
+    isChangingSourceRef.current = true;
+    
     setShowSourceSelect(false);
     setShowAdvancedSettings(false);
+    setError(null);
 
-    // Start Python backend automatically in live mode
-    if (dataMode === 'live') {
-      try {
+    try {
+      // 1. Cleanup existing subscriptions
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
+
+      // 2. Stop current frontend camera and streams
+      stopCamera();
+
+      // 3. Stop backend stream if active (to release camera hardware)
+      if (dataMode === 'live') {
+        try {
+          await cameraBackendService.stopStream();
+        } catch {
+          // Expected on first run or if already stopped
+        }
+        
+        // Give hardware time to release (500ms is safer for camera hardware)
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // 4. Start new backend stream with selected source
+      if (dataMode === 'live') {
         let backendSource: number | string = 0;
 
         // Map frontend source type to backend source
@@ -543,36 +526,46 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
               }
             }
             break;
-          case 'youtube':
+          case 'videolink':
             if (config?.url) {
               backendSource = config.url;
             }
             break;
-          // For 'file' and 'zoom', backend doesn't process them
+          // For 'file', backend doesn't process it (browser handles local playback)
         }
 
-        // Automatically start Python backend with the selected source
+        // Start Python backend with the selected source
         await startPythonBackend(backendSource);
 
-        console.log('[CameraFeed] Changing backend source to:', backendSource);
+        // Ensure backend connection is established
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+        cameraBackendService.connect(backendUrl);
 
-        // Wait for backend to switch source before updating frontend
-        await cameraBackendService.changeSource(backendSource);
-        console.log('[CameraFeed] Backend source changed successfully');
+        // Change source on backend - with timeout
+        const changeSourcePromise = cameraBackendService.changeSource(backendSource);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Source change timeout')), 10000)
+        );
+        
+        await Promise.race([changeSourcePromise, timeoutPromise]);
 
-        // Small delay to ensure backend has fully switched
+        // Start the stream
+        await cameraBackendService.startStream();
+
+        // Wait for stream to initialize
         await new Promise(resolve => setTimeout(resolve, 500));
-
-      } catch (err) {
-        console.error('[CameraFeed] Failed to change backend source:', err);
-        setError(`Failed to switch backend to ${type} camera: ${err}`);
-        return;
       }
-    }
 
-    // Update frontend source AFTER backend has switched
-    setCurrentSource({ type, ...config });
-  };
+      // 5. Update frontend source state AFTER backend has switched
+      setCurrentSource({ type, ...config });
+      
+    } catch (err) {
+      console.error('[CameraFeed] Source change failed:', err);
+      setError(`Failed to switch to ${type}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      isChangingSourceRef.current = false;
+    }
+  }, [dataMode, ipCameras, stopCamera]);
 
   const handleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -582,9 +575,9 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
     }
   };
 
-  const handleStreamUrlConnect = () => {
-    if (streamUrl.trim()) {
-      handleSourceChange('youtube', { url: streamUrl });
+  const handleVideoLinkConnect = () => {
+    if (videoLinkUrl.trim()) {
+      handleSourceChange('videolink', { url: videoLinkUrl });
     }
   };
 
@@ -626,9 +619,8 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
         const camera = ipCameras.find(cam => cam.id === currentSource.ipCameraId);
         return camera ? camera.name : 'IP Camera';
       }
-      case 'youtube': return 'Stream URL';
+      case 'videolink': return 'Video Link';
       case 'file': return currentSource.file ? currentSource.file.name : 'Video File';
-      case 'zoom': return 'Screen Capture';
       default: return 'Camera';
     }
   };
@@ -668,6 +660,52 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
           </div>
         </div>
         <div className="flex items-center space-x-2">
+          {/* AI Insights Toggle - Controls backend overlay visibility */}
+          {dataMode === 'live' && (
+            <>
+              <button
+                onClick={() => {
+                  const newState = !showInsights;
+                  setShowInsights(newState);
+                  // Send toggle to backend to show/hide overlay on video stream
+                  cameraBackendService.toggleOverlay(newState).catch(() => {
+                    // Silently handle - backend might not support this yet
+                  });
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
+                  showInsights
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
+                    : 'bg-white/10 text-gray-400 hover:bg-white/20'
+                }`}
+                title={showInsights ? 'AI Insights: ON (click to hide)' : 'AI Insights: OFF (click to show)'}
+              >
+                <Eye className={`w-3.5 h-3.5 ${showInsights ? '' : 'opacity-50'}`} />
+                <span>{showInsights ? 'AI Insights' : 'AI Insights'}</span>
+                {showInsights && <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">ON</span>}
+              </button>
+
+              {/* Heatmap Toggle - Separate control from AI Insights */}
+              <button
+                onClick={() => {
+                  const newState = !showHeatmap;
+                  setShowHeatmap(newState);
+                  // Send toggle to backend for heatmap visibility
+                  cameraBackendService.toggleHeatmap(newState).catch(() => {
+                    // Silently handle errors
+                  });
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
+                  showHeatmap
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                }`}
+                title={showHeatmap ? 'Hide Heatmap' : 'Show Heatmap'}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                <span>Heatmap</span>
+              </button>
+            </>
+          )}
           {dataMode === 'live' && (
             <button
               onClick={() => setShowSourceSelect(!showSourceSelect)}
@@ -714,7 +752,7 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
+          <div className="grid grid-cols-2 gap-2 mb-3">
             <button
               onClick={() => handleSourceChange('webcam')}
               className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'webcam'
@@ -733,44 +771,35 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
             >
               iPhone
             </button>
-            <button
-              onClick={() => handleSourceChange('zoom')}
-              className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'zoom'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
-                }`}
-            >
-              Screen Capture
-            </button>
+          </div>
+
+          {/* Video Link Input (YouTube, HLS, RTMP, MP4) */}
+          <div className="mt-3">
+            <label className="text-xs text-gray-300 mb-1 block">
+              <LinkIcon className="w-3 h-3 inline mr-1" />
+              Video Link (YouTube, HLS, RTMP, MP4)
+            </label>
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                value={videoLinkUrl}
+                onChange={(e) => setVideoLinkUrl(e.target.value)}
+                placeholder="https://youtube.com/watch?v=... or .m3u8/.mp4 URL"
+                className="flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                onClick={handleVideoLinkConnect}
+                disabled={!videoLinkUrl.trim()}
+                className="px-4 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Connect
+              </button>
+            </div>
           </div>
 
           {/* Advanced Settings */}
           {showAdvancedSettings && (
             <div className="space-y-3 border-t border-gray-700 pt-3">
-              {/* Stream URL Input */}
-              <div>
-                <label className="text-xs text-gray-300 mb-1 block">
-                  <LinkIcon className="w-3 h-3 inline mr-1" />
-                  Stream URL (YouTube, RTSP, HLS)
-                </label>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={streamUrl}
-                    onChange={(e) => setStreamUrl(e.target.value)}
-                    placeholder="https://youtube.com/... or rtsp://..."
-                    className="flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                  <button
-                    onClick={handleStreamUrlConnect}
-                    disabled={!streamUrl.trim()}
-                    className="px-4 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Connect
-                  </button>
-                </div>
-              </div>
-
               {/* File Upload */}
               <div>
                 <label className="text-xs text-gray-300 mb-1 block">
@@ -874,209 +903,123 @@ export default function CameraFeed({ showHeatmap = false }: CameraFeedProps) {
         </div>
       )}
 
-      {/* Video Feed */}
-      <div className="relative bg-gray-900 aspect-video">
-        {dataMode === 'demo' ? (
-          // Demo mode - placeholder
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
-              <div className="text-center">
-                <CameraIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-400 font-medium">Demo Mode Active</p>
-                <p className="text-gray-500 text-sm mt-1">Switch to Live mode to see camera feed</p>
-                <p className="text-gray-600 text-xs mt-2">Charts below show demo data</p>
+      {/* Video Feed - Container maintains proper aspect ratio */}
+      <div 
+        className="relative bg-gray-900" 
+        style={{ aspectRatio: `${videoDimensions.width}/${videoDimensions.height}` }}
+      >
+        <div className="absolute inset-0">
+          {dataMode === 'demo' ? (
+            // Demo mode - placeholder
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
+                <div className="text-center">
+                  <CameraIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                  <p className="text-gray-400 font-medium">Demo Mode Active</p>
+                  <p className="text-gray-500 text-sm mt-1">Switch to Live mode to see camera feed</p>
+                  <p className="text-gray-600 text-xs mt-2">Charts below show demo data</p>
+                </div>
               </div>
             </div>
-          </div>
-        ) : error ? (
-          // Error state
-          <div className="absolute inset-0 flex items-center justify-center p-6">
-            <div className="text-center max-w-md">
-              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-              <p className="text-red-400 font-medium mb-2">Camera Error</p>
-              <pre className="text-gray-300 text-xs whitespace-pre-wrap text-left bg-gray-800 rounded p-3 mb-4">
-                {error}
-              </pre>
-              <button
-                onClick={initializeCamera}
-                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
-        ) : !isStreaming ? (
-          // Not streaming - waiting
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-              <p className="text-gray-400 font-medium">Connecting to camera...</p>
-              <p className="text-gray-500 text-sm mt-1">Please allow camera permissions</p>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Video element */}
-        <video
-          ref={videoRef}
-          className={`w-full h-full object-cover ${dataMode === 'demo' || error ? 'hidden' : ''}`}
-          autoPlay
-          playsInline
-          muted
-        />
-
-        {/* Canvas overlay for detections */}
-        {dataMode === 'live' && isStreaming && !error && (
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full pointer-events-none"
-          />
-        )}
-
-        {/* Heatmap overlay */}
-        {showHeatmap && dataMode === 'live' && isStreaming && (
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="w-full h-full" style={{
-              background: `radial-gradient(circle at 30% 40%, rgba(239, 68, 68, 0.4) 0%, transparent 30%),
-                          radial-gradient(circle at 70% 50%, rgba(249, 115, 22, 0.3) 0%, transparent 25%),
-                          radial-gradient(circle at 50% 70%, rgba(234, 179, 8, 0.25) 0%, transparent 20%)`
-            }}></div>
-          </div>
-        )}
-
-        {/* Chart Control Buttons */}
-        {dataMode === 'live' && isStreaming && backendConnected && (
-          <div className="absolute top-1/2 right-4 transform -translate-y-1/2 flex flex-col gap-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setExpandedChart(expandedChart === 'demographics' ? null : 'demographics');
-              }}
-              className={`p-3 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-all ${expandedChart === 'demographics' ? 'bg-blue-600 shadow-lg' : 'bg-black/60'
-                }`}
-              title="Demographics"
-            >
-              <BarChart3 className="w-5 h-5 text-white" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setExpandedChart(expandedChart === 'age' ? null : 'age');
-              }}
-              className={`p-3 backdrop-blur-sm rounded-lg hover:bg-black/80 transition-all ${expandedChart === 'age' ? 'bg-blue-600 shadow-lg' : 'bg-black/60'
-                }`}
-              title="Age Distribution"
-            >
-              <LineChartIcon className="w-5 h-5 text-white" />
-            </button>
-          </div>
-        )}
-
-        {/* Age Distribution Chart Overlay */}
-        {expandedChart === 'age' && ageData.some(d => d.value > 0) && (
-          <GlassCard
-            variant="dark"
-            intensity="high"
-            className="absolute right-20 top-1/2 transform -translate-y-1/2 w-96 p-4 animate-fade-in z-50"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-white font-bold mb-3 flex items-center gap-2">
-              <LineChartIcon className="w-5 h-5" />
-              Age Distribution
-            </h3>
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={ageData}
-                  margin={{ top: 5, right: 5, left: -20, bottom: 5 }}
+          ) : error ? (
+            // Error state
+            <div className="w-full h-full flex items-center justify-center p-6">
+              <div className="text-center max-w-md">
+                <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                <p className="text-red-400 font-medium mb-2">Camera Error</p>
+                <pre className="text-gray-300 text-xs whitespace-pre-wrap text-left bg-gray-800 rounded p-3 mb-4">
+                  {error}
+                </pre>
+                <button
+                  onClick={initializeCamera}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                  <XAxis
-                    dataKey="name"
-                    stroke="rgba(255,255,255,0.8)"
-                    tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 10 }}
-                  />
-                  <YAxis
-                    stroke="rgba(255,255,255,0.8)"
-                    tick={{ fill: 'rgba(255,255,255,0.8)', fontSize: 10 }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'rgba(0,0,0,0.9)',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      borderRadius: '8px',
-                      color: '#fff'
-                    }}
-                    cursor={{ fill: 'rgba(255,255,255,0.1)' }}
-                  />
-                  <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+                  Retry
+                </button>
+              </div>
             </div>
-          </GlassCard>
-        )}
-
-        {/* Demographics Chart Overlay */}
-        {expandedChart === 'demographics' && demographicData.some(d => d.value > 0) && (
-          <GlassCard
-            variant="dark"
-            intensity="high"
-            className="absolute right-20 top-1/2 transform -translate-y-1/2 w-96 p-4 animate-fade-in z-50"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-white font-bold mb-3 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5" />
-              Gender Distribution
-            </h3>
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={demographicData.filter(d => d.value > 0)}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
-                    outerRadius={70}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {demographicData.map((_, index) => {
-                      const colors = ['#3b82f6', '#ec4899', '#8b5cf6'];
-                      return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
-                    })}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'rgba(0,0,0,0.9)',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      borderRadius: '8px',
-                      color: '#fff'
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+          ) : !isStreaming ? (
+            // Not streaming - waiting
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p className="text-gray-400 font-medium">Connecting to camera...</p>
+                <p className="text-gray-500 text-sm mt-1">Please allow camera permissions</p>
+              </div>
             </div>
-          </GlassCard>
-        )}
+          ) : null}
 
-        {/* Timestamp & Stats Overlay */}
-        <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
-          <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-xs font-mono">
-            {new Date().toLocaleTimeString()}
+          {/* MJPEG stream from backend (Live mode - 30 FPS, low latency) */}
+          {dataMode === 'live' && isStreaming && !error && !stream && (
+            <img
+              ref={mjpegImgRef}
+              src={`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg`}
+              alt="Camera stream"
+              className="w-full h-full object-contain bg-black"
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                if (img.naturalWidth && img.naturalHeight) {
+                  setVideoDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+                }
+              }}
+              onError={() => {
+                setError('MJPEG stream connection failed.\n\nMake sure Python backend is running:\npython -m camera_analytics.run_with_websocket --source 0');
+              }}
+            />
+          )}
+
+          {/* Video element (Demo mode or when using browser camera directly) */}
+          <video
+            ref={videoRef}
+            className={`w-full h-full object-contain bg-black ${dataMode === 'demo' || error ? 'hidden' : ''}`}
+            autoPlay
+            playsInline
+            muted
+            onLoadedMetadata={(e) => {
+              const video = e.currentTarget;
+              if (video.videoWidth && video.videoHeight) {
+                setVideoDimensions({ width: video.videoWidth, height: video.videoHeight });
+              }
+            }}
+          />
+
+          {/* Canvas overlay for detections */}
+          {dataMode === 'live' && isStreaming && !error && (
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+            />
+          )}
+
+          {/* Heatmap overlay */}
+          {showHeatmap && dataMode === 'live' && isStreaming && (
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="w-full h-full" style={{
+                background: `radial-gradient(circle at 30% 40%, rgba(239, 68, 68, 0.4) 0%, transparent 30%),
+                            radial-gradient(circle at 70% 50%, rgba(249, 115, 22, 0.3) 0%, transparent 25%),
+                            radial-gradient(circle at 50% 70%, rgba(234, 179, 8, 0.25) 0%, transparent 20%)`
+              }}></div>
+            </div>
+          )}
+
+          {/* Timestamp & Stats Overlay */}
+          <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
+            <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-xs font-mono">
+              {new Date().toLocaleTimeString()}
+            </div>
+            {showHeatmap && dataMode === 'live' && (
+              <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
+                <p className="text-xs text-white font-semibold">Heatmap Overlay Active</p>
+              </div>
+            )}
+            {dataMode === 'live' && detections.length > 0 && (
+              <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
+                <p className="text-xs text-white font-semibold">
+                  {detections.length} detected
+                </p>
+              </div>
+            )}
           </div>
-          {showHeatmap && dataMode === 'live' && (
-            <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
-              <p className="text-xs text-white font-semibold">Heatmap Overlay Active</p>
-            </div>
-          )}
-          {dataMode === 'live' && detections.length > 0 && (
-            <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
-              <p className="text-xs text-white font-semibold">
-                {detections.length} detected
-              </p>
-            </div>
-          )}
         </div>
       </div>
 

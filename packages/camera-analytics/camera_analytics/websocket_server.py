@@ -64,7 +64,10 @@ class AnalyticsWebSocketServer:
         self.on_start_stream = None
         self.on_stop_stream = None
         self.on_snapshot = None
+        self.on_get_frame = None  # For MJPEG streaming (direct frame access)
         self.on_change_source = None
+        self.on_toggle_overlay = None  # Toggle AI Insights (stats + demographics)
+        self.on_toggle_heatmap = None  # Toggle heatmap (separate control)
 
         # Setup event handlers
         self._setup_handlers()
@@ -85,6 +88,70 @@ class AnalyticsWebSocketServer:
                 logger.info("Client reconnected, cancelled analytics shutdown timer")
 
             await self.sio.emit("connection", {"status": "connected"}, room=sid)
+
+        # MJPEG stream HTTP handler (non-Socket.IO route)
+        async def mjpeg_handler(request):
+            """MJPEG stream endpoint for browser video display (30 FPS)"""
+            logger.info("MJPEG stream requested")
+
+            response = web.StreamResponse(
+                status=200,
+                headers={
+                    'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                    'Connection': 'keep-alive',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            )
+            await response.prepare(request)
+
+            try:
+                import cv2
+
+                while True:
+                    # Get latest frame from analytics engine (direct access, thread-safe)
+                    frame = None
+                    if self.on_get_frame:
+                        frame = await asyncio.to_thread(self.on_get_frame)
+
+                    if frame is not None:
+                        # Encode frame to JPEG (quality 92 for high quality video)
+                        _, jpeg_buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+                        jpeg_bytes = jpeg_buffer.tobytes()
+
+                        # Write MJPEG frame
+                        try:
+                            await response.write(
+                                b'--frame\r\n'
+                                b'Content-Type: image/jpeg\r\n'
+                                b'Content-Length: ' + str(len(jpeg_bytes)).encode() + b'\r\n\r\n'
+                                + jpeg_bytes + b'\r\n'
+                            )
+                        except (ConnectionResetError, BrokenPipeError):
+                            # Client disconnected, exit gracefully
+                            logger.info("MJPEG client disconnected")
+                            break
+
+                    # ~30 FPS (33ms delay)
+                    await asyncio.sleep(0.033)
+            except asyncio.CancelledError:
+                logger.info("MJPEG stream cancelled")
+            except Exception as e:
+                logger.error(f"MJPEG stream error: {e}")
+            finally:
+                # Only write EOF if transport is still open
+                try:
+                    if not response._payload_writer.transport.is_closing():
+                        await response.write_eof()
+                except Exception:
+                    pass  # Silently ignore - connection already closed
+
+            return response
+
+        # Register MJPEG HTTP route
+        self.app.router.add_get('/mjpeg', mjpeg_handler)
 
         @self.sio.event
         async def disconnect(sid):
@@ -173,6 +240,34 @@ class AnalyticsWebSocketServer:
                     await self.sio.emit("source_changed", {"status": "error", "message": "Failed to change source"}, room=sid)
             else:
                 await self.sio.emit("source_changed", {"status": "error", "message": "Source change not supported"}, room=sid)
+
+        @self.sio.event
+        async def toggle_overlay(sid, data):
+            """Handle AI Insights overlay toggle request (stats + demographics)"""
+            visible = data.get("visible", True)
+            logger.info(f"AI Insights toggle requested by {sid}: visible={visible}")
+            if self.on_toggle_overlay:
+                success = await self.on_toggle_overlay(visible)
+                if success:
+                    await self.sio.emit("overlay_toggled", {"status": "success", "visible": visible}, room=sid)
+                else:
+                    await self.sio.emit("overlay_toggled", {"status": "error", "message": "Failed to toggle AI Insights"}, room=sid)
+            else:
+                await self.sio.emit("overlay_toggled", {"status": "error", "message": "AI Insights toggle not supported"}, room=sid)
+
+        @self.sio.event
+        async def toggle_heatmap(sid, data):
+            """Handle heatmap visibility toggle request (separate from AI Insights)"""
+            visible = data.get("visible", False)
+            logger.info(f"Heatmap toggle requested by {sid}: visible={visible}")
+            if self.on_toggle_heatmap:
+                success = await self.on_toggle_heatmap(visible)
+                if success:
+                    await self.sio.emit("heatmap_toggled", {"status": "success", "visible": visible}, room=sid)
+                else:
+                    await self.sio.emit("heatmap_toggled", {"status": "error", "message": "Failed to toggle heatmap"}, room=sid)
+            else:
+                await self.sio.emit("heatmap_toggled", {"status": "error", "message": "Heatmap toggle not supported"}, room=sid)
 
     async def broadcast_global_stream(self, data: Dict):
         """Broadcast GlobalStream data to all clients and publish to Kafka"""

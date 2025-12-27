@@ -1,11 +1,11 @@
 import { Clock } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, memo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, DwellTimeMetrics } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { GlassCard } from '../ui/GlassCard';
 
-export default function DwellTimeWidget() {
+const DwellTimeWidget = memo(function DwellTimeWidget() {
   const { dataMode } = useDataMode();
   const [dwellTime, setDwellTime] = useState<DwellTimeMetrics>({
     average: 0,
@@ -26,12 +26,13 @@ export default function DwellTimeWidget() {
 
     loadData();
 
-    analyticsDataService.startRealtimeUpdates((data) => {
+    // Subscribe and get unsubscribe function
+    const unsubscribe = analyticsDataService.startRealtimeUpdates((data) => {
       setDwellTime(data.dwellTime);
     });
 
     return () => {
-      analyticsDataService.stopRealtimeUpdates();
+      unsubscribe();
     };
   }, [dataMode]);
 
@@ -50,6 +51,8 @@ export default function DwellTimeWidget() {
   ].map(v => Number(v.toFixed(1)));
 
   const option = {
+    // Disable animation in Live mode for smoother updates
+    animation: dataMode === 'demo',
     tooltip: {
       trigger: 'axis',
       axisPointer: {
@@ -142,4 +145,6 @@ export default function DwellTimeWidget() {
       )}
     </GlassCard>
   );
-}
+});
+
+export default DwellTimeWidget;

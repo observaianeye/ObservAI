@@ -21,7 +21,7 @@ class CameraAnalyticsWithWebSocket:
         self,
         config_path: Path,
         source: str | int,
-        model_path: str = "yolov8n.pt",
+        model_path: str = "yolo11n.pt",
         display: bool = False,
         ws_host: str = "0.0.0.0",
         ws_port: int = 5000,
@@ -44,7 +44,10 @@ class CameraAnalyticsWithWebSocket:
         self.ws_server.on_start_stream = self.start_analytics
         self.ws_server.on_stop_stream = self.stop_analytics
         self.ws_server.on_snapshot = self.handle_snapshot
+        self.ws_server.on_get_frame = self.get_latest_frame  # For MJPEG streaming
         self.ws_server.on_change_source = self.change_source
+        self.ws_server.on_toggle_overlay = self.toggle_overlay  # AI Insights toggle (stats + demographics)
+        self.ws_server.on_toggle_heatmap = self.toggle_heatmap  # Heatmap toggle (separate control)
 
         self.engine: Optional[CameraAnalyticsEngine] = None
         self.analytics_task: Optional[asyncio.Task] = None
@@ -76,8 +79,18 @@ class CameraAnalyticsWithWebSocket:
         # self.ws_server.stop() # If implemented in future
 
     async def start_analytics(self) -> None:
-        if self.engine and self.engine.running:
-            print("⚠ Analytics already running")
+        # Check if engine exists and is either running or being created
+        if self.engine:
+            if self.engine.running:
+                print("⚠ Analytics already running")
+                return
+            # If engine exists but not running, it's being created - wait a bit
+            print("⚠ Analytics engine initializing, please wait...")
+            return
+
+        # Check if analytics task is already running
+        if self.analytics_task and not self.analytics_task.done():
+            print("⚠ Analytics task already starting")
             return
 
         print("🚀 Starting analytics stream...")
@@ -136,43 +149,104 @@ class CameraAnalyticsWithWebSocket:
         print("✓ Analytics stopped")
 
     async def change_source(self, new_source: int | str) -> bool:
-        """Change camera source and restart analytics"""
+        """Change camera source and restart analytics
+
+        CRITICAL: Ensures proper camera hardware release before switching sources
+        to prevent conflicts when multiple sources try to access the same camera.
+        """
         try:
-            print(f"🔄 Changing source to: {new_source}")
+            # Check if source is already the same - avoid unnecessary restart
+            if self.source == new_source and self.engine and self.engine.running:
+                print(f"ℹ️  Source {new_source} is already active, skipping restart")
+                return True
 
-            # Stop current analytics if running
+            print(f"🔄 ===== CHANGING CAMERA SOURCE =====")
+            print(f"🔄 Current source: {self.source}")
+            print(f"🔄 New source: {new_source}")
+
+            # STEP 1: Stop current analytics if running
             if self.engine and self.engine.running:
+                print("🔄 Step 1: Stopping current analytics engine...")
                 await self.stop_analytics()
+                print("✓ Analytics engine stopped")
 
-            # Update source
+            # STEP 2: Wait for camera hardware to fully release
+            # This is CRITICAL to prevent "camera already in use" errors on macOS
+            print("🔄 Step 2: Waiting for camera hardware to release (5 seconds)...")
+            await asyncio.sleep(5.0)  # Increased for macOS AVFoundation reliability
+            print("✓ Camera hardware released")
+
+            # STEP 3: Update source
+            print(f"🔄 Step 3: Updating source to: {new_source}")
             self.source = new_source
 
-            # Restart analytics with new source
+            # STEP 4: Start analytics with new source
+            print("🔄 Step 4: Starting analytics with new source...")
             await self.start_analytics()
+            print("✓ Analytics started with new source")
 
-            print(f"✓ Source changed to: {new_source}")
+            print(f"✓ ===== SOURCE CHANGED SUCCESSFULLY TO: {new_source} =====")
             return True
         except Exception as e:
-            print(f"❌ Failed to change source: {e}")
+            print(f"❌ ===== FAILED TO CHANGE SOURCE =====")
+            print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
-    async def handle_snapshot(self) -> Optional[str]:
-        """Handle snapshot request from client"""
-        print("📸 Snapshot requested...")
-        
-        # If engine is running, we can't easily grab a frame from it asynchronously without thread safety issues
-        # or modifying the engine to store the last frame.
-        # However, if we open a NEW capture while the engine is running on the SAME device (webcam), it will likely fail.
-        
-        # Ideally, the engine should expose a 'get_latest_frame' method if it's running.
-        # But for now, let's assume we can just create a temporary engine if not running.
-        
+    async def toggle_overlay(self, visible: bool) -> bool:
+        """Toggle AI Insights overlay (stats + demographics only, NOT heatmap)
+
+        Controls the LIVE ANALYTICS and DEMOGRAPHICS panels, but NOT the heatmap.
+        Heatmap has separate control via toggle_heatmap().
+        """
+        try:
+            if self.engine:
+                # Update persistent preferences (not ephemeral state)
+                self.engine._user_overlay_prefs['stats_visible'] = visible
+                self.engine._user_overlay_prefs['demographics_visible'] = visible
+                # Do NOT touch heatmap - it has separate control
+                print(f"✓ AI Insights visibility set to: {visible}")
+                return True
+            else:
+                print("⚠ No active engine to toggle overlay")
+                return False
+        except Exception as e:
+            print(f"❌ Failed to toggle overlay: {e}")
+            return False
+
+    async def toggle_heatmap(self, visible: bool) -> bool:
+        """Toggle heatmap visibility (separate from AI Insights)
+
+        Controls only the heatmap overlay, independent from stats/demographics.
+        """
+        try:
+            if self.engine:
+                self.engine._user_overlay_prefs['heatmap_visible'] = visible
+                print(f"✓ Heatmap visibility set to: {visible}")
+                return True
+            else:
+                print("⚠ No active engine to toggle heatmap")
+                return False
+        except Exception as e:
+            print(f"❌ Failed to toggle heatmap: {e}")
+            return False
+
+    def get_latest_frame(self) -> Optional['np.ndarray']:
+        """Get latest frame from analytics engine (thread-safe, for MJPEG streaming)"""
         if self.engine and self.engine.running:
-            # TODO: Implement thread-safe way to get frame from running engine
-            # For now, we'll try to open a new capture, but expect it might fail on webcams
-            print("⚠ Engine is running, attempting to capture from source (might conflict)...")
+            return self.engine.get_latest_frame_safe()
+        return None
+
+    async def handle_snapshot(self) -> Optional[str]:
+        """Handle snapshot request from client (returns base64-encoded JPEG)"""
+        print("📸 Snapshot requested...")
+
+        if self.engine and self.engine.running:
+            # Use thread-safe snapshot method
+            print("⚠ Engine is running, using cached frame...")
             return await asyncio.to_thread(self.engine.get_snapshot)
-            
+
         # Create a temporary engine just for the snapshot
         print("   Creating temporary engine for snapshot...")
         try:
@@ -216,8 +290,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        default="yolov8n.pt",
-        help="YOLO model checkpoint (default: yolov8n.pt)",
+        default="yolo11n.pt",
+        help="YOLO model checkpoint (default: yolo11n.pt)",
     )
     parser.add_argument(
         "--display",
@@ -227,7 +301,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--ws-host", type=str, default="0.0.0.0", help="WebSocket host"
     )
-    parser.add_argument("--ws-port", type=int, default=5000, help="WebSocket port")
+    parser.add_argument("--ws-port", type=int, default=5001, help="WebSocket port")
     return parser.parse_args()
 
 

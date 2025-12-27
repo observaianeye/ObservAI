@@ -111,11 +111,8 @@ class CameraBackendService {
 
   connect(url: string = 'http://localhost:5001'): void {
     if (this.socket?.connected) {
-      console.log('[CameraBackend] Already connected');
       return;
     }
-
-    console.log(`[CameraBackend] Connecting to ${url}...`);
 
     this.socket = io(url, {
       transports: ['websocket', 'polling'],
@@ -125,25 +122,22 @@ class CameraBackendService {
     });
 
     this.socket.on('connect', () => {
-      console.log('[CameraBackend] Connected to backend');
       this.isConnected = true;
       this.reconnectAttempts = 0;
       this.updateConnectionStatus('connected');
     });
 
     this.socket.on('disconnect', () => {
-      console.log('[CameraBackend] Disconnected from backend');
       this.isConnected = false;
       this.updateConnectionStatus('disconnected');
     });
 
     this.socket.on('reconnect_attempt', () => {
-      console.log(`[CameraBackend] Reconnecting... (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
       this.updateConnectionStatus('reconnecting', this.reconnectAttempts + 1);
     });
 
-    this.socket.on('connection', (data: any) => {
-      console.log('[CameraBackend] Connection confirmed:', data);
+    this.socket.on('connection', () => {
+      // Connection confirmed - no action needed
     });
 
     // Listen for analytics data (global stream)
@@ -164,13 +158,11 @@ class CameraBackendService {
       this.zoneInsightsCallbacks.forEach(callback => callback(insights));
     });
 
-    this.socket.on('connect_error', (error: Error) => {
-      console.error('[CameraBackend] Connection error:', error.message);
+    this.socket.on('connect_error', () => {
       this.reconnectAttempts++;
       this.updateConnectionStatus('reconnecting', this.reconnectAttempts);
 
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.error('[CameraBackend] Max reconnect attempts reached');
         this.updateConnectionStatus('failed');
       }
     });
@@ -178,7 +170,6 @@ class CameraBackendService {
 
   disconnect(): void {
     if (this.socket) {
-      console.log('[CameraBackend] Disconnecting...');
       this.socket.disconnect();
       this.socket = null;
       this.isConnected = false;
@@ -352,12 +343,10 @@ class CameraBackendService {
         return;
       }
 
-      console.log('[CameraBackend] Changing source to:', source);
       this.socket.emit('change_source', { source });
 
       this.socket.once('source_changed', (response: any) => {
         if (response?.status === 'success') {
-          console.log('[CameraBackend] Source changed successfully to:', response.source);
           resolve();
         } else {
           reject(new Error(response?.message || 'Failed to change source'));
@@ -367,6 +356,52 @@ class CameraBackendService {
       setTimeout(() => {
         reject(new Error('Timeout waiting for source change'));
       }, 30000);
+    });
+  }
+
+  toggleOverlay(visible: boolean): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        reject(new Error('Not connected to backend'));
+        return;
+      }
+
+      this.socket.emit('toggle_overlay', { visible });
+
+      this.socket.once('overlay_toggled', (response: { status: string; message?: string }) => {
+        if (response?.status === 'success') {
+          resolve();
+        } else {
+          reject(new Error(response?.message || 'Failed to toggle overlay'));
+        }
+      });
+
+      setTimeout(() => {
+        reject(new Error('Timeout waiting for overlay toggle'));
+      }, 5000);
+    });
+  }
+
+  toggleHeatmap(visible: boolean): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket) {
+        reject(new Error('Not connected to backend'));
+        return;
+      }
+
+      this.socket.emit('toggle_heatmap', { visible });
+
+      this.socket.once('heatmap_toggled', (response: { status: string; message?: string }) => {
+        if (response?.status === 'success') {
+          resolve();
+        } else {
+          reject(new Error(response?.message || 'Failed to toggle heatmap'));
+        }
+      });
+
+      setTimeout(() => {
+        reject(new Error('Timeout waiting for heatmap toggle'));
+      }, 5000);
     });
   }
 

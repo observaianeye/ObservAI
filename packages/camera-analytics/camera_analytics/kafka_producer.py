@@ -6,8 +6,17 @@ Publishes analytics events to Kafka topics for scalable message processing
 import json
 import logging
 from typing import Dict, Any, Optional
-from confluent_kafka import Producer
-from confluent_kafka.admin import AdminClient, NewTopic
+
+# Kafka is optional - gracefully handle if not installed
+try:
+    from confluent_kafka import Producer
+    from confluent_kafka.admin import AdminClient, NewTopic
+    KAFKA_AVAILABLE = True
+except ImportError:
+    Producer = None
+    AdminClient = None
+    NewTopic = None
+    KAFKA_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +43,14 @@ class AnalyticsKafkaProducer:
             bootstrap_servers: Comma-separated list of Kafka broker addresses
             enabled: Whether Kafka publishing is enabled
         """
-        self.enabled = enabled
+        self.enabled = enabled and KAFKA_AVAILABLE
         self.bootstrap_servers = bootstrap_servers
         self.producer: Optional[Producer] = None
+
+        if not KAFKA_AVAILABLE and enabled:
+            logger.warning("⚠️ Kafka library not installed (pip install confluent-kafka)")
+            logger.warning("   Analytics will continue without Kafka")
+            self.enabled = False
 
         if self.enabled:
             try:

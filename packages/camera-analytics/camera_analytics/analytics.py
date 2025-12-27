@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+import warnings
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -11,6 +12,9 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import cv2
 import numpy as np
+
+# Suppress FutureWarning from InsightFace (deprecated scikit-image estimate function)
+warnings.filterwarnings('ignore', category=FutureWarning, module='insightface')
 
 try:
   from insightface.app import FaceAnalysis
@@ -132,7 +136,7 @@ class CameraAnalyticsEngine:
     config: AnalyticsConfig,
     source: str | int,
     output_path: Path,
-    model_path: str = "yolo12n.pt",
+    model_path: str = "yolo11n.pt",
     sample_interval: float = 1.0,
     display: bool = False,
     show_zones: bool = False,
@@ -161,6 +165,21 @@ class CameraAnalyticsEngine:
     import secrets
     self.session_salt = secrets.token_hex(16)
     print("[INFO] Anonymous Re-ID enabled: Using non-biometric tracking (privacy-preserving)")
+
+    # Thread-safe frame cache for MJPEG streaming
+    import threading
+    self._frame_lock = threading.Lock()
+    self._latest_frame = None
+
+    # Persistent overlay preferences (survive metric cycles)
+    self._user_overlay_prefs = {
+        'stats_visible': True,
+        'demographics_visible': True,
+        'heatmap_visible': False
+    }
+
+    # Video capture tracking for explicit cleanup
+    self._video_capture = None
 
     # Hardware-specific optimization (MPS for M3 Pro, TensorRT for RTX, ONNX for CPU)
     print("[INFO] Initializing hardware-optimized YOLOv12n...")
@@ -197,7 +216,12 @@ class CameraAnalyticsEngine:
       pass
 
     # Frame skipping for face analysis (async processing)
-    self.face_detection_interval = 10
+    # Increase interval for network streams to reduce processing load
+    if isinstance(source, str) and source.startswith(('http', 'rtsp', 'rtmp')):
+      self.face_detection_interval = 20  # Less frequent for network streams
+    else:
+      self.face_detection_interval = 10  # Normal interval for local cameras
+
     self.frame_count = 0
     self.demographics_executor = ThreadPoolExecutor(
       max_workers=1, thread_name_prefix="demographics"
@@ -255,11 +279,15 @@ class CameraAnalyticsEngine:
     self.zone_insight_threshold = 600.0  # 10 minutes in seconds
 
     # Performance metrics
-    self.fps = 0.0
-    self.fps_counter = 0
     self.fps_start_time = time.time()
+    self.fps_counter = 0
+    self.fps = 0.0
     self.running = False
-    self.latest_frame = None  # Cache for snapshots
+    
+    # Initialize Glass Visualization Overlay
+    from .overlay_viz import GlassOverlay
+    # Assuming standard HD frame for init, will resize if needed or handle in render
+    self.overlay = GlassOverlay(1280, 720) 
 
   def stop(self) -> None:
     """Stop the analytics engine"""
@@ -269,32 +297,43 @@ class CameraAnalyticsEngine:
       self.demographics_executor.shutdown(wait=False)
       print("[INFO] Demographics executor shut down")
 
+  def get_latest_frame_safe(self) -> Optional[np.ndarray]:
+    """Thread-safe access to latest frame for MJPEG streaming"""
+    with self._frame_lock:
+      return self._latest_frame.copy() if self._latest_frame is not None else None
+
   def get_snapshot(self) -> Optional[str]:
-    """Capture a single frame and return as base64 string"""
+    """Capture a single frame and return as base64 string (thread-safe)"""
     import base64
-    
+
     frame = None
-    
-    # If running, try to use cached frame first
-    if self.running and self.latest_frame is not None:
-        frame = self.latest_frame.copy()
-    
-    # If no cached frame (or not running), try to capture fresh
-    if frame is None:
+
+    # CRITICAL FIX: If engine is running, ALWAYS use the cached frame.
+    # NEVER try to open the source again, as it will cause a hardware conflict
+    # and massive FPS drops/lag on the capture device.
+    if self.running:
+        frame = self.get_latest_frame_safe()
+        # If running but no frame yet, return None or wait (returning None is safer)
+        if frame is None:
+            return None
+
+    # If NOT running, we can safely open the source momentarily
+    else:
+        # If no cached frame (or not running), try to capture fresh
         cap = cv2.VideoCapture(self.source)
         if not cap.isOpened():
             return None
-            
+
         # Read a few frames to settle auto-exposure
         for _ in range(5):
             cap.grab()
-            
+
         ret, frame = cap.read()
         cap.release()
-        
+
         if not ret:
             return None
-            
+
     # Encode as JPEG
     _, buffer = cv2.imencode('.jpg', frame)
     jpg_as_text = base64.b64encode(buffer).decode('utf-8')
@@ -314,8 +353,74 @@ class CameraAnalyticsEngine:
       self._run_continuous()
 
   def _run_continuous(self) -> None:
+    """Run continuous tracking with explicit camera cleanup"""
+    # Create VideoCapture explicitly for better cleanup control
+    print(f"[INFO] Opening video source: {self.source}")
+
+    # For macOS camera indices, use AVFoundation backend explicitly
+    if isinstance(self.source, int):
+      self._video_capture = cv2.VideoCapture(self.source, cv2.CAP_AVFOUNDATION)
+      print(f"[INFO] Using AVFoundation backend for camera index {self.source}")
+    else:
+      self._video_capture = cv2.VideoCapture(self.source)
+
+    # Set timeouts for network streams to prevent hangs
+    if isinstance(self.source, str) and self.source.startswith(('http', 'rtsp', 'rtmp')):
+      self._video_capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 15000)  # 15s timeout
+      self._video_capture.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 60000)  # 60s read timeout (YouTube can be slow)
+      print(f"[INFO] Network stream timeouts configured (15s open, 60s read)")
+
+    if not self._video_capture.isOpened():
+      print(f"[ERROR] Failed to open video source: {self.source}")
+      print(f"[ERROR] OpenCV backend: {self._video_capture.getBackendName()}")
+
+      # Try to discover available cameras on macOS
+      if isinstance(self.source, int):
+        print("[INFO] Attempting to discover available cameras...")
+        for i in range(5):  # Check indices 0-4
+          test_cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
+          if test_cap.isOpened():
+            ret, frame = test_cap.read()
+            if ret and frame is not None:
+              print(f"[INFO] ✓ Camera found at index {i} (frame shape: {frame.shape})")
+            else:
+              print(f"[INFO] ✗ Camera at index {i} opened but no frames")
+            test_cap.release()
+          else:
+            print(f"[INFO] ✗ No camera at index {i}")
+
+      self._video_capture = None
+      return
+
+    # Verify we can actually read frames
+    print(f"[INFO] VideoCapture opened successfully")
+    print(f"[INFO] Backend: {self._video_capture.getBackendName()}")
+    print(f"[INFO] FPS: {self._video_capture.get(cv2.CAP_PROP_FPS)}")
+    print(f"[INFO] Frame Width: {int(self._video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))}")
+    print(f"[INFO] Frame Height: {int(self._video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+
+    # Test read a frame to ensure camera is actually working
+    ret, test_frame = self._video_capture.read()
+    if not ret or test_frame is None:
+      print(f"[ERROR] Camera opened but cannot read frames!")
+      self._video_capture.release()
+      self._video_capture = None
+      return
+    else:
+      print(f"[INFO] ✓ Successfully read test frame (shape: {test_frame.shape})")
+
+    # Release the test VideoCapture - let YOLO create its own
+    # This is important because YOLO's internal VideoCapture management
+    # works better than passing our own capture object
+    self._video_capture.release()
+    print(f"[INFO] Released test VideoCapture, YOLO will create its own")
+
+    # For macOS cameras, ensure we pass the index with the right backend hint
+    # YOLO will use this to create its own VideoCapture with AVFoundation
+    yolo_source = self.source
+
     results = self.model.track(
-      source=self.source,
+      source=yolo_source,
       stream=True,
       verbose=False,
       classes=[0],
@@ -336,6 +441,11 @@ class CameraAnalyticsEngine:
         if not self._process_result(result):
           break
     finally:
+      # CRITICAL: Explicit camera cleanup for macOS
+      # YOLO manages its own VideoCapture, but we still need to ensure cleanup
+      self._video_capture = None
+      print("[INFO] YOLO tracking stopped, camera released by YOLO")
+
       if self.display:
         cv2.destroyAllWindows()
 
@@ -410,8 +520,6 @@ class CameraAnalyticsEngine:
     if self.privacy_mode:
       frame = self._apply_privacy_blur(frame, frame_w, frame_h)
 
-    self.latest_frame = frame  # Update cache (with blur if enabled)
-
     self.fps_counter += 1
     if timestamp - self.fps_start_time >= 1.0:
       self.fps = self.fps_counter / (timestamp - self.fps_start_time)
@@ -422,12 +530,38 @@ class CameraAnalyticsEngine:
     if self.display:
       annotated = self._draw_overlay(frame.copy(), frame_w, frame_h)
 
-    if timestamp - self.last_metrics_write >= self.sample_interval:
+    # Check if we should update metrics and overlays
+    should_update_metrics = timestamp - self.last_metrics_write >= self.sample_interval
+
+    if should_update_metrics:
       metrics = self._build_metrics()
+
+      # Update overlay with new metrics - respect user preferences
+      self.overlay.state.stats_visible = self._user_overlay_prefs['stats_visible']
+      self.overlay.state.demographics_visible = self._user_overlay_prefs['demographics_visible']
+      self.overlay.state.heatmap_visible = self._user_overlay_prefs['heatmap_visible']
+
+      # Update size if changed
+      if self.overlay.width != frame_w or self.overlay.height != frame_h:
+          self.overlay.width = frame_w
+          self.overlay.height = frame_h
+
+      # Store the latest metrics for rendering
+      self._latest_metrics = metrics.to_dict() if hasattr(metrics, 'to_dict') else metrics.__dict__
+
       self._emit_metrics_stream(metrics, int(timestamp * 1000))
       self._emit_zone_insights(timestamp)
       self._write_metrics(metrics)
       self.last_metrics_write = timestamp
+
+    # ALWAYS render overlay on every frame (using latest metrics)
+    # This ensures toggle changes take effect immediately
+    if hasattr(self, '_latest_metrics'):
+      frame = self.overlay.render(frame, self._latest_metrics)
+
+    # Update cache with overlay (thread-safe) - every frame
+    with self._frame_lock:
+      self._latest_frame = frame
 
     if self.display and annotated is not None:
       cv2.imshow("ObservAI Camera Analytics", annotated)
@@ -971,30 +1105,30 @@ class CameraAnalyticsEngine:
       # Track ID (always show)
       labels.append(f"#{person.track_id}")
 
-      # Gender (with emoji)
-      if person.gender != "unknown":
+      # Gender and Age combined (show both or neither to avoid confusion)
+      if person.gender != "unknown" and person.age:
+        # Show gender with emoji
         gender_emoji = "♂" if person.gender == "male" else "♀"
-        gender_display = "Male" if person.gender == "male" else "Female"
-        labels.append(f"{gender_emoji} {gender_display}")
-
-      # Age (show actual age if available)
-      if person.age:
-        labels.append(f"Age: {person.age}")
-        age_category = bucket_for_age(person.age)
-        category_emoji = {
-          "child": "👶",
-          "teen": "🧒",
-          "adult": "👤",
-          "senior": "👴"
-        }.get(age_category, "❓")
-        labels.append(category_emoji)
+        gender_display = "M" if person.gender == "male" else "F"
+        # Show age as integer
+        age_display = int(person.age) if person.age else 0
+        labels.append(f"{gender_emoji}{gender_display} {age_display}y")
+      elif person.gender != "unknown":
+        # Only gender available
+        gender_emoji = "♂" if person.gender == "male" else "♀"
+        gender_display = "M" if person.gender == "male" else "F"
+        labels.append(f"{gender_emoji}{gender_display}")
+      elif person.age:
+        # Only age available
+        age_display = int(person.age) if person.age else 0
+        labels.append(f"{age_display}y")
 
       # Dwell time
       dwell = time.time() - person.first_seen
       if dwell < 60:
-        labels.append(f"⏱ {int(dwell)}s")
+        labels.append(f"{int(dwell)}s")
       else:
-        labels.append(f"⏱ {int(dwell/60)}m {int(dwell%60)}s")
+        labels.append(f"{int(dwell/60)}m{int(dwell%60)}s")
 
       label = " | ".join(labels)
 
@@ -1095,10 +1229,13 @@ class CameraAnalyticsEngine:
 
     demo_y += 18
     age_categories = [
-      ("Child", metrics.age_buckets.get("child", 0)),
-      ("Teen", metrics.age_buckets.get("teen", 0)),
-      ("Adult", metrics.age_buckets.get("adult", 0)),
-      ("Senior", metrics.age_buckets.get("senior", 0)),
+      ("0-17", metrics.age_buckets.get("0-17", 0)),
+      ("18-24", metrics.age_buckets.get("18-24", 0)),
+      ("25-34", metrics.age_buckets.get("25-34", 0)),
+      ("35-44", metrics.age_buckets.get("35-44", 0)),
+      ("45-54", metrics.age_buckets.get("45-54", 0)),
+      ("55-64", metrics.age_buckets.get("55-64", 0)),
+      ("65+", metrics.age_buckets.get("65+", 0)),
     ]
 
     total_people = max(sum(v for _, v in age_categories), 1)

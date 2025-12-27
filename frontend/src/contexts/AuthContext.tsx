@@ -4,6 +4,7 @@ type UserRole = 'manager' | 'employee';
 
 interface AuthContextType {
   isAuthenticated: boolean;
+  isAuthReady: boolean;
   userRole: UserRole;
   login: (email: string, password: string) => boolean;
   logout: () => void;
@@ -18,6 +19,7 @@ const DEMO_EMPLOYEE_EMAIL = 'employee@observai.com';
 const DEMO_EMPLOYEE_PASSWORD = 'employee123';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return localStorage.getItem('isDemoAuthed') === 'true';
   });
@@ -25,6 +27,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userRole, setUserRole] = useState<UserRole>(() => {
     return (localStorage.getItem('userRole') as UserRole) || 'manager';
   });
+
+  // Mark auth as ready after initial mount
+  useEffect(() => {
+    setIsAuthReady(true);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('isDemoAuthed', isAuthenticated.toString());
@@ -68,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, userRole, login, logout, useDemoAccount }}>
+    <AuthContext.Provider value={{ isAuthenticated, isAuthReady, userRole, login, logout, useDemoAccount }}>
       {children}
     </AuthContext.Provider>
   );
