@@ -78,31 +78,41 @@ class WebcamSource(VideoSource):
                 print(f"[WARN] Camera at index {requested_index} not available")
 
             # Camera not working at requested index - try discovery
-            print(f"[INFO] Discovering available cameras (indices 0-4)...")
+            print(f"[INFO] Discovering available cameras (indices 0-9)...")
             available_cameras = []
 
-            for i in range(5):  # Check indices 0-4
+            for i in range(10):  # Check indices 0-9
                 cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
                 if cap.isOpened():
                     ret, frame = cap.read()
                     if ret and frame is not None:
                         available_cameras.append(i)
                         print(f"[INFO] ✓ Camera found at index {i}")
+                    else:
+                        print(f"[DEBUG] Camera at index {i} opened but failed to read frame")
                     cap.release()
+                else:
+                    # Silent debug for non-existent indices to avoid log spam
+                    pass
 
             if len(available_cameras) > 1 and requested_index == 1:
                 # User wants the second camera (iPhone), use the second available camera
                 actual_index = available_cameras[1]
                 print(f"[INFO] Using camera at index {actual_index} for iPhone/secondary camera")
                 return actual_index
-            elif len(available_cameras) > 0:
-                # Fallback to first available camera
-                actual_index = available_cameras[0]
-                print(f"[INFO] Fallback: Using camera at index {actual_index}")
-                return actual_index
+            
+            # CRITICAL: Removed silent fallback to index 0. 
+            # If requested index is not found/working, we raise an error
+            # so that the engine initialization fails immediately and
+            # reports back to the frontend.
+            error_msg = f"Requested camera index {requested_index} is not working or not found."
+            print(f"[ERROR] {error_msg}")
+            if len(available_cameras) > 0:
+                print(f"[INFO] Available working camera indices: {available_cameras}")
             else:
-                print(f"[ERROR] No working cameras found!")
-                return requested_index  # Return requested anyway, will fail later with good error
+                print(f"[ERROR] No working cameras detected on this system.")
+                
+            raise ValueError(error_msg)
 
         return requested_index
 

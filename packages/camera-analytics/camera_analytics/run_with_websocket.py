@@ -78,20 +78,20 @@ class CameraAnalyticsWithWebSocket:
         await self.stop_analytics()
         # self.ws_server.stop() # If implemented in future
 
-    async def start_analytics(self) -> None:
+    async def start_analytics(self) -> bool:
         # Check if engine exists and is either running or being created
         if self.engine:
             if self.engine.running:
                 print("⚠ Analytics already running")
-                return
+                return True
             # If engine exists but not running, it's being created - wait a bit
             print("⚠ Analytics engine initializing, please wait...")
-            return
+            return True
 
         # Check if analytics task is already running
         if self.analytics_task and not self.analytics_task.done():
             print("⚠ Analytics task already starting")
-            return
+            return True
 
         print("🚀 Starting analytics stream...")
         loop = asyncio.get_running_loop()
@@ -111,20 +111,26 @@ class CameraAnalyticsWithWebSocket:
                 self.ws_server.broadcast_zone_insights(payload), loop
             )
 
-        self.engine = CameraAnalyticsEngine(
-            config=self.config,
-            source=self.source,
-            output_path=self.output_path,
-            model_path=self.model_path,
-            sample_interval=1.0,
-            display=self.display,
-            on_metrics=emit_metrics,
-            on_tracks=emit_tracks,
-            on_zone_insights=emit_zone_insights,
-        )
+        try:
+            self.engine = CameraAnalyticsEngine(
+                config=self.config,
+                source=self.source,
+                output_path=self.output_path,
+                model_path=self.model_path,
+                sample_interval=1.0,
+                display=self.display,
+                on_metrics=emit_metrics,
+                on_tracks=emit_tracks,
+                on_zone_insights=emit_zone_insights,
+            )
+        except Exception as e:
+            print(f"❌ Failed to initialize analytics engine: {e}")
+            self.engine = None
+            raise e
 
         # Run engine in a separate thread
         self.analytics_task = asyncio.create_task(asyncio.to_thread(self._run_engine_safe))
+        return True
 
     def _run_engine_safe(self):
         try:
@@ -172,8 +178,8 @@ class CameraAnalyticsWithWebSocket:
 
             # STEP 2: Wait for camera hardware to fully release
             # This is CRITICAL to prevent "camera already in use" errors on macOS
-            print("🔄 Step 2: Waiting for camera hardware to release (5 seconds)...")
-            await asyncio.sleep(5.0)  # Increased for macOS AVFoundation reliability
+            print("🔄 Step 2: Waiting for camera hardware to release (2 seconds)...")
+            await asyncio.sleep(2.0)
             print("✓ Camera hardware released")
 
             # STEP 3: Update source
@@ -182,7 +188,12 @@ class CameraAnalyticsWithWebSocket:
 
             # STEP 4: Start analytics with new source
             print("🔄 Step 4: Starting analytics with new source...")
-            await self.start_analytics()
+            success = await self.start_analytics()
+            if not success:
+                print("❌ Step 4 failed: Could not start analytics with new source")
+                # Reset source to 0 as fallback or just fail
+                return False
+                
             print("✓ Analytics started with new source")
 
             print(f"✓ ===== SOURCE CHANGED SUCCESSFULLY TO: {new_source} =====")
@@ -192,7 +203,7 @@ class CameraAnalyticsWithWebSocket:
             print(f"❌ Error: {e}")
             import traceback
             traceback.print_exc()
-            return False
+            raise e
 
     async def toggle_overlay(self, visible: bool) -> bool:
         """Toggle AI Insights overlay (stats + demographics only, NOT heatmap)

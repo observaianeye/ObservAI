@@ -216,8 +216,14 @@ class AnalyticsWebSocketServer:
             """Handle start stream request"""
             logger.info(f"Start stream requested by {sid}")
             if self.on_start_stream:
-                await self.on_start_stream()
-            await self.sio.emit("stream_status", {"status": "started"}, room=sid)
+                try:
+                    await self.on_start_stream()
+                    await self.sio.emit("stream_status", {"status": "started"}, room=sid)
+                except Exception as e:
+                    logger.error(f"Error starting stream: {e}")
+                    await self.sio.emit("stream_status", {"status": "error", "message": str(e)}, room=sid)
+            else:
+                await self.sio.emit("stream_status", {"status": "error", "message": "Stream start not supported"}, room=sid)
 
         @self.sio.event
         async def stop_stream(sid, data=None):
@@ -233,11 +239,16 @@ class AnalyticsWebSocketServer:
             source = data.get("source", 0)
             logger.info(f"Source change requested by {sid}: {source}")
             if self.on_change_source:
-                success = await self.on_change_source(source)
-                if success:
-                    await self.sio.emit("source_changed", {"status": "success", "source": source}, room=sid)
-                else:
-                    await self.sio.emit("source_changed", {"status": "error", "message": "Failed to change source"}, room=sid)
+                try:
+                    # change_source should return True/False or raise Exception
+                    success = await self.on_change_source(source)
+                    if success:
+                        await self.sio.emit("source_changed", {"status": "success", "source": source}, room=sid)
+                    else:
+                        await self.sio.emit("source_changed", {"status": "error", "message": "Failed to change source"}, room=sid)
+                except Exception as e:
+                    logger.error(f"Error changing source: {e}")
+                    await self.sio.emit("source_changed", {"status": "error", "message": str(e)}, room=sid)
             else:
                 await self.sio.emit("source_changed", {"status": "error", "message": "Source change not supported"}, room=sid)
 

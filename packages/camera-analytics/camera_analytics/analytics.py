@@ -241,6 +241,12 @@ class CameraAnalyticsEngine:
     if self.source != source:
         print(f"[INFO] Resolved source: {str(self.source)[:50]}...")
 
+    # CRITICAL: Validate source immediately during initialization.
+    # This ensures that if the camera cannot be opened (e.g. iPhone not found),
+    # the engine fails to initialize and reports the error back to the caller
+    # before we return success to the frontend.
+    self._validate_source_on_init()
+
     if FaceAnalysis is not None:
       try:
         self.face_app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
@@ -296,6 +302,41 @@ class CameraAnalyticsEngine:
     if hasattr(self, 'demographics_executor'):
       self.demographics_executor.shutdown(wait=False)
       print("[INFO] Demographics executor shut down")
+
+  def _validate_source_on_init(self) -> None:
+    """
+    Validate that the video source can be opened and read.
+    Raises ValueError if validation fails.
+    """
+    print(f"[INFO] Validating video source: {self.source}")
+    
+    # For macOS camera indices, use AVFoundation backend explicitly
+    if isinstance(self.source, int):
+      cap = cv2.VideoCapture(self.source, cv2.CAP_AVFOUNDATION)
+    else:
+      cap = cv2.VideoCapture(self.source)
+
+    if not cap.isOpened():
+      error_msg = f"Failed to open video source: {self.source}"
+      try:
+        backend_name = cap.getBackendName()
+        error_msg += f" (Backend: {backend_name})"
+      except Exception:
+        pass
+      
+      print(f"[ERROR] {error_msg}")
+      raise ValueError(error_msg)
+
+    # Test read a frame to ensure camera is actually working
+    ret, test_frame = cap.read()
+    cap.release()
+
+    if not ret or test_frame is None:
+      error_msg = f"Video source {self.source} opened but cannot read frames!"
+      print(f"[ERROR] {error_msg}")
+      raise ValueError(error_msg)
+    
+    print(f"[INFO] ✓ Video source validation successful (shape: {test_frame.shape})")
 
   def get_latest_frame_safe(self) -> Optional[np.ndarray]:
     """Thread-safe access to latest frame for MJPEG streaming"""
@@ -354,67 +395,8 @@ class CameraAnalyticsEngine:
 
   def _run_continuous(self) -> None:
     """Run continuous tracking with explicit camera cleanup"""
-    # Create VideoCapture explicitly for better cleanup control
-    print(f"[INFO] Opening video source: {self.source}")
-
-    # For macOS camera indices, use AVFoundation backend explicitly
-    if isinstance(self.source, int):
-      self._video_capture = cv2.VideoCapture(self.source, cv2.CAP_AVFOUNDATION)
-      print(f"[INFO] Using AVFoundation backend for camera index {self.source}")
-    else:
-      self._video_capture = cv2.VideoCapture(self.source)
-
-    # Set timeouts for network streams to prevent hangs
-    if isinstance(self.source, str) and self.source.startswith(('http', 'rtsp', 'rtmp')):
-      self._video_capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 15000)  # 15s timeout
-      self._video_capture.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 60000)  # 60s read timeout (YouTube can be slow)
-      print(f"[INFO] Network stream timeouts configured (15s open, 60s read)")
-
-    if not self._video_capture.isOpened():
-      print(f"[ERROR] Failed to open video source: {self.source}")
-      print(f"[ERROR] OpenCV backend: {self._video_capture.getBackendName()}")
-
-      # Try to discover available cameras on macOS
-      if isinstance(self.source, int):
-        print("[INFO] Attempting to discover available cameras...")
-        for i in range(5):  # Check indices 0-4
-          test_cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
-          if test_cap.isOpened():
-            ret, frame = test_cap.read()
-            if ret and frame is not None:
-              print(f"[INFO] ✓ Camera found at index {i} (frame shape: {frame.shape})")
-            else:
-              print(f"[INFO] ✗ Camera at index {i} opened but no frames")
-            test_cap.release()
-          else:
-            print(f"[INFO] ✗ No camera at index {i}")
-
-      self._video_capture = None
-      return
-
-    # Verify we can actually read frames
-    print(f"[INFO] VideoCapture opened successfully")
-    print(f"[INFO] Backend: {self._video_capture.getBackendName()}")
-    print(f"[INFO] FPS: {self._video_capture.get(cv2.CAP_PROP_FPS)}")
-    print(f"[INFO] Frame Width: {int(self._video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))}")
-    print(f"[INFO] Frame Height: {int(self._video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
-
-    # Test read a frame to ensure camera is actually working
-    ret, test_frame = self._video_capture.read()
-    if not ret or test_frame is None:
-      print(f"[ERROR] Camera opened but cannot read frames!")
-      self._video_capture.release()
-      self._video_capture = None
-      return
-    else:
-      print(f"[INFO] ✓ Successfully read test frame (shape: {test_frame.shape})")
-
-    # Release the test VideoCapture - let YOLO create its own
-    # This is important because YOLO's internal VideoCapture management
-    # works better than passing our own capture object
-    self._video_capture.release()
-    print(f"[INFO] Released test VideoCapture, YOLO will create its own")
-
+    # Note: Validation is now done in __init__
+    
     # For macOS cameras, ensure we pass the index with the right backend hint
     # YOLO will use this to create its own VideoCapture with AVFoundation
     yolo_source = self.source
