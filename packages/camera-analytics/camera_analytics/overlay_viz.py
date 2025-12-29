@@ -1,10 +1,7 @@
 """
 Modern Glass-morphism Overlay Visualization System
 Keyboard shortcuts:
-  - G: Toggle main stats panel
   - H: Toggle heatmap overlay
-  - D: Toggle demographics panel  
-  - A: Toggle all panels
 """
 
 import cv2
@@ -16,27 +13,11 @@ from dataclasses import dataclass
 @dataclass
 class OverlayState:
     """Manages overlay panel visibility"""
-    stats_visible: bool = True
     heatmap_visible: bool = False
-    demographics_visible: bool = False
     animation_progress: float = 1.0
-    
-    def toggle_stats(self):
-        self.stats_visible = not self.stats_visible
         
     def toggle_heatmap(self):
         self.heatmap_visible = not self.heatmap_visible
-        
-    def toggle_demographics(self):
-        self.demographics_visible = not self.demographics_visible
-        
-    def toggle_all(self):
-        """Toggle all panels"""
-        all_on = self.stats_visible and self.heatmap_visible and self.demographics_visible
-        new_state = not all_on
-        self.stats_visible = new_state
-        self.heatmap_visible = new_state
-        self.demographics_visible = new_state
 
 
 class GlassOverlay:
@@ -137,127 +118,6 @@ class GlassOverlay:
         cv2.rectangle(frame, (x, y), (x + fill_width, y + height), 
                      tuple(min(c + 50, 255) for c in color), 1)
     
-    def draw_stats_panel(self, frame: np.ndarray, metrics: Dict):
-        """Draw main statistics panel (Top-Left)"""
-        if not self.state.stats_visible:
-            return
-            
-        panel_x, panel_y = 20, 20
-        panel_w, panel_h = 380, 320
-        
-        # Draw glass panel
-        self.draw_glass_panel(frame, panel_x, panel_y, panel_w, panel_h)
-        
-        # Title with glow
-        cv2.putText(frame, "LIVE ANALYTICS", (panel_x + 20, panel_y + 40),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, self.ACCENT_PRIMARY, 3)
-        
-        # Stats grid
-        stats = [
-            (metrics.get('peopleIn', 0), "ENTRIES", self.ACCENT_SUCCESS, panel_x + 30, panel_y + 90),
-            (metrics.get('peopleOut', 0), "EXITS", self.ACCENT_WARNING, panel_x + 30, panel_y + 150),
-            (metrics.get('current', 0), "CURRENT", self.ACCENT_INFO, panel_x + 210, panel_y + 90),
-            (metrics.get('queue', {}).get('current', 0), "QUEUE", self.ACCENT_WARNING, panel_x + 210, panel_y + 150),
-        ]
-        
-        for value, label, color, x, y in stats:
-            self.draw_animated_number(frame, x, y, value, label, color, 0.9)
-        
-        # Active people list (top 3 by dwell)
-        active_people = metrics.get('activePeople', [])
-        if active_people:
-            sorted_people = sorted(
-                active_people,
-                key=lambda p: p.get('dwellSeconds', 0),
-                reverse=True
-            )[:3]
-            list_y = panel_y + 200
-            cv2.putText(frame, "TOP DWELLERS", (panel_x + 20, list_y),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_PRIMARY, 1)
-            list_y += 24
-            for person in sorted_people:
-                gender = person.get('gender')
-                gender_display = "E" if gender == "male" else "K" if gender == "female" else "-"
-                age_bucket = person.get('ageBucket') or "unknown"
-                # Age bucket is now in format "0-17", "18-24", etc.
-                dwell = int(person.get('dwellSeconds', 0))
-                line = f"ID {person.get('id')} • {dwell} sn • {age_bucket} • {gender_display}"
-                cv2.putText(frame, line, (panel_x + 20, list_y),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, self.TEXT_SECONDARY, 1)
-                list_y += 22
-
-        # Timestamp / shortcuts
-        cv2.putText(frame, "PRESS: G-Stats | H-Heat | D-Demo | A-All",
-                   (panel_x + 20, panel_y + panel_h - 20),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.35, self.TEXT_SECONDARY, 1)
-    
-    def draw_demographics_panel(self, frame: np.ndarray, metrics: Dict):
-        """Draw demographics panel (Top-Right)"""
-        if not self.state.demographics_visible:
-            return
-            
-        panel_w, panel_h = 340, 450  # Increased height for 5 age categories
-        panel_x = self.width - panel_w - 20
-        panel_y = 20
-        
-        # Draw glass panel
-        self.draw_glass_panel(frame, panel_x, panel_y, panel_w, panel_h)
-        
-        # Title
-        cv2.putText(frame, "DEMOGRAPHICS", (panel_x + 20, panel_y + 40),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.ACCENT_PRIMARY, 3)
-        
-        # Gender distribution
-        gender = metrics.get('gender', {})
-        male = gender.get('male', 0)
-        female = gender.get('female', 0)
-        unknown = gender.get('unknown', 0)
-        total_gender = max(male + female + unknown, 1)
-        
-        y_offset = panel_y + 80
-        cv2.putText(frame, "GENDER", (panel_x + 20, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.TEXT_PRIMARY, 1)
-        
-        y_offset += 30
-        gender_data = [
-            ("Male", male, (100, 150, 255)),
-            ("Female", female, (255, 100, 150)),
-            ("Unknown", unknown, (150, 150, 150)),
-        ]
-        
-        for label, count, color in gender_data:
-            progress = count / total_gender
-            cv2.putText(frame, f"{label}: {count}", (panel_x + 30, y_offset),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_SECONDARY, 1)
-            self.draw_progress_bar(frame, panel_x + 150, y_offset - 15, 150, 12, progress, color)
-            y_offset += 35
-        
-        # Age distribution
-        y_offset += 20
-        cv2.putText(frame, "AGE GROUPS", (panel_x + 20, y_offset),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.TEXT_PRIMARY, 1)
-        
-        y_offset += 30
-        age_buckets = metrics.get('ageBuckets', {})
-        age_data = [
-            ("0-17", age_buckets.get('0-17', 0), (255, 200, 100)),
-            ("18-24", age_buckets.get('18-24', 0), (100, 255, 200)),
-            ("25-34", age_buckets.get('25-34', 0), (100, 200, 255)),
-            ("35-44", age_buckets.get('35-44', 0), (200, 150, 255)),
-            ("45-54", age_buckets.get('45-54', 0), (150, 200, 255)),
-            ("55-64", age_buckets.get('55-64', 0), (255, 150, 200)),
-            ("65+", age_buckets.get('65+', 0), (255, 100, 150)),
-        ]
-        
-        total_age = max(sum(d[1] for d in age_data), 1)
-        
-        for label, count, color in age_data:
-            progress = count / total_age
-            cv2.putText(frame, f"{label}: {count}", (panel_x + 30, y_offset),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.45, self.TEXT_SECONDARY, 1)
-            self.draw_progress_bar(frame, panel_x + 150, y_offset - 15, 150, 12, progress, color)
-            y_offset += 35
-    
     def draw_heatmap_overlay(self, frame: np.ndarray, metrics: Dict):
         """Draw heatmap visualization overlay (Bottom)"""
         if not self.state.heatmap_visible:
@@ -327,23 +187,12 @@ class GlassOverlay:
     
     def render(self, frame: np.ndarray, metrics: Dict) -> np.ndarray:
         """Render all visible overlays"""
-        self.draw_stats_panel(frame, metrics)
-        self.draw_demographics_panel(frame, metrics)
         self.draw_heatmap_overlay(frame, metrics)
         return frame
     
     def handle_key(self, key: int) -> bool:
         """Handle keyboard input for toggling panels"""
-        if key == ord('g') or key == ord('G'):
-            self.state.toggle_stats()
-            return True
-        elif key == ord('h') or key == ord('H'):
+        if key == ord('h') or key == ord('H'):
             self.state.toggle_heatmap()
-            return True
-        elif key == ord('d') or key == ord('D'):
-            self.state.toggle_demographics()
-            return True
-        elif key == ord('a') or key == ord('A'):
-            self.state.toggle_all()
             return True
         return False

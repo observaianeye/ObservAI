@@ -173,8 +173,6 @@ class CameraAnalyticsEngine:
 
     # Persistent overlay preferences (survive metric cycles)
     self._user_overlay_prefs = {
-        'stats_visible': True,
-        'demographics_visible': True,
         'heatmap_visible': False
     }
 
@@ -520,8 +518,6 @@ class CameraAnalyticsEngine:
       metrics = self._build_metrics()
 
       # Update overlay with new metrics - respect user preferences
-      self.overlay.state.stats_visible = self._user_overlay_prefs['stats_visible']
-      self.overlay.state.demographics_visible = self._user_overlay_prefs['demographics_visible']
       self.overlay.state.heatmap_visible = self._user_overlay_prefs['heatmap_visible']
 
       # Update size if changed
@@ -1165,75 +1161,5 @@ class CameraAnalyticsEngine:
           (255, 0, 0),
           1,
         )
-
-    metrics = self._build_metrics()
-
-    # Create glass-morphism stats panel
-    panel_x, panel_y = 10, 10
-    panel_w, panel_h = 280, 200
-
-    # Draw semi-transparent background
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (20, 20, 20), -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-
-    # Draw border
-    cv2.rectangle(frame, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (147, 112, 219), 2)
-
-    # Title
-    cv2.putText(frame, "LIVE ANALYTICS", (panel_x + 10, panel_y + 25),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (147, 112, 219), 2)
-
-    # Stats
-    y_offset = panel_y + 50
-    line_height = 22
-
-    stats = [
-      ("IN", metrics.people_in, (0, 255, 0)),
-      ("OUT", metrics.people_out, (0, 100, 255)),
-      ("CURRENT", metrics.current, (0, 200, 255)),
-      ("QUEUE", metrics.queue.current, (255, 200, 0)),
-    ]
-
-    for label, value, color in stats:
-      cv2.putText(frame, f"{label}:", (panel_x + 15, y_offset),
-                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-      cv2.putText(frame, str(value), (panel_x + 120, y_offset),
-                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-      y_offset += line_height
-
-    # Demographics mini chart
-    demo_y = y_offset + 10
-    cv2.line(frame, (panel_x + 10, demo_y), (panel_x + panel_w - 10, demo_y), (100, 100, 100), 1)
-
-    demo_y += 15
-    cv2.putText(frame, "AGE GROUPS:", (panel_x + 15, demo_y),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-
-    demo_y += 18
-    age_categories = [
-      ("0-17", metrics.age_buckets.get("0-17", 0)),
-      ("18-24", metrics.age_buckets.get("18-24", 0)),
-      ("25-34", metrics.age_buckets.get("25-34", 0)),
-      ("35-44", metrics.age_buckets.get("35-44", 0)),
-      ("45-54", metrics.age_buckets.get("45-54", 0)),
-      ("55-64", metrics.age_buckets.get("55-64", 0)),
-      ("65+", metrics.age_buckets.get("65+", 0)),
-    ]
-
-    total_people = max(sum(v for _, v in age_categories), 1)
-
-    for cat_name, count in age_categories:
-      # Bar chart
-      bar_width = int((count / total_people) * (panel_w - 100)) if count > 0 else 0
-      cv2.rectangle(frame, (panel_x + 80, demo_y - 10), (panel_x + 80 + bar_width, demo_y + 2),
-                   (147, 112, 219), -1)
-
-      cv2.putText(frame, f"{cat_name[:3]}: {count}", (panel_x + 15, demo_y),
-                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (150, 150, 150), 1)
-      demo_y += 14
-
-    # Blend overlay
-    cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
 
     return frame

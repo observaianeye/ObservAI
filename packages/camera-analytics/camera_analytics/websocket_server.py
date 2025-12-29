@@ -66,8 +66,7 @@ class AnalyticsWebSocketServer:
         self.on_snapshot = None
         self.on_get_frame = None  # For MJPEG streaming (direct frame access)
         self.on_change_source = None
-        self.on_toggle_overlay = None  # Toggle AI Insights (stats + demographics)
-        self.on_toggle_heatmap = None  # Toggle heatmap (separate control)
+        self.on_toggle_heatmap = None  # Toggle heatmap
 
         # Setup event handlers
         self._setup_handlers()
@@ -253,22 +252,8 @@ class AnalyticsWebSocketServer:
                 await self.sio.emit("source_changed", {"status": "error", "message": "Source change not supported"}, room=sid)
 
         @self.sio.event
-        async def toggle_overlay(sid, data):
-            """Handle AI Insights overlay toggle request (stats + demographics)"""
-            visible = data.get("visible", True)
-            logger.info(f"AI Insights toggle requested by {sid}: visible={visible}")
-            if self.on_toggle_overlay:
-                success = await self.on_toggle_overlay(visible)
-                if success:
-                    await self.sio.emit("overlay_toggled", {"status": "success", "visible": visible}, room=sid)
-                else:
-                    await self.sio.emit("overlay_toggled", {"status": "error", "message": "Failed to toggle AI Insights"}, room=sid)
-            else:
-                await self.sio.emit("overlay_toggled", {"status": "error", "message": "AI Insights toggle not supported"}, room=sid)
-
-        @self.sio.event
         async def toggle_heatmap(sid, data):
-            """Handle heatmap visibility toggle request (separate from AI Insights)"""
+            """Handle heatmap visibility toggle request"""
             visible = data.get("visible", False)
             logger.info(f"Heatmap toggle requested by {sid}: visible={visible}")
             if self.on_toggle_heatmap:

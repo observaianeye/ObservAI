@@ -1,4 +1,4 @@
-import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Eye, Activity } from 'lucide-react';
+import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Activity } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { cameraBackendService, Detection } from '../../services/cameraBackendService';
@@ -49,10 +49,7 @@ export default function CameraFeed() {
   const [showAddIPCamera, setShowAddIPCamera] = useState(false);
   const [newIPCamera, setNewIPCamera] = useState({ name: '', url: '', type: 'rtsp' as 'rtsp' | 'http' });
 
-  // AI Insights visibility toggle (controls backend overlay)
-  const [showInsights, setShowInsights] = useState(true);
-
-  // Heatmap visibility toggle (separate control from AI Insights)
+  // Heatmap visibility toggle
   const [showHeatmap, setShowHeatmap] = useState(false);
 
   // Source switching loading state
@@ -662,51 +659,27 @@ export default function CameraFeed() {
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          {/* AI Insights Toggle - Controls backend overlay visibility */}
+          {/* Heatmap Toggle */}
           {dataMode === 'live' && (
-            <>
-              <button
-                onClick={() => {
-                  const newState = !showInsights;
-                  setShowInsights(newState);
-                  // Send toggle to backend to show/hide overlay on video stream
-                  cameraBackendService.toggleOverlay(newState).catch(() => {
-                    // Silently handle - backend might not support this yet
-                  });
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
-                  showInsights
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50'
-                    : 'bg-white/10 text-gray-400 hover:bg-white/20'
-                }`}
-                title={showInsights ? 'AI Insights: ON (click to hide)' : 'AI Insights: OFF (click to show)'}
-              >
-                <Eye className={`w-3.5 h-3.5 ${showInsights ? '' : 'opacity-50'}`} />
-                <span>{showInsights ? 'AI Insights' : 'AI Insights'}</span>
-                {showInsights && <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">ON</span>}
-              </button>
-
-              {/* Heatmap Toggle - Separate control from AI Insights */}
-              <button
-                onClick={() => {
-                  const newState = !showHeatmap;
-                  setShowHeatmap(newState);
-                  // Send toggle to backend for heatmap visibility
-                  cameraBackendService.toggleHeatmap(newState).catch(() => {
-                    // Silently handle errors
-                  });
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
-                  showHeatmap
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-white/10 text-gray-300 hover:bg-white/20'
-                }`}
-                title={showHeatmap ? 'Hide Heatmap' : 'Show Heatmap'}
-              >
-                <Activity className="w-3.5 h-3.5" />
-                <span>Heatmap</span>
-              </button>
-            </>
+            <button
+              onClick={() => {
+                const newState = !showHeatmap;
+                setShowHeatmap(newState);
+                // Send toggle to backend for heatmap visibility
+                cameraBackendService.toggleHeatmap(newState).catch(() => {
+                  // Silently handle errors
+                });
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
+                showHeatmap
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-white/10 text-gray-300 hover:bg-white/20'
+              }`}
+              title={showHeatmap ? 'Hide Heatmap' : 'Show Heatmap'}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Heatmap</span>
+            </button>
           )}
           {dataMode === 'live' && (
             <button
@@ -995,27 +968,11 @@ export default function CameraFeed() {
             />
           )}
 
-          {/* Heatmap overlay */}
-          {showHeatmap && dataMode === 'live' && isStreaming && (
-            <div className="absolute inset-0 pointer-events-none">
-              <div className="w-full h-full" style={{
-                background: `radial-gradient(circle at 30% 40%, rgba(239, 68, 68, 0.4) 0%, transparent 30%),
-                            radial-gradient(circle at 70% 50%, rgba(249, 115, 22, 0.3) 0%, transparent 25%),
-                            radial-gradient(circle at 50% 70%, rgba(234, 179, 8, 0.25) 0%, transparent 20%)`
-              }}></div>
-            </div>
-          )}
-
           {/* Timestamp & Stats Overlay */}
           <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
             <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-xs font-mono">
               {new Date().toLocaleTimeString()}
             </div>
-            {showHeatmap && dataMode === 'live' && (
-              <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
-                <p className="text-xs text-white font-semibold">Heatmap Overlay Active</p>
-              </div>
-            )}
             {dataMode === 'live' && detections.length > 0 && (
               <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
                 <p className="text-xs text-white font-semibold">

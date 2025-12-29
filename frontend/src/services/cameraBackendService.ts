@@ -359,29 +359,6 @@ class CameraBackendService {
     });
   }
 
-  toggleOverlay(visible: boolean): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.socket) {
-        reject(new Error('Not connected to backend'));
-        return;
-      }
-
-      this.socket.emit('toggle_overlay', { visible });
-
-      this.socket.once('overlay_toggled', (response: { status: string; message?: string }) => {
-        if (response?.status === 'success') {
-          resolve();
-        } else {
-          reject(new Error(response?.message || 'Failed to toggle overlay'));
-        }
-      });
-
-      setTimeout(() => {
-        reject(new Error('Timeout waiting for overlay toggle'));
-      }, 5000);
-    });
-  }
-
   toggleHeatmap(visible: boolean): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.socket) {

@@ -47,8 +47,7 @@ class CameraAnalyticsWithWebSocket:
         self.ws_server.on_snapshot = self.handle_snapshot
         self.ws_server.on_get_frame = self.get_latest_frame  # For MJPEG streaming
         self.ws_server.on_change_source = self.change_source
-        self.ws_server.on_toggle_overlay = self.toggle_overlay  # AI Insights toggle (stats + demographics)
-        self.ws_server.on_toggle_heatmap = self.toggle_heatmap  # Heatmap toggle (separate control)
+        self.ws_server.on_toggle_heatmap = self.toggle_heatmap  # Heatmap toggle
 
         self.engine: Optional[CameraAnalyticsEngine] = None
         self.analytics_task: Optional[asyncio.Task] = None
@@ -214,32 +213,8 @@ class CameraAnalyticsWithWebSocket:
             traceback.print_exc()
             raise e
 
-    async def toggle_overlay(self, visible: bool) -> bool:
-        """Toggle AI Insights overlay (stats + demographics only, NOT heatmap)
-
-        Controls the LIVE ANALYTICS and DEMOGRAPHICS panels, but NOT the heatmap.
-        Heatmap has separate control via toggle_heatmap().
-        """
-        try:
-            if self.engine:
-                # Update persistent preferences (not ephemeral state)
-                self.engine._user_overlay_prefs['stats_visible'] = visible
-                self.engine._user_overlay_prefs['demographics_visible'] = visible
-                # Do NOT touch heatmap - it has separate control
-                print(f"✓ AI Insights visibility set to: {visible}")
-                return True
-            else:
-                print("⚠ No active engine to toggle overlay")
-                return False
-        except Exception as e:
-            print(f"❌ Failed to toggle overlay: {e}")
-            return False
-
     async def toggle_heatmap(self, visible: bool) -> bool:
-        """Toggle heatmap visibility (separate from AI Insights)
-
-        Controls only the heatmap overlay, independent from stats/demographics.
-        """
+        """Toggle heatmap visibility."""
         try:
             if self.engine:
                 self.engine._user_overlay_prefs['heatmap_visible'] = visible
