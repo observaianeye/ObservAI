@@ -268,15 +268,8 @@ export default function CameraFeed() {
         const gender = detection.gender === 'male' ? 'M' :
           detection.gender === 'female' ? 'F' : '?';
 
-        // Map backend age buckets to readable labels
-        const ageBucketMap: { [key: string]: string } = {
-          'child': '0-17',
-          'young': '18-35',
-          'adult': '36-50',
-          'mature': '51-70',
-          'senior': '70+'
-        };
-        const ageBucket = ageBucketMap[detection.ageBucket || ''] || 'Unknown';
+        // Use age bucket directly from backend (e.g., '18-24', '25-34', etc.)
+        const ageBucket = detection.ageBucket || 'Unknown';
         const dwellTime = Math.floor(detection.dwellSec);
         const labelText = `${gender} | ${ageBucket} | ${dwellTime}s`;
 
