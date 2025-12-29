@@ -238,12 +238,14 @@ class CameraAnalyticsEngine:
     self.is_live_source = False
     self.source_fps: Optional[float] = None
     self.frame_delay: float = 0.0  # Delay between frames for playback timing
+    self.original_url: Optional[str] = None  # Original URL for yt-dlp pipe mode
     
     # Get metadata from VideoLinkSource if available
     if isinstance(video_source, VideoLinkSource):
         source_info = video_source.get_source_info()
         self.is_live_source = source_info.get("is_live", False)
         self.source_fps = source_info.get("source_fps")
+        self.original_url = source_info.get("original_url")  # For yt-dlp pipe mode
         
         # Calculate frame delay for non-live videos
         if not self.is_live_source and self.source_fps and self.source_fps > 0:
@@ -451,6 +453,13 @@ class CameraAnalyticsEngine:
     source_type = "LIVE stream" if self.is_live_source else "video"
     print(f"[INFO] Using custom capture loop for {source_type} (proper frame rate)")
     
+    # For YouTube live streams with original URL, use yt-dlp pipe mode
+    # This bypasses OpenCV's HLS buffering issues
+    if self.is_live_source and self.original_url:
+      print("[INFO] YouTube live stream detected - using yt-dlp pipe mode for smooth playback")
+      self._run_live_with_ytdlp_pipe()
+      return
+    
     # Create VideoCapture with FFMPEG backend for network streams
     if isinstance(self.source, str) and self.source.startswith('http'):
       cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
@@ -473,7 +482,7 @@ class CameraAnalyticsEngine:
     print(f"[INFO] {source_type} opened: {source_fps:.1f} FPS, frame interval: {frame_interval*1000:.1f}ms")
     
     if self.is_live_source:
-      # For live streams, use threaded reader for continuous frame capture
+      # For non-YouTube live streams (RTSP, RTMP, HLS), use threaded reader
       self._run_live_with_threaded_reader(cap, source_fps)
     else:
       # For regular videos, use frame-by-frame with timing control
@@ -576,6 +585,185 @@ class CameraAnalyticsEngine:
       reader_thread.join(timeout=2.0)
       cap.release()
       print("[INFO] Live stream capture released")
+      if self.display:
+        cv2.destroyAllWindows()
+
+  def _run_live_with_ytdlp_pipe(self) -> None:
+    """
+    Run live stream using yt-dlp pipe mode for smooth playback.
+    This bypasses OpenCV's HLS handling issues by using yt-dlp's native streaming.
+    
+    Architecture:
+    yt-dlp (download) -> stdout | ffmpeg (decode to raw) -> stdout | Python (read frames)
+    """
+    import subprocess
+    import threading
+    import struct
+    
+    url = self.original_url
+    if not url:
+      print("[ERROR] No original URL available for yt-dlp pipe mode")
+      return
+    
+    print(f"[INFO] Starting yt-dlp pipe mode for live stream: {url[:50]}...")
+    
+    # Frame dimensions - will be detected from stream
+    width, height = 1280, 720  # Default, will be updated
+    
+    # First, get video dimensions using yt-dlp
+    try:
+      print("[INFO] Detecting stream resolution...")
+      info_cmd = ['yt-dlp', '--print', 'width', '--print', 'height', '-f', 'best[height<=720]/best', url]
+      info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=15)
+      if info_result.returncode == 0:
+        lines = info_result.stdout.strip().split('\n')
+        if len(lines) >= 2:
+          try:
+            width = int(lines[0])
+            height = int(lines[1])
+            print(f"[INFO] Stream resolution: {width}x{height}")
+          except ValueError:
+            print(f"[WARN] Could not parse dimensions, using default {width}x{height}")
+    except Exception as e:
+      print(f"[WARN] Could not detect resolution: {e}, using default {width}x{height}")
+    
+    frame_size = width * height * 3  # BGR format
+    
+    # yt-dlp command: stream to stdout
+    ytdlp_cmd = [
+      'yt-dlp',
+      '-f', 'best[height<=720]/best',
+      '-o', '-',  # Output to stdout
+      '--quiet',
+      '--no-warnings',
+      url
+    ]
+    
+    # FFmpeg command: decode video to raw BGR frames
+    ffmpeg_cmd = [
+      'ffmpeg',
+      '-i', 'pipe:0',           # Read from stdin
+      '-f', 'rawvideo',          # Output raw video
+      '-pix_fmt', 'bgr24',       # OpenCV compatible pixel format
+      '-s', f'{width}x{height}', # Output size
+      '-r', '30',                # Output at 30 FPS
+      '-an',                     # No audio
+      '-loglevel', 'error',      # Minimal logging
+      'pipe:1'                   # Write to stdout
+    ]
+    
+    ytdlp_proc = None
+    ffmpeg_proc = None
+    
+    try:
+      # Start yt-dlp process
+      print("[INFO] Starting yt-dlp subprocess...")
+      ytdlp_proc = subprocess.Popen(
+        ytdlp_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        bufsize=10**8
+      )
+      
+      # Start FFmpeg process, reading from yt-dlp's stdout
+      print("[INFO] Starting FFmpeg decoder...")
+      ffmpeg_proc = subprocess.Popen(
+        ffmpeg_cmd,
+        stdin=ytdlp_proc.stdout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=10**8
+      )
+      
+      # Allow yt-dlp to receive SIGPIPE if ffmpeg exits
+      if ytdlp_proc.stdout:
+        ytdlp_proc.stdout.close()
+      
+      print("[INFO] yt-dlp pipe mode initialized, waiting for frames...")
+      
+      frame_count = 0
+      consecutive_failures = 0
+      target_interval = 1.0 / 30.0  # 30 FPS target
+      
+      while self.running:
+        frame_start = time.time()
+        
+        # Read raw frame from FFmpeg stdout
+        raw_frame = ffmpeg_proc.stdout.read(frame_size)
+        
+        if len(raw_frame) != frame_size:
+          consecutive_failures += 1
+          if consecutive_failures > 10:
+            print("[ERROR] Too many frame read failures, stopping...")
+            break
+          if len(raw_frame) == 0:
+            # Stream ended or error
+            print("[INFO] Stream ended")
+            break
+          continue
+        
+        consecutive_failures = 0
+        frame_count += 1
+        
+        # Convert to numpy array
+        frame = np.frombuffer(raw_frame, dtype=np.uint8).reshape((height, width, 3))
+        
+        # Run YOLO tracking on the frame
+        results = self.model.track(
+          source=frame,
+          persist=True,
+          verbose=False,
+          classes=[0],
+          tracker="camera_analytics/bytetrack.yaml",
+          imgsz=self.inference_params['imgsz'],
+          device=self.device,
+          conf=self.conf,
+          iou=0.45,
+          half=self.inference_params.get('half', False),
+        )
+        
+        # Process results
+        for result in results:
+          if not self._process_result(result):
+            self.running = False
+            break
+        
+        if not self.running:
+          break
+        
+        # Log progress periodically
+        if frame_count % 300 == 0:  # Every 10 seconds at 30fps
+          print(f"[INFO] yt-dlp pipe: processed {frame_count} frames")
+        
+        # Frame rate control
+        processing_time = time.time() - frame_start
+        sleep_time = target_interval - processing_time
+        if sleep_time > 0:
+          time.sleep(sleep_time)
+          
+    except Exception as e:
+      print(f"[ERROR] yt-dlp pipe error: {e}")
+      import traceback
+      traceback.print_exc()
+    finally:
+      # Cleanup subprocesses
+      print("[INFO] Cleaning up yt-dlp pipe processes...")
+      
+      if ffmpeg_proc:
+        try:
+          ffmpeg_proc.terminate()
+          ffmpeg_proc.wait(timeout=2)
+        except:
+          ffmpeg_proc.kill()
+      
+      if ytdlp_proc:
+        try:
+          ytdlp_proc.terminate()
+          ytdlp_proc.wait(timeout=2)
+        except:
+          ytdlp_proc.kill()
+      
+      print(f"[INFO] yt-dlp pipe mode stopped. Total frames: {frame_count if 'frame_count' in dir() else 0}")
       if self.display:
         cv2.destroyAllWindows()
 

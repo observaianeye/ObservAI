@@ -227,9 +227,13 @@ class VideoLinkSource(VideoSource):
         self.is_live = False
         self.source_fps: Optional[float] = None
         self._resolved_source: Optional[str] = None
+        # Store original URL for yt-dlp pipe mode (live streams)
+        self._original_url: Optional[str] = None
 
     def get_source(self) -> str:
         url = str(self.source_input)
+        # Store original URL for yt-dlp pipe mode
+        self._original_url = url
 
         # YouTube detection
         if any(domain in url.lower() for domain in ["youtube.com", "youtu.be"]):
@@ -389,7 +393,8 @@ class VideoLinkSource(VideoSource):
         return {
             "is_live": self.is_live,
             "source_fps": self.source_fps,
-            "resolved_source": self._resolved_source
+            "resolved_source": self._resolved_source,
+            "original_url": self._original_url  # For yt-dlp pipe mode
         }
 
 
