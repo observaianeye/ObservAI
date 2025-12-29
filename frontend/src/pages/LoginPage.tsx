@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import { Activity, Lock, Mail, ArrowRight, Loader2 } from 'lucide-react';
@@ -10,15 +10,66 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isPasswordFocused, setIsPasswordFocused] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [passwordFieldPosition, setPasswordFieldPosition] = useState({ x: 0, y: 0 });
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  const updatePasswordFieldPosition = useCallback(() => {
+    if (passwordInputRef.current) {
+      const rect = passwordInputRef.current.getBoundingClientRect();
+      setPasswordFieldPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    updatePasswordFieldPosition();
+    window.addEventListener('resize', updatePasswordFieldPosition);
+    window.addEventListener('scroll', updatePasswordFieldPosition);
+
+    return () => {
+      window.removeEventListener('resize', updatePasswordFieldPosition);
+      window.removeEventListener('scroll', updatePasswordFieldPosition);
+    };
+  }, [updatePasswordFieldPosition]);
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(e.target.value);
+    setIsTyping(true);
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = window.setTimeout(() => {
+      setIsTyping(false);
+    }, 500);
+  };
+
+  const handlePasswordFocus = () => {
+    setIsPasswordFocused(true);
+    updatePasswordFieldPosition();
+  };
+
+  const handlePasswordBlur = () => {
+    setIsPasswordFocused(false);
+    setIsTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
 
-    // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 800));
 
     const success = login(email, password);
@@ -33,7 +84,11 @@ export default function LoginPage() {
 
   return (
     <div className="relative min-h-screen flex items-center justify-center bg-[#050505] overflow-hidden">
-      <ParticleBackground />
+      <ParticleBackground
+        isPasswordFocused={isPasswordFocused}
+        isTyping={isTyping}
+        passwordFieldPosition={passwordFieldPosition}
+      />
 
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
@@ -71,11 +126,14 @@ export default function LoginPage() {
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
+                  ref={passwordInputRef}
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={handlePasswordChange}
+                  onFocus={handlePasswordFocus}
+                  onBlur={handlePasswordBlur}
                   className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                  placeholder="••••••••"
+                  placeholder="Type to see cameras watching..."
                   required
                 />
               </div>
@@ -113,9 +171,8 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Decorative elements */}
         <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -z-10" />
-        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl -z-10" />
+        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -z-10" />
       </motion.div>
     </div>
   );
