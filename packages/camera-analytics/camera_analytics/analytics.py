@@ -228,14 +228,33 @@ class CameraAnalyticsEngine:
     print(f"[INFO] Demographics processing: Async mode (every {self.face_detection_interval} frames)")
 
     # Resolve source using Factory
-    from .sources import SourceFactory
+    from .sources import SourceFactory, VideoLinkSource
     
     video_source = SourceFactory.create_source(source)
     self.source = video_source.get_source()
     self.vid_stride = video_source.vid_stride
     
+    # Store source metadata for frame rate control
+    self.is_live_source = False
+    self.source_fps: Optional[float] = None
+    self.frame_delay: float = 0.0  # Delay between frames for playback timing
+    
+    # Get metadata from VideoLinkSource if available
+    if isinstance(video_source, VideoLinkSource):
+        source_info = video_source.get_source_info()
+        self.is_live_source = source_info.get("is_live", False)
+        self.source_fps = source_info.get("source_fps")
+        
+        # Calculate frame delay for non-live videos
+        if not self.is_live_source and self.source_fps and self.source_fps > 0:
+            self.frame_delay = 1.0 / self.source_fps
+            print(f"[INFO] Frame delay for playback timing: {self.frame_delay*1000:.1f}ms ({self.source_fps} FPS)")
+        elif self.is_live_source:
+            print(f"[INFO] Live stream detected - no frame delay applied")
+    
     print(f"[INFO] Source type: {type(video_source).__name__}")
     print(f"[INFO] Video stride: {self.vid_stride}")
+    print(f"[INFO] Is live source: {self.is_live_source}")
     if self.source != source:
         print(f"[INFO] Resolved source: {str(self.source)[:50]}...")
 
@@ -304,6 +323,7 @@ class CameraAnalyticsEngine:
   def _validate_source_on_init(self) -> None:
     """
     Validate that the video source can be opened and read.
+    Also detects FPS for non-live sources if not already set.
     Raises ValueError if validation fails.
     """
     print(f"[INFO] Validating video source: {self.source}")
@@ -314,6 +334,12 @@ class CameraAnalyticsEngine:
       cap = cv2.VideoCapture(self.source, _get_camera_backend())
     else:
       cap = cv2.VideoCapture(self.source)
+      
+      # For network streams (live), set buffer size and other options
+      if self.is_live_source:
+        # Reduce buffer size for lower latency on live streams
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        print(f"[INFO] Set buffer size to 1 for live stream")
 
     if not cap.isOpened():
       error_msg = f"Failed to open video source: {self.source}"
@@ -325,6 +351,19 @@ class CameraAnalyticsEngine:
       
       print(f"[ERROR] {error_msg}")
       raise ValueError(error_msg)
+
+    # Try to get FPS from OpenCV if not already set (fallback for non-live videos)
+    if not self.is_live_source and self.source_fps is None:
+      opencv_fps = cap.get(cv2.CAP_PROP_FPS)
+      if opencv_fps and opencv_fps > 0:
+        self.source_fps = opencv_fps
+        self.frame_delay = 1.0 / self.source_fps
+        print(f"[INFO] Detected FPS from OpenCV: {self.source_fps:.1f} (frame delay: {self.frame_delay*1000:.1f}ms)")
+      else:
+        # Default to 30 FPS for pre-recorded videos without FPS info
+        self.source_fps = 30.0
+        self.frame_delay = 1.0 / 30.0
+        print(f"[INFO] Could not detect FPS, using default: 30 FPS")
 
     # Test read a frame to ensure camera is actually working
     ret, test_frame = cap.read()
@@ -395,6 +434,212 @@ class CameraAnalyticsEngine:
   def _run_continuous(self) -> None:
     """Run continuous tracking with explicit camera cleanup"""
     # Note: Validation is now done in __init__
+    
+    # For webcams (integer source), use YOLO's built-in streaming
+    # For all other sources (URLs, files), use custom capture for proper frame rate control
+    if isinstance(self.source, int):
+      self._run_with_yolo_stream()
+    else:
+      self._run_with_custom_capture()
+
+  def _run_with_custom_capture(self) -> None:
+    """
+    Run tracking with custom OpenCV capture for proper frame rate control.
+    This ensures videos play at their native speed regardless of processing speed.
+    Works for both live streams and pre-recorded videos.
+    """
+    source_type = "LIVE stream" if self.is_live_source else "video"
+    print(f"[INFO] Using custom capture loop for {source_type} (proper frame rate)")
+    
+    # Create VideoCapture with FFMPEG backend for network streams
+    if isinstance(self.source, str) and self.source.startswith('http'):
+      cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+    else:
+      cap = cv2.VideoCapture(self.source)
+    
+    # Set buffer size to minimum for lower latency
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    
+    if not cap.isOpened():
+      print(f"[ERROR] Failed to open {source_type}")
+      return
+    
+    # Get actual FPS from the video source
+    source_fps = cap.get(cv2.CAP_PROP_FPS)
+    if source_fps <= 0 or source_fps > 120:
+      source_fps = 30.0  # Default fallback
+    
+    frame_interval = 1.0 / source_fps
+    print(f"[INFO] {source_type} opened: {source_fps:.1f} FPS, frame interval: {frame_interval*1000:.1f}ms")
+    
+    if self.is_live_source:
+      # For live streams, use threaded reader for continuous frame capture
+      self._run_live_with_threaded_reader(cap, source_fps)
+    else:
+      # For regular videos, use frame-by-frame with timing control
+      self._run_video_with_timing(cap, frame_interval)
+
+  def _run_live_with_threaded_reader(self, cap, source_fps: float) -> None:
+    """
+    Run live stream processing with a threaded frame reader.
+    This ensures we always have the latest frame available without blocking.
+    """
+    import threading
+    import queue
+    
+    # Shared state for threaded reader
+    frame_queue = queue.Queue(maxsize=2)  # Small queue to keep only recent frames
+    reader_running = threading.Event()
+    reader_running.set()
+    
+    def frame_reader():
+      """Background thread to continuously read frames"""
+      consecutive_failures = 0
+      while reader_running.is_set():
+        ret, frame = cap.read()
+        if ret and frame is not None:
+          consecutive_failures = 0
+          # If queue is full, remove old frame and add new one
+          if frame_queue.full():
+            try:
+              frame_queue.get_nowait()
+            except queue.Empty:
+              pass
+          try:
+            frame_queue.put_nowait(frame)
+          except queue.Full:
+            pass
+        else:
+          consecutive_failures += 1
+          if consecutive_failures > 50:  # ~5 seconds of failures
+            print("[WARN] Too many consecutive failures, reconnecting...")
+            consecutive_failures = 0
+          time.sleep(0.01)
+    
+    # Start reader thread
+    reader_thread = threading.Thread(target=frame_reader, daemon=True)
+    reader_thread.start()
+    print("[INFO] Live stream reader thread started")
+    
+    target_interval = 1.0 / 30.0  # Target 30 FPS output
+    
+    try:
+      while self.running:
+        frame_start = time.time()
+        
+        # Get latest frame from queue
+        frame = None
+        try:
+          frame = frame_queue.get(timeout=1.0)
+        except queue.Empty:
+          print("[WARN] No frame available from live stream")
+          continue
+        
+        if frame is None:
+          continue
+        
+        # Run YOLO tracking on the frame
+        results = self.model.track(
+          source=frame,
+          persist=True,
+          verbose=False,
+          classes=[0],
+          tracker="camera_analytics/bytetrack.yaml",
+          imgsz=self.inference_params['imgsz'],
+          device=self.device,
+          conf=self.conf,
+          iou=0.45,
+          half=self.inference_params.get('half', False),
+        )
+        
+        # Process results
+        for result in results:
+          if not self._process_result(result):
+            self.running = False
+            break
+        
+        if not self.running:
+          break
+        
+        # Limit output to ~30 FPS
+        processing_time = time.time() - frame_start
+        sleep_time = target_interval - processing_time
+        if sleep_time > 0:
+          time.sleep(sleep_time)
+          
+    except Exception as e:
+      print(f"[ERROR] Live stream error: {e}")
+      import traceback
+      traceback.print_exc()
+    finally:
+      reader_running.clear()
+      reader_thread.join(timeout=2.0)
+      cap.release()
+      print("[INFO] Live stream capture released")
+      if self.display:
+        cv2.destroyAllWindows()
+
+  def _run_video_with_timing(self, cap, frame_interval: float) -> None:
+    """
+    Run pre-recorded video with proper timing to match source FPS.
+    """
+    print(f"[INFO] Playing video at {1.0/frame_interval:.1f} FPS")
+    
+    try:
+      while self.running and cap.isOpened():
+        frame_start = time.time()
+        
+        ret, frame = cap.read()
+        if not ret or frame is None:
+          # End of video file
+          print("[INFO] End of video reached")
+          break
+        
+        # Run YOLO tracking on the frame
+        results = self.model.track(
+          source=frame,
+          persist=True,
+          verbose=False,
+          classes=[0],
+          tracker="camera_analytics/bytetrack.yaml",
+          imgsz=self.inference_params['imgsz'],
+          device=self.device,
+          conf=self.conf,
+          iou=0.45,
+          half=self.inference_params.get('half', False),
+        )
+        
+        # Process results
+        for result in results:
+          if not self._process_result(result):
+            self.running = False
+            break
+        
+        if not self.running:
+          break
+        
+        # Frame rate control: wait to match source FPS
+        processing_time = time.time() - frame_start
+        sleep_time = frame_interval - processing_time
+        if sleep_time > 0:
+          time.sleep(sleep_time)
+          
+    except Exception as e:
+      print(f"[ERROR] Video playback error: {e}")
+      import traceback
+      traceback.print_exc()
+    finally:
+      cap.release()
+      print("[INFO] Video capture released")
+      if self.display:
+        cv2.destroyAllWindows()
+
+  def _run_with_yolo_stream(self) -> None:
+    """
+    Run tracking using YOLO's built-in streaming.
+    Best for webcams only - provides optimal camera handling.
+    """
+    print("[INFO] Using YOLO's built-in streaming (webcam)")
     
     # For macOS cameras, ensure we pass the index with the right backend hint
     # YOLO will use this to create its own VideoCapture with AVFoundation

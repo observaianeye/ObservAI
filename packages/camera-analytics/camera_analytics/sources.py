@@ -223,6 +223,10 @@ class VideoLinkSource(VideoSource):
         # Exponential backoff configuration for retries
         self.retry_delays = [1, 2, 4]  # Retry delays in seconds
         self.max_retries = 3
+        # Video metadata (set after get_source is called)
+        self.is_live = False
+        self.source_fps: Optional[float] = None
+        self._resolved_source: Optional[str] = None
 
     def get_source(self) -> str:
         url = str(self.source_input)
@@ -230,29 +234,72 @@ class VideoLinkSource(VideoSource):
         # YouTube detection
         if any(domain in url.lower() for domain in ["youtube.com", "youtu.be"]):
             print(f"   Detected YouTube URL: {url}")
-            return self._resolve_youtube_with_retry(url)
+            self._resolved_source = self._resolve_youtube_with_retry(url)
+            return self._resolved_source
 
-        # HLS stream (.m3u8)
+        # HLS stream (.m3u8) - typically live
         if url.endswith('.m3u8'):
             print(f"   Detected HLS stream: {url}")
+            self.is_live = True
+            self._resolved_source = url
             return url
 
-        # RTMP stream
+        # RTMP stream - always live
         if url.startswith('rtmp://'):
             print(f"   Detected RTMP stream: {url}")
+            self.is_live = True
+            self._resolved_source = url
             return url
 
         # HTTP/HTTPS stream or direct video file
         if url.startswith(('http://', 'https://')):
             if url.endswith(('.mp4', '.avi', '.mov', '.mkv', '.flv')):
                 print(f"   Detected direct video file URL: {url}")
+                self.is_live = False
             else:
                 print(f"   Detected HTTP stream: {url}")
+            self._resolved_source = url
             return url
 
         # Default: return as-is
         print(f"   Using URL as-is: {url}")
+        self._resolved_source = url
         return url
+
+    def _check_if_live(self, url: str) -> bool:
+        """Check if YouTube URL is a live stream using yt-dlp"""
+        try:
+            cmd = ['yt-dlp', '--print', 'is_live', '--no-warnings', url]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            if result.returncode == 0:
+                is_live_str = result.stdout.strip().lower()
+                return is_live_str == 'true'
+        except Exception as e:
+            print(f"   ⚠️  Could not determine if live: {e}")
+        return False
+
+    def _get_video_fps(self, url: str) -> Optional[float]:
+        """Get video FPS using yt-dlp (for non-live videos)"""
+        try:
+            cmd = ['yt-dlp', '--print', 'fps', '--no-warnings', url]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                fps_str = result.stdout.strip()
+                if fps_str and fps_str != 'NA':
+                    return float(fps_str)
+        except Exception as e:
+            print(f"   ⚠️  Could not get FPS: {e}")
+        return None
 
     def _resolve_youtube(self, url: str) -> str:
         """Extract direct stream URL from YouTube using yt-dlp (legacy single-attempt)"""
@@ -275,6 +322,18 @@ class VideoLinkSource(VideoSource):
 
     def _resolve_youtube_with_retry(self, url: str) -> str:
         """Extract YouTube stream URL with exponential backoff retry logic"""
+        # First, check if it's a live stream
+        print(f"   Checking if video is live...")
+        self.is_live = self._check_if_live(url)
+        
+        if self.is_live:
+            print(f"   📺 Video is LIVE - using optimized live stream format")
+        else:
+            print(f"   🎬 Video is NOT live - getting FPS for playback timing")
+            self.source_fps = self._get_video_fps(url)
+            if self.source_fps:
+                print(f"   📊 Source FPS: {self.source_fps}")
+        
         for attempt in range(self.max_retries):
             try:
                 delay = self.retry_delays[min(attempt, len(self.retry_delays) - 1)]
@@ -282,7 +341,15 @@ class VideoLinkSource(VideoSource):
                     print(f"   🔄 Retry {attempt}/{self.max_retries} after {delay}s delay...")
                     time.sleep(delay)
 
-                cmd = ['yt-dlp', '-f', 'best[ext=mp4]/best', '-g', url]
+                # Use different format selection for live vs regular videos
+                if self.is_live:
+                    # For live streams: use 720p or lower for faster processing
+                    # Note: YouTube live streams are typically HLS which has some inherent latency
+                    cmd = ['yt-dlp', '-f', 'best[height<=720]/best', '-g', url]
+                else:
+                    # For regular videos: get best quality MP4
+                    cmd = ['yt-dlp', '-f', 'best[ext=mp4]/best', '-g', url]
+                
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -292,7 +359,8 @@ class VideoLinkSource(VideoSource):
 
                 if result.returncode == 0 and result.stdout.strip():
                     stream_url = result.stdout.strip().split('\n')[0]
-                    print(f"   ✓ YouTube stream extracted (attempt {attempt + 1})")
+                    stream_type = "LIVE" if self.is_live else "VIDEO"
+                    print(f"   ✓ YouTube {stream_type} stream extracted (attempt {attempt + 1})")
                     return stream_url
                 else:
                     print(f"   ⚠️  yt-dlp failed (attempt {attempt + 1}, code {result.returncode})")
@@ -315,6 +383,14 @@ class VideoLinkSource(VideoSource):
         # Process all frames for smooth video playback (no skipping)
         # YouTube videos will play smoothly without stuttering
         return 1
+    
+    def get_source_info(self) -> dict:
+        """Get source metadata after get_source() has been called"""
+        return {
+            "is_live": self.is_live,
+            "source_fps": self.source_fps,
+            "resolved_source": self._resolved_source
+        }
 
 
 
