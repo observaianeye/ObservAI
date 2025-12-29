@@ -116,20 +116,30 @@ class WebcamSource(VideoSource):
             if len(available_cameras) > 1 and requested_index == 1:
                 # User wants the second camera (iPhone on macOS, or secondary camera on other platforms)
                 actual_index = available_cameras[1]
-                print(f"[INFO] Using camera at index {actual_index} for secondary camera")
+                print(f"[INFO] ✓ Using camera at index {actual_index} for secondary camera")
                 return actual_index
-            
-            # CRITICAL: Removed silent fallback to index 0. 
-            # If requested index is not found/working, we raise an error
-            # so that the engine initialization fails immediately and
-            # reports back to the frontend.
+
+            # SMART FALLBACK: If index 1 (iPhone) is requested but not available,
+            # fallback to index 0 (MacBook camera) with a warning
+            # This allows seamless operation when iPhone is not connected
+            if requested_index == 1 and len(available_cameras) > 0:
+                fallback_index = available_cameras[0]
+                print(f"[WARN] ⚠️  iPhone/Secondary camera (index 1) not found")
+                print(f"[WARN] ⚠️  Falling back to primary camera (index {fallback_index})")
+                print(f"[INFO] 💡 To use iPhone camera:")
+                print(f"[INFO]    1. Connect iPhone via USB or WiFi")
+                print(f"[INFO]    2. On Mac: Enable Continuity Camera in System Settings")
+                print(f"[INFO]    3. Restart the backend")
+                return fallback_index
+
+            # If requested index is not 1 and not found, raise error
             error_msg = f"Requested camera index {requested_index} is not working or not found."
             print(f"[ERROR] {error_msg}")
             if len(available_cameras) > 0:
                 print(f"[INFO] Available working camera indices: {available_cameras}")
             else:
                 print(f"[ERROR] No working cameras detected on this system.")
-                
+
             raise ValueError(error_msg)
 
         return requested_index

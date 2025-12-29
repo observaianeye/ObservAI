@@ -31,7 +31,18 @@ export default function CameraFeed() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSourceSelect, setShowSourceSelect] = useState(false);
-  const [currentSource, setCurrentSource] = useState<CameraSourceConfig>({ type: 'webcam' });
+  const [currentSource, setCurrentSource] = useState<CameraSourceConfig>(() => {
+    // Load last used source from localStorage
+    const saved = localStorage.getItem('lastCameraSource');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return { type: 'webcam' };
+      }
+    }
+    return { type: 'webcam' };
+  });
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -41,7 +52,21 @@ export default function CameraFeed() {
 
   // Advanced settings
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [videoLinkUrl, setVideoLinkUrl] = useState('');
+  const [videoLinkUrl, setVideoLinkUrl] = useState(() => {
+    // Restore video link URL if current source is videolink
+    const saved = localStorage.getItem('lastCameraSource');
+    if (saved) {
+      try {
+        const source = JSON.parse(saved);
+        if (source.type === 'videolink' && source.url) {
+          return source.url;
+        }
+      } catch {
+        return '';
+      }
+    }
+    return '';
+  });
   const [ipCameras, setIPCameras] = useState<IPCamera[]>(() => {
     const saved = localStorage.getItem('ipCameras');
     return saved ? JSON.parse(saved) : [];
@@ -62,6 +87,7 @@ export default function CameraFeed() {
   const cleanupRef = useRef<(() => void) | null>(null);
   const isChangingSourceRef = useRef(false);
   const mjpegImgRef = useRef<HTMLImageElement>(null);
+  const canvasSizeInitialized = useRef(false);
 
   /**
    * Start Python backend automatically when camera source changes
@@ -95,50 +121,55 @@ export default function CameraFeed() {
     localStorage.setItem('ipCameras', JSON.stringify(ipCameras));
   }, [ipCameras]);
 
-  // Auto-start MacBook camera when entering Live mode
+  // Auto-start camera when entering Live mode
+  // Use last selected source from localStorage, or default to MacBook camera
   const hasAutoStartedRef = useRef(false);
   useEffect(() => {
     if (dataMode === 'live' && !hasAutoStartedRef.current) {
       hasAutoStartedRef.current = true;
-      // Automatically start with MacBook camera (source 0)
-      handleSourceChange('webcam');
+
+      // Check if we have a saved source and it's not the initial state
+      const savedSource = localStorage.getItem('lastCameraSource');
+      const isBackendRunning = localStorage.getItem('backendRunning') === 'true';
+
+      if (savedSource && isBackendRunning) {
+        // Backend is already running with a source, just reconnect UI
+        console.log('[CameraFeed] Backend already running, restoring UI state...');
+        setIsStreaming(true);
+      } else {
+        // Start with last used source or default to webcam
+        const sourceToUse = currentSource.type || 'webcam';
+        console.log(`[CameraFeed] Starting with source: ${sourceToUse}`);
+        handleSourceChange(sourceToUse, currentSource);
+      }
     } else if (dataMode === 'demo') {
       hasAutoStartedRef.current = false;
       stopCamera();
+      localStorage.removeItem('backendRunning');
     }
   }, [dataMode]);
 
-  // Initialize camera stream when source changes
-  useEffect(() => {
-    if (dataMode === 'live' && currentSource.type) {
-      initializeCamera();
-    }
-
-    return () => {
-      stopCamera();
-    };
-  }, [currentSource]);
+  // REMOVED: Initialize camera useEffect was causing race conditions
+  // Camera initialization is now exclusively handled by handleSourceChange
 
   // Connect to backend Socket.IO for detections
+  // This effect runs once when entering Live mode and stays connected
   useEffect(() => {
-    if (dataMode === 'live' && isStreaming) {
+    if (dataMode === 'live') {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
+      console.log('[CameraFeed] Connecting to backend Socket.IO...');
       cameraBackendService.connect(backendUrl);
       setBackendConnected(cameraBackendService.getConnectionStatus());
 
-      // Start the analytics stream on the backend
-      cameraBackendService.startStream().catch(() => {
-        // Silently handle - stream might already be running
-      });
-
+      // Subscribe to detections
       const unsubscribeDetections = cameraBackendService.onDetections((tracks) => {
         // Only update if data actually changed to prevent unnecessary re-renders
         setDetections(prev => {
           if (prev.length !== tracks.length) return tracks;
           // Check if content is the same
-          const changed = tracks.some((t, i) => 
-            !prev[i] || t.id !== prev[i].id || 
+          const changed = tracks.some((t, i) =>
+            !prev[i] || t.id !== prev[i].id ||
             t.bbox[0] !== prev[i].bbox[0] || t.bbox[1] !== prev[i].bbox[1]
           );
           return changed ? tracks : prev;
@@ -152,20 +183,21 @@ export default function CameraFeed() {
       };
 
       return () => {
+        console.log('[CameraFeed] Cleanup: Unsubscribing from detections');
         if (cleanupRef.current) {
           cleanupRef.current();
           cleanupRef.current = null;
         }
-        // Only stop stream if not changing sources
-        if (!isChangingSourceRef.current) {
-          cameraBackendService.stopStream().catch(() => {});
-        }
+        // CRITICAL: Do NOT stop backend stream on component unmount
+        // This allows backend to keep running when navigating to Zone Labeling
+        // Backend stream is only stopped when explicitly changing sources or exiting Live mode
       };
     } else {
       setBackendConnected(false);
       setDetections([]);
+      localStorage.removeItem('backendRunning');
     }
-  }, [dataMode, isStreaming]);
+  }, [dataMode]);
 
   // Monitor fullscreen changes
   useEffect(() => {
@@ -203,22 +235,89 @@ export default function CameraFeed() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
+  // Proactively update canvas size as soon as MJPEG image loads
+  // This ensures canvas is sized BEFORE first detections arrive
+  useEffect(() => {
+    if (!isStreaming || canvasSizeInitialized.current) return;
+
+    const checkInterval = setInterval(() => {
+      const img = mjpegImgRef.current;
+      const canvas = canvasRef.current;
+
+      if (img && canvas && img.naturalWidth > 0 && img.naturalHeight > 0) {
+        console.log(`[CameraFeed] Proactive canvas resize: ${img.naturalWidth}x${img.naturalHeight}`);
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        setVideoDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+        canvasSizeInitialized.current = true;
+        clearInterval(checkInterval);
+      }
+    }, 100);
+
+    return () => clearInterval(checkInterval);
+  }, [isStreaming]);
+
   // Render detection overlays
   useEffect(() => {
-    if (!canvasRef.current || !videoRef.current || !isStreaming) return;
+    if (!canvasRef.current || !isStreaming) return;
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
+    const mjpegImg = mjpegImgRef.current;
+
+    // CRITICAL: Don't render until canvas is properly sized
+    if (canvas.width <= 16 || canvas.height <= 9) {
+      console.log('[CameraFeed] Waiting for canvas to be sized...');
+      return;
+    }
 
     const drawFrame = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Match canvas size to video
-      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-        canvas.width = video.videoWidth || 1920;
-        canvas.height = video.videoHeight || 1080;
+      // CRITICAL: Always sync canvas size with actual video/image dimensions
+      // This ensures bounding boxes are drawn at correct positions
+      let targetWidth = videoDimensions.width;
+      let targetHeight = videoDimensions.height;
+
+      // Double-check with actual DOM elements for accuracy
+      if (mjpegImg && mjpegImg.naturalWidth > 0) {
+        // MJPEG stream is active - use actual image dimensions
+        targetWidth = mjpegImg.naturalWidth;
+        targetHeight = mjpegImg.naturalHeight;
+      } else if (video && video.videoWidth > 0) {
+        // Video element is active - use actual video dimensions
+        targetWidth = video.videoWidth;
+        targetHeight = video.videoHeight;
       }
+
+      // ALWAYS update canvas size to match source - this prevents bbox scaling issues
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        console.log(`[CameraFeed] Updating canvas size: ${canvas.width}x${canvas.height} → ${targetWidth}x${targetHeight}`);
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+      }
+
+      // FALLBACK: If dimensions are still default (16x9), try to read from DOM one more time
+      if (canvas.width === 16 && canvas.height === 9) {
+        if (mjpegImg && mjpegImg.naturalWidth && mjpegImg.naturalWidth > 0) {
+          canvas.width = mjpegImg.naturalWidth;
+          canvas.height = mjpegImg.naturalHeight;
+          console.log(`[CameraFeed] Forced canvas size from MJPEG: ${canvas.width}x${canvas.height}`);
+        } else if (video && video.videoWidth && video.videoWidth > 0) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          console.log(`[CameraFeed] Forced canvas size from video: ${canvas.width}x${canvas.height}`);
+        }
+      }
+
+      // Calculate responsive sizes based on canvas dimensions
+      // Font size: 1.5% of canvas height (min 10px, max 18px)
+      const fontSize = Math.min(18, Math.max(10, canvas.height * 0.015));
+      // Line width: 0.25% of canvas width (min 2px, max 4px)
+      const lineWidth = Math.min(4, Math.max(2, canvas.width * 0.0025));
+      // Badge font size: slightly smaller
+      const badgeFontSize = Math.floor(fontSize * 0.85);
 
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -233,14 +332,14 @@ export default function CameraFeed() {
           const zoneHeight = zone.height * canvas.height;
 
           ctx.strokeStyle = zone.type === 'entrance' ? '#10b981' : '#ef4444';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = lineWidth; // Use responsive line width
           ctx.setLineDash([5, 5]);
           ctx.strokeRect(zoneX, zoneY, zoneWidth, zoneHeight);
           ctx.setLineDash([]);
 
-          // Draw zone label
+          // Draw zone label with responsive font
           ctx.fillStyle = zone.type === 'entrance' ? '#10b981' : '#ef4444';
-          ctx.font = '14px sans-serif';
+          ctx.font = `${fontSize}px sans-serif`; // Use responsive font size
           const textMetrics = ctx.measureText(zone.name);
           ctx.fillRect(zoneX, zoneY - 20, textMetrics.width + 10, 20);
           ctx.fillStyle = '#ffffff';
@@ -249,7 +348,7 @@ export default function CameraFeed() {
       }
 
       // Draw detections
-      detections.forEach((detection) => {
+      detections.forEach((detection, idx) => {
         const [x, y, w, h] = detection.bbox; // Normalized coordinates [0-1]
 
         // Convert to pixel coordinates
@@ -258,10 +357,15 @@ export default function CameraFeed() {
         const pw = w * canvas.width;
         const ph = h * canvas.height;
 
-        // Draw bounding box
+        // Debug log for first detection to verify canvas size
+        if (idx === 0 && detections.length > 0) {
+          console.log(`[CameraFeed] Drawing detection: bbox=[${x.toFixed(3)}, ${y.toFixed(3)}, ${w.toFixed(3)}, ${h.toFixed(3)}], canvas=${canvas.width}x${canvas.height}, pixels=[${px.toFixed(0)}, ${py.toFixed(0)}, ${pw.toFixed(0)}, ${ph.toFixed(0)}], fontSize=${fontSize}px, lineWidth=${lineWidth}px`);
+        }
+
+        // Draw bounding box with responsive line width
         ctx.strokeStyle = detection.state === 'entering' ? '#10b981' :
           detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = lineWidth; // Use responsive line width
         ctx.strokeRect(px, py, pw, ph);
 
         // Draw label background
@@ -273,9 +377,9 @@ export default function CameraFeed() {
         const dwellTime = Math.floor(detection.dwellSec);
         const labelText = `${gender} | ${ageBucket} | ${dwellTime}s`;
 
-        ctx.font = '14px sans-serif';
+        ctx.font = `${fontSize}px sans-serif`; // Use responsive font size
         const textMetrics = ctx.measureText(labelText);
-        const textHeight = 20;
+        const textHeight = Math.ceil(fontSize * 1.4); // Height proportional to font size
 
         ctx.fillStyle = detection.state === 'entering' ? '#10b981' :
           detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
@@ -285,12 +389,13 @@ export default function CameraFeed() {
         ctx.fillStyle = '#ffffff';
         ctx.fillText(labelText, px + 5, py - 5);
 
-        // Draw ID badge
-        ctx.font = '12px sans-serif';
+        // Draw ID badge with responsive font
+        ctx.font = `${badgeFontSize}px sans-serif`; // Use responsive badge font size
         ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.fillRect(px, py + ph, 40, 18);
+        const badgeHeight = Math.ceil(badgeFontSize * 1.5);
+        ctx.fillRect(px, py + ph, 40, badgeHeight);
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(`#${detection.id.slice(-4)}`, px + 5, py + ph + 13);
+        ctx.fillText(`#${detection.id.slice(-4)}`, px + 5, py + ph + badgeHeight - 5);
       });
 
       animationFrameRef.current = requestAnimationFrame(drawFrame);
@@ -303,7 +408,7 @@ export default function CameraFeed() {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [detections, isStreaming, showZones, zones]);
+  }, [detections, isStreaming, showZones, zones, videoDimensions]);
 
 
   const initializeCamera = async () => {
@@ -470,10 +575,13 @@ export default function CameraFeed() {
     }
     isChangingSourceRef.current = true;
     setIsSwitchingSource(true);
-    
+
     setShowSourceSelect(false);
     setShowAdvancedSettings(false);
     setError(null);
+
+    // Reset canvas size initialization flag when changing sources
+    canvasSizeInitialized.current = false;
 
     try {
       // 1. Cleanup existing subscriptions
@@ -507,7 +615,9 @@ export default function CameraFeed() {
             backendSource = 0; // MacBook camera
             break;
           case 'iphone':
-            backendSource = 1; // iPhone camera (Continuity Camera)
+            // iPhone camera requires Continuity Camera to be set up on macOS
+            // Backend will attempt index 1, but may fallback to index 0 if not available
+            backendSource = 1;
             break;
           case 'ip':
             if (config?.ipCameraId) {
@@ -520,39 +630,54 @@ export default function CameraFeed() {
           case 'videolink':
             if (config?.url) {
               backendSource = config.url;
+            } else {
+              throw new Error('Please enter a video URL');
             }
             break;
           // For 'file', backend doesn't process it (browser handles local playback)
         }
 
         // Start Python backend with the selected source
+        console.log(`[CameraFeed] Step 6: Starting Python backend with source: ${backendSource}...`);
         await startPythonBackend(backendSource);
 
         // Ensure backend connection is established
         const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+        console.log('[CameraFeed] Step 7: Connecting to backend...');
         cameraBackendService.connect(backendUrl);
 
-        // Change source on backend - with timeout
-        const changeSourcePromise = cameraBackendService.changeSource(backendSource);
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Source change timeout')), 10000)
-        );
+        // Change source on backend - this will also start the analytics stream
+        console.log('[CameraFeed] Step 8: Changing source on backend...');
+        await cameraBackendService.changeSource(backendSource);
+        console.log('[CameraFeed] Backend source changed successfully');
 
-        await Promise.race([changeSourcePromise, timeoutPromise]);
-
-        // Start the stream
-        await cameraBackendService.startStream();
+        // REMOVED: startStream() call - changeSource already starts the stream internally
+        // This was causing "Analytics already running" warning
 
         // Wait for stream to initialize
-        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log('[CameraFeed] Step 9: Waiting for stream initialization...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Set streaming state BEFORE updating source to trigger MJPEG display
+        setIsStreaming(true);
       }
 
-      // 5. Update frontend source state AFTER backend has switched
-      setCurrentSource({ type, ...config });
+      // 10. Update frontend source state AFTER backend has switched
+      console.log('[CameraFeed] Step 10: Updating frontend source state...');
+      const newSource = { type, ...config };
+      setCurrentSource(newSource);
+
+      // Save to localStorage for persistence across page navigation
+      localStorage.setItem('lastCameraSource', JSON.stringify(newSource));
+      localStorage.setItem('backendRunning', 'true');
+      console.log('[CameraFeed] ✅ Source saved to localStorage for persistence');
+
+      console.log(`[CameraFeed] ===== SOURCE CHANGE COMPLETED SUCCESSFULLY TO: ${type} =====`);
 
     } catch (err) {
       console.error('[CameraFeed] Source change failed:', err);
       setError(`Failed to switch to ${type}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setIsStreaming(false);
     } finally {
       isChangingSourceRef.current = false;
       setIsSwitchingSource(false);
@@ -723,29 +848,45 @@ export default function CameraFeed() {
           <div className="grid grid-cols-2 gap-2 mb-3">
             <button
               onClick={() => handleSourceChange('webcam')}
-              className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'webcam'
-                ? 'bg-blue-600 text-white'
+              className={`px-3 py-2 text-xs rounded-lg transition-colors relative ${currentSource.type === 'webcam'
+                ? 'bg-blue-600 text-white ring-2 ring-blue-400'
                 : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
                 }`}
             >
-              MacBook Cam
+              <span className="flex items-center justify-center">
+                {currentSource.type === 'webcam' && (
+                  <span className="absolute left-2 w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                )}
+                MacBook Cam
+              </span>
             </button>
             <button
               onClick={() => handleSourceChange('iphone')}
-              className={`px-3 py-2 text-xs rounded-lg transition-colors ${currentSource.type === 'iphone'
-                ? 'bg-blue-600 text-white'
+              className={`px-3 py-2 text-xs rounded-lg transition-colors relative ${currentSource.type === 'iphone'
+                ? 'bg-blue-600 text-white ring-2 ring-blue-400'
                 : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
                 }`}
             >
-              iPhone
+              <span className="flex items-center justify-center">
+                {currentSource.type === 'iphone' && (
+                  <span className="absolute left-2 w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                )}
+                iPhone
+              </span>
             </button>
           </div>
 
           {/* Video Link Input (YouTube, HLS, RTMP, MP4) */}
           <div className="mt-3">
-            <label className="text-xs text-gray-300 mb-1 block">
-              <LinkIcon className="w-3 h-3 inline mr-1" />
+            <label className="text-xs text-gray-300 mb-1 flex items-center">
+              <LinkIcon className="w-3 h-3 mr-1" />
               Video Link (YouTube, HLS, RTMP, MP4)
+              {currentSource.type === 'videolink' && (
+                <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full flex items-center">
+                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1 animate-pulse"></span>
+                  Active
+                </span>
+              )}
             </label>
             <div className="flex space-x-2">
               <input
@@ -753,7 +894,11 @@ export default function CameraFeed() {
                 value={videoLinkUrl}
                 onChange={(e) => setVideoLinkUrl(e.target.value)}
                 placeholder="https://youtube.com/watch?v=... or .m3u8/.mp4 URL"
-                className="flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
+                className={`flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border transition-colors focus:outline-none ${
+                  currentSource.type === 'videolink'
+                    ? 'border-blue-500 ring-1 ring-blue-400'
+                    : 'border-gray-600 focus:border-blue-500'
+                }`}
               />
               <button
                 onClick={handleVideoLinkConnect}
@@ -920,20 +1065,37 @@ export default function CameraFeed() {
           ) : null}
 
           {/* MJPEG stream from backend (Live mode - 30 FPS, low latency) */}
-          {dataMode === 'live' && isStreaming && !error && !stream && (
+          {dataMode === 'live' && isStreaming && !error && !stream && !isSwitchingSource && (
             <img
               ref={mjpegImgRef}
-              src={`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg`}
+              src={`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg?t=${Date.now()}`}
               alt="Camera stream"
               className="w-full h-full object-contain bg-black"
               onLoad={(e) => {
                 const img = e.currentTarget;
                 if (img.naturalWidth && img.naturalHeight) {
+                  console.log(`[CameraFeed] MJPEG loaded: ${img.naturalWidth}x${img.naturalHeight}`);
                   setVideoDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+
+                  // CRITICAL: Force canvas resize on next frame to prevent bbox scaling issues
+                  if (canvasRef.current) {
+                    const canvas = canvasRef.current;
+                    if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+                      canvas.width = img.naturalWidth;
+                      canvas.height = img.naturalHeight;
+                      console.log(`[CameraFeed] Canvas immediately resized to match MJPEG: ${canvas.width}x${canvas.height}`);
+                    }
+                  }
                 }
+                // Clear any error when stream loads successfully
+                setError(null);
               }}
               onError={() => {
-                setError('MJPEG stream connection failed.\n\nMake sure Python backend is running:\npython -m camera_analytics.run_with_websocket --source 0');
+                // Only show error if we're not switching sources
+                if (!isChangingSourceRef.current && isStreaming) {
+                  console.error('[CameraFeed] MJPEG stream error');
+                  setError('MJPEG stream connection failed.\n\nMake sure Python backend is running:\npython -m camera_analytics.run_with_websocket --source 0');
+                }
               }}
             />
           )}

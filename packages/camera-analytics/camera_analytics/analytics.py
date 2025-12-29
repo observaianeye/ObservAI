@@ -334,9 +334,18 @@ class CameraAnalyticsEngine:
     if isinstance(self.source, int):
       from .sources import _get_camera_backend
       cap = cv2.VideoCapture(self.source, _get_camera_backend())
+
+      # CRITICAL: For iPhone/Continuity Camera (index 1), force 30 FPS
+      # iPhone cameras often report 5 FPS but can actually do 30 FPS
+      if self.source == 1:
+        print(f"[INFO] Detected secondary camera (likely iPhone), forcing 30 FPS")
+        cap.set(cv2.CAP_PROP_FPS, 30.0)
+        # Also set resolution for better quality
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     else:
       cap = cv2.VideoCapture(self.source)
-      
+
       # For network streams (live), set buffer size and other options
       if self.is_live_source:
         # Reduce buffer size for lower latency on live streams
@@ -350,14 +359,21 @@ class CameraAnalyticsEngine:
         error_msg += f" (Backend: {backend_name})"
       except Exception:
         pass
-      
+
       print(f"[ERROR] {error_msg}")
       raise ValueError(error_msg)
 
     # Try to get FPS from OpenCV if not already set (fallback for non-live videos)
     if not self.is_live_source and self.source_fps is None:
       opencv_fps = cap.get(cv2.CAP_PROP_FPS)
-      if opencv_fps and opencv_fps > 0:
+
+      # OVERRIDE: If camera index 1 (iPhone) reports low FPS, force 30 FPS
+      if isinstance(self.source, int) and self.source == 1 and opencv_fps < 15:
+        print(f"[WARN] iPhone camera reported {opencv_fps} FPS, overriding to 30 FPS")
+        self.source_fps = 30.0
+        self.frame_delay = 1.0 / 30.0
+        print(f"[INFO] Forced FPS: {self.source_fps:.1f} (frame delay: {self.frame_delay*1000:.1f}ms)")
+      elif opencv_fps and opencv_fps > 0:
         self.source_fps = opencv_fps
         self.frame_delay = 1.0 / self.source_fps
         print(f"[INFO] Detected FPS from OpenCV: {self.source_fps:.1f} (frame delay: {self.frame_delay*1000:.1f}ms)")
