@@ -486,10 +486,14 @@ export default function CameraFeed() {
           if (currentSource.ipCameraId) {
             const ipCamera = ipCameras.find(cam => cam.id === currentSource.ipCameraId);
             if (ipCamera) {
+              const isWindows = navigator.platform.toLowerCase().includes('win');
+              const scriptCommand = isWindows
+                ? `scripts\\start-camera-backend.bat "${ipCamera.url}"`
+                : `./scripts/start-camera-backend.sh "${ipCamera.url}"`;
               setError(
                 `IP Camera "${ipCamera.name}" requires backend processing.\n\n` +
                 `Run in terminal:\n` +
-                `./scripts/start-camera-backend.sh "${ipCamera.url}"`
+                scriptCommand
               );
               setIsStreaming(true);
               return;
@@ -518,10 +522,14 @@ export default function CameraFeed() {
             videoRef.current.loop = true;
             await videoRef.current.play();
             setIsStreaming(true);
+            const isWindows = navigator.platform.toLowerCase().includes('win');
+            const scriptCommand = isWindows
+              ? `scripts\\start-camera-backend.bat "${currentSource.file.name}"`
+              : `./scripts/start-camera-backend.sh "${currentSource.file.name}"`;
             setError(
               'Local video playback only.\n\n' +
               'For YOLO processing, run:\n' +
-              `./scripts/start-camera-backend.sh "${currentSource.file.name}"`
+              scriptCommand
             );
             return;
           }

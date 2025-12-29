@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "npm run start:all",
     "start:node": "tsx watch src/index.ts",
-    "start:python": "cd ../packages/camera-analytics && ./venv/bin/python -m camera_analytics.run_with_websocket --source 0 --ws-port 5001",
+    "start:python": "node scripts/start-python-backend.js",
     "start:all": "concurrently --names \"API,AI\" --prefix-colors \"blue,green\" \"npm run start:node\" \"npm run start:python\"",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
