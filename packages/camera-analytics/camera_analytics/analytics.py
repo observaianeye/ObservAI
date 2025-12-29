@@ -310,9 +310,10 @@ class CameraAnalyticsEngine:
     """
     print(f"[INFO] Validating video source: {self.source}")
     
-    # For macOS camera indices, use AVFoundation backend explicitly
+    # For camera indices, use platform-specific backend
     if isinstance(self.source, int):
-      cap = cv2.VideoCapture(self.source, cv2.CAP_AVFOUNDATION)
+      from .sources import _get_camera_backend
+      cap = cv2.VideoCapture(self.source, _get_camera_backend())
     else:
       cap = cv2.VideoCapture(self.source)
 

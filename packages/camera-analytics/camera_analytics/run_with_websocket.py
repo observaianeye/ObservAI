@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import platform
 import signal
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -61,8 +62,16 @@ class CameraAnalyticsWithWebSocket:
             print("\nReceived shutdown signal")
             stop_event.set()
 
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, signal_handler)
+        # Platform-specific signal handling
+        # Windows doesn't support loop.add_signal_handler()
+        if platform.system() != "Windows":
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, signal_handler)
+        else:
+            # Windows: Use traditional signal handler for Ctrl+C
+            def windows_signal_handler(signum, frame):
+                signal_handler()
+            signal.signal(signal.SIGINT, windows_signal_handler)
 
         await self.ws_server.start()
         print(

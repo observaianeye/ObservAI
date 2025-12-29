@@ -20,6 +20,22 @@ except ImportError:
     mss = None
 
 
+def _get_camera_backend():
+    """Get platform-specific OpenCV camera backend.
+    
+    Returns the optimal backend for each operating system:
+    - macOS (Darwin): AVFoundation
+    - Windows: DirectShow
+    - Linux: Video4Linux2
+    """
+    system = platform.system()
+    if system == "Darwin":
+        return cv2.CAP_AVFOUNDATION
+    elif system == "Windows":
+        return cv2.CAP_DSHOW
+    else:  # Linux
+        return cv2.CAP_V4L2
+
 
 class SourceType:
     """Enumeration of supported source types"""
@@ -57,15 +73,17 @@ class VideoSource(ABC):
 class WebcamSource(VideoSource):
     def get_source(self) -> int:
         requested_index = int(self.source_input) if isinstance(self.source_input, str) else self.source_input
+        system = platform.system()
+        backend = _get_camera_backend()
 
-        # Special handling for index 1 on macOS - might be iPhone/Continuity Camera
-        # If requested index doesn't work, try to discover the correct camera
-        if requested_index >= 1 and platform.system() == "Darwin":  # macOS
+        # Special handling for index >= 1 - verify camera availability
+        # On macOS this handles iPhone/Continuity Camera, on other platforms it validates the camera
+        if requested_index >= 1:
             print(f"[INFO] Requested camera index: {requested_index}")
-            print(f"[INFO] Verifying camera availability on macOS...")
+            print(f"[INFO] Verifying camera availability on {system}...")
 
             # Try the requested index first
-            test_cap = cv2.VideoCapture(requested_index, cv2.CAP_AVFOUNDATION)
+            test_cap = cv2.VideoCapture(requested_index, backend)
             if test_cap.isOpened():
                 ret, frame = test_cap.read()
                 test_cap.release()
@@ -82,7 +100,7 @@ class WebcamSource(VideoSource):
             available_cameras = []
 
             for i in range(10):  # Check indices 0-9
-                cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
+                cap = cv2.VideoCapture(i, backend)
                 if cap.isOpened():
                     ret, frame = cap.read()
                     if ret and frame is not None:
@@ -96,9 +114,9 @@ class WebcamSource(VideoSource):
                     pass
 
             if len(available_cameras) > 1 and requested_index == 1:
-                # User wants the second camera (iPhone), use the second available camera
+                # User wants the second camera (iPhone on macOS, or secondary camera on other platforms)
                 actual_index = available_cameras[1]
-                print(f"[INFO] Using camera at index {actual_index} for iPhone/secondary camera")
+                print(f"[INFO] Using camera at index {actual_index} for secondary camera")
                 return actual_index
             
             # CRITICAL: Removed silent fallback to index 0. 
