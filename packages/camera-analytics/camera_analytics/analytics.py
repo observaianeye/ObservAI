@@ -214,11 +214,11 @@ class CameraAnalyticsEngine:
       pass
 
     # Frame skipping for face analysis (async processing)
-    # Increase interval for network streams to reduce processing load
+    # Use frequent updates for all streams to ensure quick demographics capture
     if isinstance(source, str) and source.startswith(('http', 'rtsp', 'rtmp')):
-      self.face_detection_interval = 20  # Less frequent for network streams
+      self.face_detection_interval = 5  # More frequent for network streams (was 20)
     else:
-      self.face_detection_interval = 10  # Normal interval for local cameras
+      self.face_detection_interval = 5  # Frequent updates for local cameras (was 10)
 
     self.frame_count = 0
     self.demographics_executor = ThreadPoolExecutor(
@@ -268,9 +268,11 @@ class CameraAnalyticsEngine:
 
     if FaceAnalysis is not None:
       try:
+        # bufallo_s is a lightweight model. 
+        # Increase det_size to (640, 640) for better detection of small faces in wide shots (YouTube/CCTV)
         self.face_app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
-        self.face_app.prepare(ctx_id=0, det_size=(320, 320))
-        print("[INFO] InsightFace initialized (buffalo_s model)")
+        self.face_app.prepare(ctx_id=0, det_size=(640, 640))
+        print("[INFO] InsightFace initialized (buffalo_s model, 640x640)")
       except Exception as err:  # pragma: no cover - runtime-only
         print(f"[WARN] InsightFace initialization failed: {err}. Demographics disabled.")
         self.face_app = None
