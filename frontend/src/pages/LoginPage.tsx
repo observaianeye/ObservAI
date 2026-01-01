@@ -70,14 +70,12 @@ export default function LoginPage() {
     setIsLoading(true);
     setError('');
 
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    const success = login(email, password);
+    const success = await login(email, password);
 
     if (success) {
       navigate('/dashboard');
     } else {
-      setError('Invalid credentials. Try admin@observai.com / demo1234');
+      setError('Invalid email or password');
       setIsLoading(false);
     }
   };

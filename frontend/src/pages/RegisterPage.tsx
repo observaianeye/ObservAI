@@ -19,7 +19,7 @@ export default function RegisterPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
+    console.log("yarak");
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -32,12 +32,35 @@ export default function RegisterPage() {
 
     setIsLoading(true);
 
-    // Simulate registration delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      console.log("register istek atildi");
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          company: formData.company,
+          password: formData.password
+        }),
+      });
 
-    setIsLoading(false);
-    // For demo purposes, redirect to login
-    navigate('/login');
+      if (response.ok) {
+        // Registration successful
+        navigate('/login');
+      } else {
+        const data = await response.json();
+        console.log("emrenin burası");
+        setError(data.error || 'Registration failed');
+      }
+    } catch (err) {
+      console.error(err); // Log the error for debugging
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

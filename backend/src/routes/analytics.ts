@@ -34,13 +34,13 @@ router.post('/', async (req: Request, res: Response) => {
         peopleIn: data.peopleIn,
         peopleOut: data.peopleOut,
         currentCount: data.currentCount,
-        demographics: data.demographics,
+        demographics: data.demographics ? JSON.stringify(data.demographics) : undefined,
         queueCount: data.queueCount,
         avgWaitTime: data.avgWaitTime,
         longestWaitTime: data.longestWaitTime,
         fps: data.fps,
-        heatmap: data.heatmap,
-        activePeople: data.activePeople
+        heatmap: data.heatmap ? JSON.stringify(data.heatmap) : undefined,
+        activePeople: data.activePeople ? JSON.stringify(data.activePeople) : undefined
       }
     });
 
@@ -101,16 +101,16 @@ router.get('/compare', async (req: Request, res: Response) => {
         const avgCurrentCount = logs.reduce((sum, log) => sum + log.currentCount, 0) / logs.length;
         const avgQueueCount = logs.filter(l => l.queueCount !== null).length > 0
           ? logs.filter(l => l.queueCount !== null).reduce((sum, log) => sum + (log.queueCount || 0), 0) /
-            logs.filter(l => l.queueCount !== null).length
+          logs.filter(l => l.queueCount !== null).length
           : 0;
         const avgWaitTime = logs.filter(l => l.avgWaitTime !== null).length > 0
           ? logs.filter(l => l.avgWaitTime !== null).reduce((sum, log) => sum + (log.avgWaitTime || 0), 0) /
-            logs.filter(l => l.avgWaitTime !== null).length
+          logs.filter(l => l.avgWaitTime !== null).length
           : 0;
         const maxWaitTime = Math.max(...logs.map(l => l.longestWaitTime || 0));
         const avgFps = logs.filter(l => l.fps !== null).length > 0
           ? logs.filter(l => l.fps !== null).reduce((sum, log) => sum + (log.fps || 0), 0) /
-            logs.filter(l => l.fps !== null).length
+          logs.filter(l => l.fps !== null).length
           : 0;
 
         return {
@@ -212,7 +212,15 @@ router.get('/:cameraId', async (req: Request, res: Response) => {
       }
     });
 
-    res.json(logs);
+    // Parse JSON strings back to objects
+    const parsedLogs = logs.map(log => ({
+      ...log,
+      demographics: log.demographics ? JSON.parse(log.demographics as string) : undefined,
+      heatmap: log.heatmap ? JSON.parse(log.heatmap as string) : undefined,
+      activePeople: log.activePeople ? JSON.parse(log.activePeople as string) : undefined
+    }));
+
+    res.json(parsedLogs);
   } catch (error) {
     console.error('Error fetching analytics:', error);
     res.status(500).json({ error: 'Failed to fetch analytics' });
@@ -354,8 +362,8 @@ function generateComparisonSummary(period1: any, period2: any): string {
   const trafficPercent = Math.abs(Math.round((trafficChange / period2.totalPeopleIn) * 100));
 
   return `Period 1 showed a ${trafficPercent}% ${trafficDirection} in total visitors compared to Period 2. ` +
-         `Average occupancy was ${period1.avgCurrentCount.toFixed(1)} vs ${period2.avgCurrentCount.toFixed(1)}. ` +
-         `Peak hour shifted from ${period2.peakHour} to ${period1.peakHour}.`;
+    `Average occupancy was ${period1.avgCurrentCount.toFixed(1)} vs ${period2.avgCurrentCount.toFixed(1)}. ` +
+    `Peak hour shifted from ${period2.peakHour} to ${period1.peakHour}.`;
 }
 
 export default router;

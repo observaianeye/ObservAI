@@ -4,7 +4,9 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { UserRole } from '@prisma/client';
+// import { UserRole } from '@prisma/client'; // Removed due to SQLite limitation
+
+type UserRole = 'ADMIN' | 'MANAGER' | 'ANALYST' | 'VIEWER';
 
 /**
  * Interface for request with user info
@@ -14,7 +16,7 @@ export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email: string;
-    role: UserRole;
+    role: string; // Changed to string
   };
 }
 
@@ -22,7 +24,11 @@ export interface AuthenticatedRequest extends Request {
  * Role hierarchy for permission checking
  * Higher index = more permissions
  */
-const ROLE_HIERARCHY: UserRole[] = [
+/**
+ * Role hierarchy for permission checking
+ * Higher index = more permissions
+ */
+const ROLE_HIERARCHY: string[] = [
   'VIEWER',    // Lowest - View-only access (legacy)
   'ANALYST',   // Read-only access (GET requests only)
   'MANAGER',   // Can manage cameras and zones
@@ -32,14 +38,14 @@ const ROLE_HIERARCHY: UserRole[] = [
 /**
  * Get role level (higher = more permissions)
  */
-function getRoleLevel(role: UserRole): number {
+function getRoleLevel(role: string): number {
   return ROLE_HIERARCHY.indexOf(role);
 }
 
 /**
  * Check if user has required role or higher
  */
-export function hasRole(userRole: UserRole, requiredRole: UserRole): boolean {
+export function hasRole(userRole: string, requiredRole: string): boolean {
   return getRoleLevel(userRole) >= getRoleLevel(requiredRole);
 }
 

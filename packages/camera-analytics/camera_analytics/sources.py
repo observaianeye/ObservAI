@@ -365,8 +365,10 @@ class VideoLinkSource(VideoSource):
                     # Note: YouTube live streams are typically HLS which has some inherent latency
                     cmd = ['yt-dlp', '-f', 'best[height<=720]/best', '-g', url]
                 else:
-                    # For regular videos: get best quality MP4
-                    cmd = ['yt-dlp', '-f', 'best[ext=mp4]/best', '-g', url]
+                    # For regular videos: get best quality video (up to 1080p)
+                    # We prioritize video-only streams (bestvideo) to get 1080p, as best[ext=mp4] often caps at 360p/720p
+                    # Analytics doesn't need audio, so video-only is perfect and higher quality
+                    cmd = ['yt-dlp', '-f', 'bestvideo[height<=1080]/best[height<=1080]/best', '-g', url]
                 
                 result = subprocess.run(
                     cmd,

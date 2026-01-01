@@ -47,7 +47,13 @@ router.get('/:cameraId', async (req: Request, res: Response) => {
       }
     });
 
-    res.json(zones);
+    // Parse JSON strings back to objects
+    const parsedZones = zones.map(zone => ({
+      ...zone,
+      coordinates: typeof zone.coordinates === 'string' ? JSON.parse(zone.coordinates as string) : zone.coordinates
+    }));
+
+    res.json(parsedZones);
   } catch (error) {
     console.error('Error fetching zones:', error);
     res.status(500).json({ error: 'Failed to fetch zones' });
@@ -65,7 +71,7 @@ router.post('/', requireManager, async (req: Request, res: Response) => {
         cameraId: data.cameraId,
         name: data.name,
         type: data.type,
-        coordinates: data.coordinates,
+        coordinates: JSON.stringify(data.coordinates),
         color: data.color || '#3b82f6',
         createdBy: data.createdBy
       },
@@ -154,7 +160,7 @@ router.post('/batch', requireManager, async (req: Request, res: Response) => {
         cameraId,
         name: zone.name,
         type: zone.type || 'CUSTOM',
-        coordinates: zone.coordinates,
+        coordinates: JSON.stringify(zone.coordinates),
         color: zone.color || '#3b82f6',
         createdBy
       }))

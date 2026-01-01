@@ -31,7 +31,6 @@ export default function GlobalChatbot() {
   const isDashboard = location.pathname.startsWith('/dashboard');
   const shouldShow = isAuthenticated && isDashboard;
 
-  if (!shouldShow) return null;
 
   useEffect(() => {
     sessionStorage.setItem('chatMessages', JSON.stringify(messages.slice(-20)));
@@ -131,6 +130,8 @@ export default function GlobalChatbot() {
     setIsOpen(!isOpen);
   };
 
+  if (!shouldShow) return null;
+
   return (
     <>
       {!isOpen && (
@@ -201,11 +202,10 @@ export default function GlobalChatbot() {
                     className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                        message.type === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-900'
-                      }`}
+                      className={`max-w-[80%] rounded-lg px-4 py-2 ${message.type === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-900'
+                        }`}
                     >
                       <p className="text-sm">{message.content}</p>
                     </div>

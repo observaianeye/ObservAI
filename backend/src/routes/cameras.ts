@@ -39,7 +39,13 @@ router.get('/', async (req: Request, res: Response) => {
       }
     });
 
-    res.json(cameras);
+    // Parse JSON strings back to objects
+    const parsedCameras = cameras.map(camera => ({
+      ...camera,
+      config: camera.config ? JSON.parse(camera.config as string) : undefined,
+    }));
+
+    res.json(parsedCameras);
   } catch (error) {
     console.error('Error fetching cameras:', error);
     res.status(500).json({ error: 'Failed to fetch cameras' });
@@ -89,7 +95,7 @@ router.post('/', requireManager, async (req: Request, res: Response) => {
         description: data.description,
         sourceType: data.sourceType,
         sourceValue: data.sourceValue,
-        config: data.config,
+        config: data.config ? JSON.stringify(data.config) : undefined,
         createdBy: data.createdBy
       },
       include: {

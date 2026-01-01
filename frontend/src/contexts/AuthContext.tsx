@@ -1,81 +1,93 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-type UserRole = 'manager' | 'employee';
+type UserRole = 'ADMIN' | 'MANAGER' | 'ANALYST' | 'VIEWER';
+
+interface User {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: UserRole;
+}
 
 interface AuthContextType {
+  user: User | null;
   isAuthenticated: boolean;
   isAuthReady: boolean;
-  userRole: UserRole;
-  login: (email: string, password: string) => boolean;
-  logout: () => void;
-  useDemoAccount: () => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  checkAuth: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const DEMO_MANAGER_EMAIL = 'admin@observai.com';
-const DEMO_MANAGER_PASSWORD = 'demo1234';
-const DEMO_EMPLOYEE_EMAIL = 'employee@observai.com';
-const DEMO_EMPLOYEE_PASSWORD = 'employee123';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('isDemoAuthed') === 'true';
-  });
 
-  const [userRole, setUserRole] = useState<UserRole>(() => {
-    return (localStorage.getItem('userRole') as UserRole) || 'manager';
-  });
+  const checkAuth = async () => {
+    try {
+      const response = await fetch('/api/auth/me');
+      if (response.ok) {
+        const userData = await response.json();
+        setUser(userData);
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      setUser(null);
+    } finally {
+      setIsAuthReady(true);
+    }
+  };
 
-  // Mark auth as ready after initial mount
   useEffect(() => {
-    setIsAuthReady(true);
+    checkAuth();
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem('isDemoAuthed', isAuthenticated.toString());
-    localStorage.setItem('userRole', userRole);
-  }, [isAuthenticated, userRole]);
+  const login = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-  const login = (email: string, password: string): boolean => {
-    if (email === DEMO_MANAGER_EMAIL && password === DEMO_MANAGER_PASSWORD) {
-      setIsAuthenticated(true);
-      setUserRole('manager');
-      // Immediately persist to localStorage
-      localStorage.setItem('isDemoAuthed', 'true');
-      localStorage.setItem('userRole', 'manager');
-      return true;
+      if (response.ok) {
+        const userData = await response.json();
+        setUser(userData);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Login failed:', error);
+      return false;
     }
-    if (email === DEMO_EMPLOYEE_EMAIL && password === DEMO_EMPLOYEE_PASSWORD) {
-      setIsAuthenticated(true);
-      setUserRole('employee');
-      // Immediately persist to localStorage
-      localStorage.setItem('isDemoAuthed', 'true');
-      localStorage.setItem('userRole', 'employee');
-      return true;
-    }
-    return false;
   };
 
-  const useDemoAccount = (): boolean => {
-    setIsAuthenticated(true);
-    setUserRole('manager');
-    // Immediately persist to localStorage
-    localStorage.setItem('isDemoAuthed', 'true');
-    localStorage.setItem('userRole', 'manager');
-    return true;
-  };
-
-  const logout = () => {
-    setIsAuthenticated(false);
-    setUserRole('manager');
-    localStorage.removeItem('isDemoAuthed');
-    localStorage.removeItem('userRole');
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setUser(null);
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isAuthReady, userRole, login, logout, useDemoAccount }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated: !!user,
+        isAuthReady,
+        login,
+        logout,
+        checkAuth
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

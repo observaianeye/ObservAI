@@ -7,8 +7,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 // User accounts and authentication
@@ -18,7 +18,7 @@ model User {
   passwordHash  String
   firstName     String?
   lastName      String?
-  role          UserRole  @default(MANAGER)
+  role          String  @default("MANAGER")
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -30,13 +30,6 @@ model User {
   sessions      Session[]
 
   @@map("users")
-}
-
-enum UserRole {
-  ADMIN
-  MANAGER
-  ANALYST   // Read-only access (GET requests only)
-  VIEWER
 }
 
 // User session management
@@ -58,7 +51,7 @@ model Camera {
   id          String       @id @default(uuid())
   name        String
   description String?
-  sourceType  SourceType
+  sourceType  String
   sourceValue String
   isActive    Boolean      @default(true)
   createdAt   DateTime     @default(now())
@@ -66,7 +59,7 @@ model Camera {
   createdBy   String
 
   // Configuration
-  config      Json? // Additional camera-specific config
+  config      String? // JSON string
 
   // Relations
   user          User            @relation(fields: [createdBy], references: [id])
@@ -76,25 +69,15 @@ model Camera {
   @@map("cameras")
 }
 
-enum SourceType {
-  WEBCAM
-  FILE
-  RTSP
-  RTMP
-  HTTP
-  YOUTUBE
-  SCREEN_CAPTURE
-}
-
 // Zone definitions (drawn on camera feed)
 model Zone {
   id         String   @id @default(uuid())
   cameraId   String
   name       String
-  type       ZoneType
+  type       String
 
   // Normalized coordinates [0-1]
-  coordinates Json    // Array of {x, y} points for polygon
+  coordinates String    // JSON string
 
   // Visual properties
   color      String   @default("#3b82f6")
@@ -112,14 +95,6 @@ model Zone {
   @@map("zones")
 }
 
-enum ZoneType {
-  ENTRANCE
-  EXIT
-  QUEUE
-  TABLE
-  CUSTOM
-}
-
 // Analytics data snapshots (time-series data)
 model AnalyticsLog {
   id        String   @id @default(uuid())
@@ -132,7 +107,7 @@ model AnalyticsLog {
   currentCount Int      @default(0)
 
   // Demographics
-  demographics Json?    // {gender: {...}, ages: {...}}
+  demographics String?    // JSON string
 
   // Queue metrics
   queueCount      Int?
@@ -143,10 +118,10 @@ model AnalyticsLog {
   fps Float?
 
   // Heatmap data
-  heatmap Json?        // 2D array or points array
+  heatmap String?        // JSON string
 
   // Active people snapshot
-  activePeople Json?   // Array of person objects
+  activePeople String?   // JSON string
 
   // Relations
   camera Camera @relation(fields: [cameraId], references: [id], onDelete: Cascade)
@@ -193,7 +168,7 @@ model AnalyticsSummary {
   avgOccupancy  Float
 
   // Demographics summary
-  demographics Json?
+  demographics String? // JSON string
 
   // Queue stats
   avgQueueLength Float?

@@ -119,8 +119,7 @@ async function getRecentAnalyticsContext(cameraId?: string): Promise<string> {
           select: {
             id: true,
             name: true,
-            sourceType: true,
-            location: true
+            sourceType: true
           }
         }
       }
@@ -138,19 +137,19 @@ async function getRecentAnalyticsContext(cameraId?: string): Promise<string> {
     );
     const avgQueueCount = logs.filter(l => l.queueCount !== null).length > 0
       ? Math.round(
-          logs
-            .filter(l => l.queueCount !== null)
-            .reduce((sum, log) => sum + (log.queueCount || 0), 0) /
-          logs.filter(l => l.queueCount !== null).length
-        )
+        logs
+          .filter(l => l.queueCount !== null)
+          .reduce((sum, log) => sum + (log.queueCount || 0), 0) /
+        logs.filter(l => l.queueCount !== null).length
+      )
       : null;
     const avgWaitTime = logs.filter(l => l.avgWaitTime !== null).length > 0
       ? (
-          logs
-            .filter(l => l.avgWaitTime !== null)
-            .reduce((sum, log) => sum + (log.avgWaitTime || 0), 0) /
-          logs.filter(l => l.avgWaitTime !== null).length
-        ).toFixed(1)
+        logs
+          .filter(l => l.avgWaitTime !== null)
+          .reduce((sum, log) => sum + (log.avgWaitTime || 0), 0) /
+        logs.filter(l => l.avgWaitTime !== null).length
+      ).toFixed(1)
       : null;
 
     // Extract demographics data
@@ -164,7 +163,6 @@ async function getRecentAnalyticsContext(cameraId?: string): Promise<string> {
 
     if (logs[0].camera) {
       context += `Camera: ${logs[0].camera.name}\n`;
-      context += `Location: ${logs[0].camera.location || 'N/A'}\n`;
       context += `Type: ${logs[0].camera.sourceType}\n\n`;
     }
 

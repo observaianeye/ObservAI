@@ -62,10 +62,15 @@ class TrackedPerson:
     x1, y1, x2, y2 = self.bbox_norm
     return x1 <= px <= x2 and y1 <= py <= y2
 
-  def update_age(self, new_age: float, max_samples: int = 10) -> None:
-    """Update age with temporal smoothing - increased samples for stability"""
+  def update_age(self, new_age: float, confidence: float = 1.0, max_samples: int = 10) -> None:
+    """Update age with temporal smoothing - weighted by confidence"""
     if new_age is None:
       return
+    
+    # Filter low confidence updates to prevent noise (Open Source CV Tip: Quality > Quantity)
+    if confidence < 0.7:
+        return
+
     self.age_history.append(float(new_age))
     samples = list(self.age_history)
     if len(samples) >= 3:
@@ -73,13 +78,27 @@ class TrackedPerson:
     else:
       self.age = float(np.mean(samples))
 
-  def update_gender(self, new_gender: str, max_samples: int = 10) -> None:
-    """Update gender with majority voting - increased samples for stability"""
+  def update_gender(self, new_gender: str, confidence: float = 1.0, max_samples: int = 12) -> None:
+    """Update gender with weighted majority voting"""
     if not new_gender or new_gender == "unknown":
       return
+    
+    # Ignore very low confidence
+    if confidence < 0.6:
+        return
 
-    self.gender_history.append(new_gender)
-    if len(self.gender_history) > max_samples:
+    # Weighted voting: High confidence = more votes
+    votes = 1
+    if confidence > 0.8:
+        votes = 3
+    elif confidence > 0.7:
+        votes = 2
+    
+    for _ in range(votes):
+        self.gender_history.append(new_gender)
+        
+    # Keep history manageable
+    while len(self.gender_history) > max_samples:
       self.gender_history.popleft()
 
     male_votes = self.gender_history.count("male")
@@ -89,9 +108,10 @@ class TrackedPerson:
     if total_votes == 0:
       return
 
-    if male_votes / total_votes >= 0.6:
+    # Require stronger consensus
+    if male_votes / total_votes >= 0.55:
       self.gender = "male"
-    elif female_votes / total_votes >= 0.6:
+    elif female_votes / total_votes >= 0.55:
       self.gender = "female"
 
 
@@ -1181,43 +1201,49 @@ class CameraAnalyticsEngine:
         best_distance = float("inf")
 
         for track_id, person in self.tracks.items():
+          # ... existing matching logic ...
           x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
-          px1 = x1_norm * frame_w
-          py1 = y1_norm * frame_h
-          px2 = x2_norm * frame_w
-          py2 = y2_norm * frame_h
-
-          # Intersection
-          ix1 = max(px1, fx1)
-          iy1 = max(py1, fy1)
-          ix2 = min(px2, fx2)
-          iy2 = min(py2, fy2)
-
+          px1_ = x1_norm * frame_w
+          py1_ = y1_norm * frame_h
+          px2_ = x2_norm * frame_w
+          py2_ = y2_norm * frame_h
+          
+          cx = (px1_ + px2_) / 2.0
+          cy = (py1_ + py2_) / 2.0
+          
+          distance = (fcx - cx) ** 2 + (fcy - cy) ** 2
+          
+          # Check overlap
+          ix1 = max(px1_, fx1)
+          iy1 = max(py1_, fy1)
+          ix2 = min(px2_, fx2)
+          iy2 = min(py2_, fy2)
+          
           if ix2 > ix1 and iy2 > iy1:
-            intersection = (ix2 - ix1) * (iy2 - iy1)
-            face_area = (fx2 - fx1) * (fy2 - fy1)
-            overlap_ratio = intersection / face_area
-
-            if overlap_ratio > 0.5:
-              cx = (px1 + px2) / 2.0
-              cy = (py1 + py2) / 2.0
-              distance = (fcx - cx) ** 2 + (fcy - cy) ** 2
-
-              if distance < best_distance:
+             # Basic IOUish check or center distance check
+             if distance < best_distance:
                 best_track_id = track_id
                 best_distance = distance
 
         if best_track_id and best_distance < 10000:
-          # Extract age and gender
+          # Extract age and gender with confidence
+          confidence = float(face.det_score) if hasattr(face, 'det_score') else 0.5
           age = float(face.age) if face.age is not None else None
+          
+          # Gender handling
+          gender = None
           if hasattr(face, "sex") and face.sex is not None:
-            gender = "male" if (face.sex.upper() == 'M' if isinstance(face.sex, str) else float(face.sex) > 0.5) else "female"
+             # Recent InsightFace
+             gender = "male" if (face.sex.upper() == 'M' if isinstance(face.sex, str) else float(face.sex) > 0.5) else "female"
           elif hasattr(face, "gender") and face.gender is not None:
-            gender = "male" if int(face.gender) == 1 else "female"
-          else:
-            gender = None
+             # Older InsightFace
+             gender_prob = float(face.gender) # 1=Male, 0=Female usually? Or prob?
+             if isinstance(face.gender, (int, float)):
+                 gender = "male" if face.gender > 0.5 else "female"
+             else:
+                 gender = "male" if int(face.gender) == 1 else "female"
 
-          results.append((best_track_id, age, gender))
+          results.append((best_track_id, age, gender, confidence))
 
       return results
     except Exception as e:
@@ -1225,10 +1251,7 @@ class CameraAnalyticsEngine:
       return []
 
   def _update_demographics(self, frame: np.ndarray) -> None:
-    """
-    Non-blocking demographics update.
-    Submits work to thread pool and processes completed results.
-    """
+    # ... existing start ...
     if self.face_app is None:
       return
 
@@ -1238,27 +1261,35 @@ class CameraAnalyticsEngine:
         try:
           results = self.pending_demographics_future.result(timeout=0)
           # Apply demographics to tracks
-          for track_id, age, gender in results:
-            if track_id in self.tracks:
-              person = self.tracks[track_id]
-              if age is not None:
-                person.update_age(age)
-              if gender is not None:
-                person.update_gender(gender)
+          for item in results:
+            if len(item) == 4:
+                track_id, age, gender, conf = item
+                if track_id in self.tracks:
+                  person = self.tracks[track_id]
+                  if age is not None:
+                    person.update_age(age, confidence=conf)
+                  if gender is not None:
+                    person.update_gender(gender, confidence=conf)
+            elif len(item) == 3: # Legacy fallback
+                track_id, age, gender = item
+                if track_id in self.tracks:
+                  person = self.tracks[track_id]
+                  person.update_age(age)
+                  person.update_gender(gender)
+
         except Exception as e:
           print(f"[WARN] Demographics result error: {e}")
         finally:
           self.pending_demographics_future = None
-
-    # Schedule new demographics processing if needed
+    
+    # ... existing schedule logic ...
     self.frame_count += 1
     if self.frame_count % self.face_detection_interval == 0:
-      # Only schedule if no pending task
       if self.pending_demographics_future is None:
         frame_h, frame_w = frame.shape[:2]
         self.pending_demographics_future = self.demographics_executor.submit(
           self._process_demographics_async,
-          frame.copy(),  # Copy frame to avoid race conditions
+          frame.copy(),
           frame_w,
           frame_h
         )

@@ -16,7 +16,8 @@ import aiRouter from './routes/ai';
 import exportRouter from './routes/export';
 import { pythonBackendManager } from './lib/pythonBackendManager';
 import { getKafkaConsumer } from './lib/kafkaConsumer';
-
+import cookieParser from 'cookie-parser';
+import authRouter from './routes/auth';
 // Load environment variables
 dotenv.config();
 
@@ -29,6 +30,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+app.use(cookieParser());
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -47,6 +49,7 @@ app.get('/health', async (req: Request, res: Response) => {
 });
 
 // API Routes
+app.use('/api/auth', authRouter);
 app.use('/api/cameras', camerasRouter);
 app.use('/api/zones', zonesRouter);
 app.use('/api/analytics', analyticsRouter);

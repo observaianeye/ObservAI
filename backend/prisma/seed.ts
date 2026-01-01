@@ -62,12 +62,12 @@ async function main() {
       cameraId: camera.id,
       name: 'Entrance Zone',
       type: 'ENTRANCE',
-      coordinates: [
+      coordinates: JSON.stringify([
         { x: 0.1, y: 0.1 },
         { x: 0.4, y: 0.1 },
         { x: 0.4, y: 0.3 },
         { x: 0.1, y: 0.3 }
-      ],
+      ]),
       color: '#10b981',
       createdBy: manager.id
     }
@@ -79,12 +79,12 @@ async function main() {
       cameraId: camera.id,
       name: 'Queue Area',
       type: 'QUEUE',
-      coordinates: [
+      coordinates: JSON.stringify([
         { x: 0.5, y: 0.4 },
         { x: 0.8, y: 0.4 },
         { x: 0.8, y: 0.7 },
         { x: 0.5, y: 0.7 }
-      ],
+      ]),
       color: '#f59e0b',
       createdBy: manager.id
     }
@@ -98,10 +98,10 @@ async function main() {
       peopleIn: 10,
       peopleOut: 5,
       currentCount: 5,
-      demographics: {
+      demographics: JSON.stringify({
         gender: { male: 3, female: 2, unknown: 0 },
         ages: { adult: 4, young: 1 }
-      },
+      }),
       queueCount: 2,
       avgWaitTime: 45.5,
       longestWaitTime: 120.0,

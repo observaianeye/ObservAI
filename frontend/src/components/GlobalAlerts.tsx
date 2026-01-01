@@ -89,7 +89,6 @@ export default function GlobalAlerts() {
   const isDashboard = location.pathname.startsWith('/dashboard');
   const shouldShow = isAuthenticated && isDashboard;
 
-  if (!shouldShow) return null;
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -114,6 +113,8 @@ export default function GlobalAlerts() {
     : alerts.filter(alert => alert.category === activeTab);
 
   const unacknowledgedCount = alerts.filter(a => !a.acknowledged).length;
+
+  if (!shouldShow) return null;
 
   return (
     <>
@@ -167,11 +168,10 @@ export default function GlobalAlerts() {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
-                    activeTab === tab
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${activeTab === tab
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'text-gray-600 hover:bg-gray-50'
+                    }`}
                 >
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </button>
