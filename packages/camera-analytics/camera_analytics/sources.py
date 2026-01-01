@@ -81,50 +81,58 @@ class WebcamSource(VideoSource):
         if requested_index >= 1:
             print(f"[INFO] Requested camera index: {requested_index}")
             print(f"[INFO] Verifying camera availability on {system}...")
-
-            # Try the requested index first
-            test_cap = cv2.VideoCapture(requested_index, backend)
-            if test_cap.isOpened():
-                ret, frame = test_cap.read()
-                test_cap.release()
+            
+            # ATTEMPT 1: Try requested index immediately
+            cap = cv2.VideoCapture(requested_index, backend)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                cap.release()
                 if ret and frame is not None:
                     print(f"[INFO] ✓ Camera at index {requested_index} is working")
                     return requested_index
-                else:
-                    print(f"[WARN] Camera at index {requested_index} opened but no frames")
-            else:
-                print(f"[WARN] Camera at index {requested_index} not available")
+            
+            # ATTEMPT 2: Wait and retry (Continuity Camera wake-up)
+            print(f"[INFO] ⏳ access failed, waiting 2s for camera wake-up...")
+            time.sleep(2.0)
+            
+            cap = cv2.VideoCapture(requested_index, backend)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                cap.release()
+                if ret and frame is not None:
+                    print(f"[INFO] ✓ Camera at index {requested_index} is working after retry")
+                    return requested_index
 
-            # Camera not working at requested index - try discovery
-            print(f"[INFO] Discovering available cameras (indices 0-9)...")
+            # ATTEMPT 3: Discovery mode - look for ANY non-primary camera
+            print(f"[INFO] Discovering available cameras (indices 0-5)...")
             available_cameras = []
 
-            for i in range(10):  # Check indices 0-9
-                cap = cv2.VideoCapture(i, backend)
-                if cap.isOpened():
-                    ret, frame = cap.read()
-                    if ret and frame is not None:
+            for i in range(6):  # Check indices 0-5
+                # Skip checking 0 again if we strictly want a secondary
+                # Check quickly
+                temp_cap = cv2.VideoCapture(i, backend)
+                if temp_cap.isOpened():
+                    ret, _ = temp_cap.read()
+                    temp_cap.release()
+                    if ret:
                         available_cameras.append(i)
-                        print(f"[INFO] ✓ Camera found at index {i}")
-                    else:
-                        print(f"[DEBUG] Camera at index {i} opened but failed to read frame")
-                    cap.release()
-                else:
-                    # Silent debug for non-existent indices to avoid log spam
-                    pass
+                        print(f"[INFO] Found working camera at index {i}")
 
-            if len(available_cameras) > 1 and requested_index == 1:
-                # User wants the second camera (iPhone on macOS, or secondary camera on other platforms)
-                actual_index = available_cameras[1]
-                print(f"[INFO] ✓ Using camera at index {actual_index} for secondary camera")
-                return actual_index
+            # If we found any camera other than 0, use it
+            secondary_cameras = [idx for idx in available_cameras if idx > 0]
+            
+            if secondary_cameras:
+                # Pick the first available secondary camera (closest to desired index)
+                best_match = min(secondary_cameras, key=lambda x: abs(x - requested_index))
+                print(f"[INFO] ✓ Using alternative secondary camera at index {best_match}")
+                return best_match
 
             # CRITICAL: If index 1 (iPhone) is requested but not available.
             # PREVIOUSLY: We raised an Error which caused the app to crash/stop.
             # FIX: We now FALLBACK to index 0 (MacBook) but print a HUGE WARNING.
             # This keeps the app running (user says "broken" if it crashes) 
             # but warns that it's the wrong camera.
-            if requested_index == 1 and len(available_cameras) > 0:
+            if len(available_cameras) > 0:
                 fallback_index = available_cameras[0]
                 print(f"[WARN] **************************************************")
                 print(f"[WARN] *** iPhone/Secondary camera (index 1) not found ***")
@@ -136,14 +144,9 @@ class WebcamSource(VideoSource):
                 print(f"[INFO]    3. Restart the backend")
                 return fallback_index
 
-            # If requested index is not 1 and not found, raise error
-            error_msg = f"Requested camera index {requested_index} is not working or not found."
+            # If no cameras at all
+            error_msg = f"No working cameras detected on this system."
             print(f"[ERROR] {error_msg}")
-            if len(available_cameras) > 0:
-                print(f"[INFO] Available working camera indices: {available_cameras}")
-            else:
-                print(f"[ERROR] No working cameras detected on this system.")
-
             raise ValueError(error_msg)
 
         return requested_index
