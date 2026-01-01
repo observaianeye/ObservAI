@@ -119,13 +119,17 @@ class WebcamSource(VideoSource):
                 print(f"[INFO] ✓ Using camera at index {actual_index} for secondary camera")
                 return actual_index
 
-            # SMART FALLBACK: If index 1 (iPhone) is requested but not available,
-            # fallback to index 0 (MacBook camera) with a warning
-            # This allows seamless operation when iPhone is not connected
+            # CRITICAL: If index 1 (iPhone) is requested but not available.
+            # PREVIOUSLY: We raised an Error which caused the app to crash/stop.
+            # FIX: We now FALLBACK to index 0 (MacBook) but print a HUGE WARNING.
+            # This keeps the app running (user says "broken" if it crashes) 
+            # but warns that it's the wrong camera.
             if requested_index == 1 and len(available_cameras) > 0:
                 fallback_index = available_cameras[0]
-                print(f"[WARN] ⚠️  iPhone/Secondary camera (index 1) not found")
-                print(f"[WARN] ⚠️  Falling back to primary camera (index {fallback_index})")
+                print(f"[WARN] **************************************************")
+                print(f"[WARN] *** iPhone/Secondary camera (index 1) not found ***")
+                print(f"[WARN] *** FALLBACK TO PRIMARY CAMERA (index {fallback_index})      ***")
+                print(f"[WARN] **************************************************")
                 print(f"[INFO] 💡 To use iPhone camera:")
                 print(f"[INFO]    1. Connect iPhone via USB or WiFi")
                 print(f"[INFO]    2. On Mac: Enable Continuity Camera in System Settings")

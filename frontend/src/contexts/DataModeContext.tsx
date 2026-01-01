@@ -11,10 +11,7 @@ interface DataModeContextType {
 const DataModeContext = createContext<DataModeContextType | undefined>(undefined);
 
 export function DataModeProvider({ children }: { children: ReactNode }) {
-  const [dataMode, setDataModeState] = useState<DataMode>(() => {
-    const saved = localStorage.getItem('dataMode');
-    return (saved as DataMode) || 'demo';
-  });
+  const [dataMode, setDataModeState] = useState<DataMode>('demo');
 
   useEffect(() => {
     localStorage.setItem('dataMode', dataMode);

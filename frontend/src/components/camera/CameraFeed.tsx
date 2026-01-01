@@ -558,19 +558,19 @@ export default function CameraFeed() {
       });
       setStream(null);
     }
-    
+
     // Clear video element
     if (videoRef.current) {
       videoRef.current.srcObject = null;
       videoRef.current.src = '';
       videoRef.current.load(); // Force release of resources
     }
-    
+
     // Stop MJPEG stream by clearing src
     if (mjpegImgRef.current) {
       mjpegImgRef.current.src = '';
     }
-    
+
     setIsStreaming(false);
     setDetections([]);
     setBackendConnected(false);
@@ -592,11 +592,9 @@ export default function CameraFeed() {
     canvasSizeInitialized.current = false;
 
     try {
-      // 1. Cleanup existing subscriptions
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
+      // 1. Cleanup existing subscriptions - REMOVED
+      // existing subscription from useEffect should persist
+
 
       // 2. Stop current frontend camera and streams
       stopCamera();
@@ -796,11 +794,10 @@ export default function CameraFeed() {
                   // Silently handle errors
                 });
               }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
-                showHeatmap
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${showHeatmap
                   ? 'bg-purple-600 text-white'
                   : 'bg-white/10 text-gray-300 hover:bg-white/20'
-              }`}
+                }`}
               title={showHeatmap ? 'Hide Heatmap' : 'Show Heatmap'}
             >
               <Activity className="w-3.5 h-3.5" />
@@ -902,11 +899,10 @@ export default function CameraFeed() {
                 value={videoLinkUrl}
                 onChange={(e) => setVideoLinkUrl(e.target.value)}
                 placeholder="https://youtube.com/watch?v=... or .m3u8/.mp4 URL"
-                className={`flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border transition-colors focus:outline-none ${
-                  currentSource.type === 'videolink'
+                className={`flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border transition-colors focus:outline-none ${currentSource.type === 'videolink'
                     ? 'border-blue-500 ring-1 ring-blue-400'
                     : 'border-gray-600 focus:border-blue-500'
-                }`}
+                  }`}
               />
               <button
                 onClick={handleVideoLinkConnect}
@@ -1025,8 +1021,8 @@ export default function CameraFeed() {
       )}
 
       {/* Video Feed - Container maintains proper aspect ratio */}
-      <div 
-        className="relative bg-gray-900" 
+      <div
+        className="relative bg-gray-900"
         style={{ aspectRatio: `${videoDimensions.width}/${videoDimensions.height}` }}
       >
         <div className="absolute inset-0">

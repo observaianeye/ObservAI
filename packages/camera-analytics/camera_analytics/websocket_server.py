@@ -128,10 +128,16 @@ class AnalyticsWebSocketServer:
                                 b'Content-Length: ' + str(len(jpeg_bytes)).encode() + b'\r\n\r\n'
                                 + jpeg_bytes + b'\r\n'
                             )
-                        except (ConnectionResetError, BrokenPipeError):
+                        except (ConnectionResetError, BrokenPipeError, web.HTTPException):
                             # Client disconnected, exit gracefully
                             logger.info("MJPEG client disconnected")
                             break
+                        except Exception as e:
+                            # Handle other write errors
+                            if "Cannot write to closing transport" in str(e):
+                                logger.info("MJPEG client disconnected (closing transport)")
+                                break
+                            raise e
 
                     # ~30 FPS (33ms delay)
                     await asyncio.sleep(0.033)
