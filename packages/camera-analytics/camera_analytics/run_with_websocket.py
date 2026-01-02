@@ -177,6 +177,16 @@ class CameraAnalyticsWithWebSocket:
             print(f"🔄 ===== CHANGING CAMERA SOURCE =====")
             print(f"🔄 Current source: {self.source}")
             print(f"🔄 New source: {new_source}")
+            print(f"🔄 New source type: {type(new_source)}")
+
+            # Debug: Check if it's a URL
+            if isinstance(new_source, str):
+                if new_source.startswith(('http://', 'https://')):
+                    print(f"🎬 Detected video URL (YouTube/HLS/MP4)")
+                elif new_source.startswith(('rtsp://', 'rtmp://')):
+                    print(f"📹 Detected RTSP/RTMP stream")
+                else:
+                    print(f"📁 Detected file path or unknown string source")
 
             # STEP 1: Stop current analytics if running
             if self.engine and self.engine.running:

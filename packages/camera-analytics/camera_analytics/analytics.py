@@ -66,9 +66,10 @@ class TrackedPerson:
     """Update age with temporal smoothing - weighted by confidence"""
     if new_age is None:
       return
-    
+
     # Filter low confidence updates to prevent noise (Open Source CV Tip: Quality > Quantity)
-    if confidence < 0.7:
+    # Lowered from 0.7 to 0.3 for better detection coverage
+    if confidence < 0.3:
         return
 
     self.age_history.append(float(new_age))
@@ -82,9 +83,9 @@ class TrackedPerson:
     """Update gender with weighted majority voting"""
     if not new_gender or new_gender == "unknown":
       return
-    
-    # Ignore very low confidence
-    if confidence < 0.6:
+
+    # Ignore very low confidence - Lowered from 0.6 to 0.3 for better detection coverage
+    if confidence < 0.3:
         return
 
     # Weighted voting: High confidence = more votes
@@ -235,10 +236,11 @@ class CameraAnalyticsEngine:
 
     # Frame skipping for face analysis (async processing)
     # Use frequent updates for all streams to ensure quick demographics capture
+    # Reduced from 5 to 3 frames for faster age/gender detection
     if isinstance(source, str) and source.startswith(('http', 'rtsp', 'rtmp')):
-      self.face_detection_interval = 5  # More frequent for network streams (was 20)
+      self.face_detection_interval = 3  # More frequent for network streams (was 20, then 5)
     else:
-      self.face_detection_interval = 5  # Frequent updates for local cameras (was 10)
+      self.face_detection_interval = 3  # Frequent updates for local cameras (was 10, then 5)
 
     self.frame_count = 0
     self.demographics_executor = ThreadPoolExecutor(
@@ -504,8 +506,15 @@ class CameraAnalyticsEngine:
     else:
       cap = cv2.VideoCapture(self.source)
     
-    # Set buffer size to minimum for lower latency
+    # Set buffer size to minimum for lower latency (critical for smooth playback)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+    # For HTTP streams (YouTube), set additional OpenCV properties for smoother playback
+    if isinstance(self.source, str) and self.source.startswith('http'):
+      # Enable hardware acceleration if available
+      cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
+      # Disable frame dropping for smoother playback
+      cap.set(cv2.CAP_PROP_FRAME_COUNT, -1)
     
     if not cap.isOpened():
       print(f"[ERROR] Failed to open {source_type}")
@@ -513,9 +522,19 @@ class CameraAnalyticsEngine:
     
     # Get actual FPS from the video source
     source_fps = cap.get(cv2.CAP_PROP_FPS)
-    if source_fps <= 0 or source_fps > 120:
-      source_fps = 30.0  # Default fallback
-    
+
+    # CRITICAL FIX: OpenCV often returns incorrect FPS for YouTube streams
+    # Check if we have source FPS from yt-dlp metadata (more reliable)
+    if hasattr(self, 'source_fps') and self.source_fps and self.source_fps > 0:
+      print(f"[INFO] Using FPS from yt-dlp metadata: {self.source_fps:.1f}")
+      source_fps = self.source_fps
+    elif source_fps <= 0 or source_fps > 120:
+      # OpenCV failed to detect FPS or gave unrealistic value
+      print(f"[WARN] OpenCV FPS detection failed ({source_fps}), using 30.0 FPS")
+      source_fps = 30.0
+    else:
+      print(f"[INFO] Using OpenCV detected FPS: {source_fps:.1f}")
+
     frame_interval = 1.0 / source_fps
     print(f"[INFO] {source_type} opened: {source_fps:.1f} FPS, frame interval: {frame_interval*1000:.1f}ms")
     
@@ -1179,18 +1198,28 @@ class CameraAnalyticsEngine:
 
   def _process_demographics_async(self, frame: np.ndarray, frame_w: int, frame_h: int) -> List[tuple]:
     """
-    Async demographics processing (runs in thread pool).
-    Returns list of (track_id, age, gender) tuples.
+    IMPROVED: Targeted face analysis approach
+
+    Strategy:
+    1. First try full-frame face detection (fast, works for clear faces)
+    2. For persons without demographics, crop their bbox and analyze individually
+    3. This hybrid approach maximizes accuracy while staying efficient
+
+    Returns list of (track_id, age, gender, confidence) tuples.
     """
     if self.face_app is None:
       return []
 
     try:
-      faces = self.face_app.get(frame)
-      if not faces:
-        return []
-
       results = []
+
+      # PHASE 1: Full-frame face detection (for clearly visible faces)
+      faces = self.face_app.get(frame)
+      matched_track_ids = set()  # Track which persons got matched
+
+      # Create snapshot to avoid race condition
+      tracks_snapshot = list(self.tracks.items())
+
       for face in faces:
         bbox = face.bbox.astype(float)
         fx1, fy1, fx2, fy2 = bbox.tolist()
@@ -1200,54 +1229,142 @@ class CameraAnalyticsEngine:
         best_track_id = None
         best_distance = float("inf")
 
-        for track_id, person in self.tracks.items():
-          # ... existing matching logic ...
+        for track_id, person in tracks_snapshot:
           x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
           px1_ = x1_norm * frame_w
           py1_ = y1_norm * frame_h
           px2_ = x2_norm * frame_w
           py2_ = y2_norm * frame_h
-          
+
           cx = (px1_ + px2_) / 2.0
           cy = (py1_ + py2_) / 2.0
-          
+
           distance = (fcx - cx) ** 2 + (fcy - cy) ** 2
-          
+
           # Check overlap
           ix1 = max(px1_, fx1)
           iy1 = max(py1_, fy1)
           ix2 = min(px2_, fx2)
           iy2 = min(py2_, fy2)
-          
+
           if ix2 > ix1 and iy2 > iy1:
-             # Basic IOUish check or center distance check
              if distance < best_distance:
                 best_track_id = track_id
                 best_distance = distance
 
-        if best_track_id and best_distance < 10000:
+        # Improved distance threshold: Tightened from 10000 to 5000 pixels^2 for better accuracy
+        if best_track_id and best_distance < 5000:
           # Extract age and gender with confidence
           confidence = float(face.det_score) if hasattr(face, 'det_score') else 0.5
           age = float(face.age) if face.age is not None else None
-          
-          # Gender handling
+
+          # Improved Gender handling - InsightFace buffalo_s uses 'gender' attribute (0=female, 1=male)
           gender = None
-          if hasattr(face, "sex") and face.sex is not None:
-             # Recent InsightFace
-             gender = "male" if (face.sex.upper() == 'M' if isinstance(face.sex, str) else float(face.sex) > 0.5) else "female"
-          elif hasattr(face, "gender") and face.gender is not None:
-             # Older InsightFace
-             gender_prob = float(face.gender) # 1=Male, 0=Female usually? Or prob?
-             if isinstance(face.gender, (int, float)):
-                 gender = "male" if face.gender > 0.5 else "female"
+          if hasattr(face, "gender") and face.gender is not None:
+             # buffalo_s returns integer: 0 = female, 1 = male
+             gender_value = int(face.gender)
+             gender = "male" if gender_value == 1 else "female"
+          elif hasattr(face, "sex") and face.sex is not None:
+             # Fallback for other models
+             if isinstance(face.sex, str):
+                 gender = "male" if face.sex.upper() == 'M' else "female"
              else:
-                 gender = "male" if int(face.gender) == 1 else "female"
+                 gender = "male" if float(face.sex) > 0.5 else "female"
 
           results.append((best_track_id, age, gender, confidence))
+          matched_track_ids.add(best_track_id)
+
+      # PHASE 2: Targeted crop analysis for unmatched persons
+      # This is the KEY INNOVATION - analyze each person's bbox individually if no match
+      # CRITICAL: Create snapshot of tracks to avoid "dictionary changed size during iteration"
+      # This happens when tracks are added/removed by main thread while demographics thread iterates
+      tracks_snapshot = list(self.tracks.items())
+
+      for track_id, person in tracks_snapshot:
+        # Skip if already matched in Phase 1
+        if track_id in matched_track_ids:
+          continue
+
+        # Skip if already has good demographics (avoid redundant processing)
+        has_age = person.age is not None and len(person.age_history) >= 3
+        has_gender = person.gender != "unknown" and len(person.gender_history) >= 5
+        if has_age and has_gender:
+          continue
+
+        # Crop person's bbox from frame
+        x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
+        x1 = int(x1_norm * frame_w)
+        y1 = int(y1_norm * frame_h)
+        x2 = int(x2_norm * frame_w)
+        y2 = int(y2_norm * frame_h)
+
+        # Ensure valid bounds
+        x1 = max(0, min(x1, frame_w - 1))
+        y1 = max(0, min(y1, frame_h - 1))
+        x2 = max(x1 + 1, min(x2, frame_w))
+        y2 = max(y1 + 1, min(y2, frame_h))
+
+        # Skip if bbox is too small (likely occlusion or far away)
+        bbox_width = x2 - x1
+        bbox_height = y2 - y1
+        if bbox_width < 40 or bbox_height < 80:  # Minimum size for face detection
+          continue
+
+        # Expand bbox slightly for better face detection (add 20% padding)
+        # This helps capture faces at the edge of person bbox
+        padding_x = int(bbox_width * 0.2)
+        padding_y = int(bbox_height * 0.15)  # Less vertical padding (head is usually at top)
+
+        x1_padded = max(0, x1 - padding_x)
+        y1_padded = max(0, y1 - padding_y)
+        x2_padded = min(frame_w, x2 + padding_x)
+        y2_padded = min(frame_h, y2 + padding_y)
+
+        # Crop the region
+        person_crop = frame[y1_padded:y2_padded, x1_padded:x2_padded]
+
+        # Skip if crop is too small after padding
+        if person_crop.shape[0] < 80 or person_crop.shape[1] < 40:
+          continue
+
+        # Analyze the CROPPED region (much higher success rate!)
+        try:
+          crop_faces = self.face_app.get(person_crop)
+
+          if crop_faces:
+            # Take the largest face in the crop (most likely to be the person)
+            largest_face = max(crop_faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+
+            # Extract demographics
+            confidence = float(largest_face.det_score) if hasattr(largest_face, 'det_score') else 0.7
+            age = float(largest_face.age) if largest_face.age is not None else None
+
+            # Gender parsing
+            gender = None
+            if hasattr(largest_face, "gender") and largest_face.gender is not None:
+              gender_value = int(largest_face.gender)
+              gender = "male" if gender_value == 1 else "female"
+            elif hasattr(largest_face, "sex") and largest_face.sex is not None:
+              if isinstance(largest_face.sex, str):
+                gender = "male" if largest_face.sex.upper() == 'M' else "female"
+              else:
+                gender = "male" if float(largest_face.sex) > 0.5 else "female"
+
+            # Boost confidence for targeted crop analysis (it's more reliable)
+            confidence = min(1.0, confidence * 1.2)
+
+            results.append((track_id, age, gender, confidence))
+            print(f"[INFO] Targeted crop analysis successful for track {track_id}: {gender}, {int(age) if age else 'N/A'}y (confidence: {confidence:.2f})")
+
+        except Exception as crop_error:
+          # Silently skip - this is expected for some crops
+          pass
 
       return results
     except Exception as e:
       print(f"[WARN] Demographics processing error: {e}")
+      import traceback
+      traceback.print_exc()
       return []
 
   def _update_demographics(self, frame: np.ndarray) -> None:

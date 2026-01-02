@@ -4,7 +4,7 @@ import { useDataMode } from '../../contexts/DataModeContext';
 import { cameraBackendService, Detection } from '../../services/cameraBackendService';
 import { GlassCard } from '../ui/GlassCard';
 
-export type CameraSource = 'webcam' | 'iphone' | 'ip' | 'videolink' | 'file';
+export type CameraSource = 'webcam' | 'iphone' | 'ip' | 'videolink' | 'file' | 'external';
 
 interface CameraSourceConfig {
   type: CameraSource;
@@ -83,6 +83,9 @@ export default function CameraFeed() {
   // Dynamic video dimensions for proper aspect ratio
   const [videoDimensions, setVideoDimensions] = useState({ width: 16, height: 9 });
 
+  // MJPEG stream URL with refresh trigger
+  const [mjpegStreamKey, setMjpegStreamKey] = useState(Date.now());
+
   // Refs for cleanup tracking
   const cleanupRef = useRef<(() => void) | null>(null);
   const isChangingSourceRef = useRef(false);
@@ -90,30 +93,13 @@ export default function CameraFeed() {
   const canvasSizeInitialized = useRef(false);
 
   /**
-   * Start Python backend automatically when camera source changes
+   * DISABLED: Python backend is started by start-all.sh
+   * No need to start it from frontend - it's always running
    */
-  const startPythonBackend = async (source: string | number) => {
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-
-      const response = await fetch(`${apiUrl}/api/python-backend/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          source,
-          wsPort: 5001,
-          wsHost: '0.0.0.0'
-        }),
-      });
-
-      if (!response.ok) {
-        // Silently handle - backend might already be running
-      }
-    } catch {
-      // Silently handle - API might not be available
-    }
+  const startPythonBackend = async (_source: string | number) => {
+    // NOOP - Python backend is managed by start-all.sh
+    console.log('[CameraFeed] Python backend is managed by start-all.sh, skipping API call');
+    return;
   };
 
   // Load IP cameras from localStorage
@@ -636,24 +622,33 @@ export default function CameraFeed() {
           case 'videolink':
             if (config?.url) {
               backendSource = config.url;
+              console.log('[CameraFeed] 🎬 YouTube/Video URL:', backendSource);
             } else {
               throw new Error('Please enter a video URL');
+            }
+            break;
+          case 'external':
+            // External camera by index
+            if (config?.deviceId) {
+              // deviceId stores the index as a string
+              const index = parseInt(config.deviceId, 10);
+              backendSource = isNaN(index) ? config.deviceId : index;
+            } else {
+              throw new Error('Please enter a camera index');
             }
             break;
           // For 'file', backend doesn't process it (browser handles local playback)
         }
 
-        // Start Python backend with the selected source
-        console.log(`[CameraFeed] Step 6: Starting Python backend with source: ${backendSource}...`);
-        await startPythonBackend(backendSource);
-
-        // Ensure backend connection is established
+        // REMOVED: Python backend is already running via start-all.sh
+        // Just ensure WebSocket connection is established
         const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
         console.log('[CameraFeed] Step 7: Connecting to backend...');
         cameraBackendService.connect(backendUrl);
 
         // Change source on backend - this will also start the analytics stream
         console.log('[CameraFeed] Step 8: Changing source on backend...');
+        console.log('[CameraFeed] 📤 Sending to backend:', typeof backendSource, backendSource);
         await cameraBackendService.changeSource(backendSource);
         console.log('[CameraFeed] Backend source changed successfully');
 
@@ -672,6 +667,10 @@ export default function CameraFeed() {
       console.log('[CameraFeed] Step 10: Updating frontend source state...');
       const newSource = { type, ...config };
       setCurrentSource(newSource);
+
+      // CRITICAL: Force MJPEG stream to refresh with new source
+      console.log('[CameraFeed] Step 11: Forcing MJPEG stream refresh...');
+      setMjpegStreamKey(Date.now());
 
       // Save to localStorage for persistence across page navigation
       localStorage.setItem('lastCameraSource', JSON.stringify(newSource));
@@ -744,7 +743,17 @@ export default function CameraFeed() {
       }
       case 'videolink': return 'Video Link';
       case 'file': return currentSource.file ? currentSource.file.name : 'Video File';
+      case 'external': return `External Camera (ID: ${currentSource.deviceId || '?'})`;
       default: return 'Camera';
+    }
+  };
+
+  // State for external camera input
+  const [externalCameraId, setExternalCameraId] = useState('');
+
+  const handleExternalCameraConnect = () => {
+    if (externalCameraId.trim()) {
+      handleSourceChange('external', { deviceId: externalCameraId });
     }
   };
 
@@ -795,8 +804,8 @@ export default function CameraFeed() {
                 });
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${showHeatmap
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                ? 'bg-purple-600 text-white'
+                : 'bg-white/10 text-gray-300 hover:bg-white/20'
                 }`}
               title={showHeatmap ? 'Hide Heatmap' : 'Show Heatmap'}
             >
@@ -900,8 +909,8 @@ export default function CameraFeed() {
                 onChange={(e) => setVideoLinkUrl(e.target.value)}
                 placeholder="https://youtube.com/watch?v=... or .m3u8/.mp4 URL"
                 className={`flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border transition-colors focus:outline-none ${currentSource.type === 'videolink'
-                    ? 'border-blue-500 ring-1 ring-blue-400'
-                    : 'border-gray-600 focus:border-blue-500'
+                  ? 'border-blue-500 ring-1 ring-blue-400'
+                  : 'border-gray-600 focus:border-blue-500'
                   }`}
               />
               <button
@@ -917,6 +926,33 @@ export default function CameraFeed() {
           {/* Advanced Settings */}
           {showAdvancedSettings && (
             <div className="space-y-3 border-t border-gray-700 pt-3">
+              {/* External Camera Input */}
+              <div>
+                <label className="text-xs text-gray-300 mb-1 block">
+                  <CameraIcon className="w-3 h-3 inline mr-1 text-orange-400" />
+                  External Camera (Index or ID)
+                </label>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={externalCameraId}
+                    onChange={(e) => setExternalCameraId(e.target.value)}
+                    placeholder="e.g. 0, 1, 2"
+                    className="flex-1 px-3 py-2 bg-gray-800 text-white text-xs rounded border border-gray-600 focus:border-orange-500 focus:outline-none"
+                  />
+                  <button
+                    onClick={handleExternalCameraConnect}
+                    disabled={!externalCameraId}
+                    className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed rounded text-xs text-white transition-colors"
+                  >
+                    Connect
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Enter '0' for webcam, '1' for iPhone/secondary, '2' for external USB.
+                </p>
+              </div>
+
               {/* File Upload */}
               <div>
                 <label className="text-xs text-gray-300 mb-1 block">
@@ -1072,7 +1108,8 @@ export default function CameraFeed() {
           {dataMode === 'live' && isStreaming && !error && !stream && !isSwitchingSource && (
             <img
               ref={mjpegImgRef}
-              src={`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg?t=${Date.now()}`}
+              key={mjpegStreamKey}
+              src={`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg?t=${mjpegStreamKey}`}
               alt="Camera stream"
               className="w-full h-full object-contain bg-black"
               onLoad={(e) => {

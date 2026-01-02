@@ -90,26 +90,30 @@ class WebcamSource(VideoSource):
                 if ret and frame is not None:
                     print(f"[INFO] ✓ Camera at index {requested_index} is working")
                     return requested_index
+
+            # ATTEMPT 2: Robust Retry Loop (Continuity Camera can take time to wake up)
+            # We will try for up to 15 seconds (10 attempts * 1.5s)
+            print(f"[INFO] ⏳ Continuously checking for camera {requested_index} (up to 15s)...")
             
-            # ATTEMPT 2: Wait and retry (Continuity Camera wake-up)
-            print(f"[INFO] ⏳ access failed, waiting 2s for camera wake-up...")
-            time.sleep(2.0)
-            
-            cap = cv2.VideoCapture(requested_index, backend)
-            if cap.isOpened():
-                ret, frame = cap.read()
-                cap.release()
-                if ret and frame is not None:
-                    print(f"[INFO] ✓ Camera at index {requested_index} is working after retry")
-                    return requested_index
+            for i in range(10):
+                print(f"[INFO] ⏳ Verification attempt {i+1}/10...")
+                cap = cv2.VideoCapture(requested_index, backend)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    cap.release()
+                    if ret:
+                        print(f"[INFO] ✓ Camera at index {requested_index} is working!")
+                        return requested_index
+                time.sleep(1.5)
 
             # ATTEMPT 3: Discovery mode - look for ANY non-primary camera
+            # If the specific index failed, maybe it moved to another index?
             print(f"[INFO] Discovering available cameras (indices 0-5)...")
             available_cameras = []
 
             for i in range(6):  # Check indices 0-5
-                # Skip checking 0 again if we strictly want a secondary
-                # Check quickly
+                if i == 0: continue # Skip main camera
+                
                 temp_cap = cv2.VideoCapture(i, backend)
                 if temp_cap.isOpened():
                     ret, _ = temp_cap.read()
@@ -119,35 +123,24 @@ class WebcamSource(VideoSource):
                         print(f"[INFO] Found working camera at index {i}")
 
             # If we found any camera other than 0, use it
-            secondary_cameras = [idx for idx in available_cameras if idx > 0]
-            
-            if secondary_cameras:
+            if available_cameras:
                 # Pick the first available secondary camera (closest to desired index)
-                best_match = min(secondary_cameras, key=lambda x: abs(x - requested_index))
+                best_match = min(available_cameras, key=lambda x: abs(x - requested_index))
                 print(f"[INFO] ✓ Using alternative secondary camera at index {best_match}")
                 return best_match
 
-            # CRITICAL: If index 1 (iPhone) is requested but not available.
-            # PREVIOUSLY: We raised an Error which caused the app to crash/stop.
-            # FIX: We now FALLBACK to index 0 (MacBook) but print a HUGE WARNING.
-            # This keeps the app running (user says "broken" if it crashes) 
-            # but warns that it's the wrong camera.
-            if len(available_cameras) > 0:
-                fallback_index = available_cameras[0]
-                print(f"[WARN] **************************************************")
-                print(f"[WARN] *** iPhone/Secondary camera (index 1) not found ***")
-                print(f"[WARN] *** FALLBACK TO PRIMARY CAMERA (index {fallback_index})      ***")
-                print(f"[WARN] **************************************************")
-                print(f"[INFO] 💡 To use iPhone camera:")
-                print(f"[INFO]    1. Connect iPhone via USB or WiFi")
-                print(f"[INFO]    2. On Mac: Enable Continuity Camera in System Settings")
-                print(f"[INFO]    3. Restart the backend")
-                return fallback_index
-
-            # If no cameras at all
-            error_msg = f"No working cameras detected on this system."
+            # FAIL: If we passed all retries and found nothing.
+            # Do NOT fallback to 0. Raise error so user knows.
+            error_msg = (
+                f"Camera at index {requested_index} (iPhone/Secondary) not found.\n\n"
+                f"Troubleshooting:\n"
+                f"1. Ensure iPhone is near Mac, unlocked, and WiFi/Bluetooth ON.\n"
+                f"2. Check 'Continuity Camera' in Mac System Settings.\n"
+                f"3. Connect via USB cable for reliability."
+            )
             print(f"[ERROR] {error_msg}")
             raise ValueError(error_msg)
+
 
         return requested_index
 
@@ -363,15 +356,17 @@ class VideoLinkSource(VideoSource):
                     time.sleep(delay)
 
                 # Use different format selection for live vs regular videos
+                # CRITICAL: Always prefer 'best' (video+audio) over 'bestvideo' (video-only)
+                # 'bestvideo' can cause black screen issues in OpenCV due to missing audio stream
                 if self.is_live:
-                    # For live streams: use 720p or lower for faster processing
-                    # Note: YouTube live streams are typically HLS which has some inherent latency
+                    # For live streams: use 720p or lower for real-time processing
+                    # YouTube live streams are typically HLS which has inherent latency
                     cmd = ['yt-dlp', '-f', 'best[height<=720]/best', '-g', url]
                 else:
-                    # For regular videos: get best quality video (up to 1080p)
-                    # We prioritize video-only streams (bestvideo) to get 1080p, as best[ext=mp4] often caps at 360p/720p
-                    # Analytics doesn't need audio, so video-only is perfect and higher quality
-                    cmd = ['yt-dlp', '-f', 'bestvideo[height<=1080]/best[height<=1080]/best', '-g', url]
+                    # For regular videos: use 'best' format (video+audio combined)
+                    # This ensures OpenCV can properly read the stream without black screen
+                    # Cap at 720p for better performance (1080p is overkill for analytics)
+                    cmd = ['yt-dlp', '-f', 'best[height<=720][ext=mp4]/best[height<=720]/best', '-g', url]
                 
                 result = subprocess.run(
                     cmd,

@@ -81,17 +81,17 @@ async function startServer() {
       console.warn('   Python backend manager will still work!');
     }
 
-    // Auto-start Python backend
-    try {
-      console.log('🔄 Auto-starting Python backend on port 5001...');
-      // Default to source 0 (Webcam)
-      await pythonBackendManager.start({
-        source: 0,
-        wsPort: 5001
-      });
-    } catch (pyError) {
-      console.error('⚠️ Failed to auto-start Python backend:', pyError);
-    }
+    // // Auto-start Python backend
+    // try {
+    //   console.log('🔄 Auto-starting Python backend on port 5001...');
+    //   // Default to source 0 (Webcam)
+    //   await pythonBackendManager.start({
+    //     source: 0,
+    //     wsPort: 5001
+    //   });
+    // } catch (pyError) {
+    //   console.error('⚠️ Failed to auto-start Python backend:', pyError);
+    // }
 
     // Start Kafka consumer if enabled
     try {
