@@ -48,8 +48,19 @@ class CameraAnalyticsWithWebSocket:
         self.ws_server.on_get_frame = self.get_latest_frame  # For MJPEG streaming
         self.ws_server.on_change_source = self.change_source
         self.ws_server.on_toggle_heatmap = self.toggle_heatmap  # Heatmap toggle
+        self.ws_server.on_update_zones = self.update_zones      # Zone update
 
         self.engine: Optional[CameraAnalyticsEngine] = None
+        self.analytics_task: Optional[asyncio.Task] = None
+
+    async def update_zones(self, zones: List[Dict]) -> None:
+        """Update zones in the running analytics engine"""
+        if self.engine:
+            # Run in thread executor because update_zones might take a lock
+            await asyncio.to_thread(self.engine.update_zones, zones)
+            print(f"✓ Zones updated in running engine")
+        else:
+            print("ℹ️  Zones saved, but engine not running")
         self.analytics_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:

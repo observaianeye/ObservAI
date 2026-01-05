@@ -67,6 +67,7 @@ class AnalyticsWebSocketServer:
         self.on_get_frame = None  # For MJPEG streaming (direct frame access)
         self.on_change_source = None
         self.on_toggle_heatmap = None  # Toggle heatmap
+        self.on_update_zones = None    # Update zones dynamically
 
         # Setup event handlers
         self._setup_handlers()
@@ -194,6 +195,11 @@ class AnalyticsWebSocketServer:
                 self.zones = zones
                 self._save_zones()
                 logger.info(f"Saved {len(zones)} zones from client {sid}")
+                
+                # Apply updates to running engine if available
+                if self.on_update_zones:
+                    await self.on_update_zones(zones)
+                    
                 await self.sio.emit("zones_saved", {"status": "success"}, room=sid)
             except Exception as e:
                 logger.error(f"Error saving zones: {e}")

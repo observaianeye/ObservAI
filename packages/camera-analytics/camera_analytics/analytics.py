@@ -344,6 +344,46 @@ class CameraAnalyticsEngine:
     # Assuming standard HD frame for init, will resize if needed or handle in render
     self.overlay = GlassOverlay(1280, 720) 
 
+  def update_zones(self, zones_data: List[Dict]) -> None:
+    """
+    Update zone definitions dynamically from the frontend.
+    Thread-safe zone update.
+    """
+    print(f"[INFO] Updating {len(zones_data)} zones dynamically...")
+    
+    new_zones = {}
+    
+    for zd in zones_data:
+        # Frontend provides rect: x, y, width, height (normalized)
+        # Backend needs polygon: [(x,y), (x+w,y), (x+w,y+h), (x,y+h)]
+        x, y = float(zd.get('x', 0)), float(zd.get('y', 0))
+        w, h = float(zd.get('width', 0)), float(zd.get('height', 0))
+        zone_id = str(zd.get('id', 'unknown'))
+        name = zd.get('name', f"Zone {zone_id}")
+        
+        polygon = [
+            (x, y),
+            (x + w, y),
+            (x + w, y + h),
+            (x, y + h)
+        ]
+        
+        new_zones[zone_id] = Zone(
+            id=zone_id,
+            name=name,
+            polygon=polygon
+        )
+        
+    # Use frame lock to ensure we don't swap zones while processing a frame
+    # Although processing uses its own local vars mostly, it reads self.zone_definitions
+    with self._frame_lock:
+        self.zone_definitions = new_zones
+        # Also update table_ids and queue_id if necessary, but for now we just treat all as generic zones
+        # If we wanted to preserve "queue" or "table" semantics we'd need type info from frontend
+        self.table_ids = list(new_zones.keys())
+        
+    print(f"[INFO] ✓ Zones updated: {[z.name for z in new_zones.values()]}")
+
   def stop(self) -> None:
     """Stop the analytics engine"""
     print("[INFO] Stopping analytics engine...")
@@ -374,7 +414,11 @@ class CameraAnalyticsEngine:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     else:
-      cap = cv2.VideoCapture(self.source)
+      # Use FFMPEG backend for network streams (HTTP/HTTPS) to avoid CAP_IMAGES fallback issues
+      if isinstance(self.source, str) and self.source.startswith(('http://', 'https://')):
+        cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+      else:
+        cap = cv2.VideoCapture(self.source)
 
       # For network streams (live), set buffer size and other options
       if self.is_live_source:
@@ -457,7 +501,10 @@ class CameraAnalyticsEngine:
     # If NOT running, we can safely open the source momentarily
     else:
         # If no cached frame (or not running), try to capture fresh
-        cap = cv2.VideoCapture(self.source)
+        if isinstance(self.source, str) and self.source.startswith(('http://', 'https://')):
+            cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+        else:
+            cap = cv2.VideoCapture(self.source)
         if not cap.isOpened():
             return None
 

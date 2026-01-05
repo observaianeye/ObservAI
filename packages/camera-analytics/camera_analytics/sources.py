@@ -281,7 +281,8 @@ class VideoLinkSource(VideoSource):
     def _check_if_live(self, url: str) -> bool:
         """Check if YouTube URL is a live stream using yt-dlp"""
         try:
-            cmd = ['yt-dlp', '--print', 'is_live', '--no-warnings', url]
+            # Added --force-ipv4 to avoid IPv6 timeouts
+            cmd = ['yt-dlp', '--force-ipv4', '--print', 'is_live', '--no-warnings', url]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -298,7 +299,7 @@ class VideoLinkSource(VideoSource):
     def _get_video_fps(self, url: str) -> Optional[float]:
         """Get video FPS using yt-dlp (for non-live videos)"""
         try:
-            cmd = ['yt-dlp', '--print', 'fps', '--no-warnings', url]
+            cmd = ['yt-dlp', '--force-ipv4', '--print', 'fps', '--no-warnings', url]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -316,7 +317,7 @@ class VideoLinkSource(VideoSource):
     def _resolve_youtube(self, url: str) -> str:
         """Extract direct stream URL from YouTube using yt-dlp (legacy single-attempt)"""
         try:
-            cmd = ['yt-dlp', '-f', 'best[ext=mp4]/best', '-g', url]
+            cmd = ['yt-dlp', '--force-ipv4', '-f', 'best[ext=mp4]/best', '-g', url]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
             if result.returncode == 0 and result.stdout.strip():
@@ -339,8 +340,9 @@ class VideoLinkSource(VideoSource):
         1. Complex URL signatures that OpenCV can't handle properly
         2. HTTP redirect chains that timeout
         3. Stream URLs expire after several hours
+        4. IPv6 DNS issues with yt-dlp on some networks
 
-        Solution: Use yt-dlp with better format selection to get reliable stream URLs.
+        Solution: Use yt-dlp with --force-ipv4 and better format selection.
         We prioritize simpler formats that OpenCV can handle reliably.
         """
         # First, check if it's a live stream
@@ -359,25 +361,26 @@ class VideoLinkSource(VideoSource):
         format_strategies = []
         if self.is_live:
             # Live stream format strategies (in order of preference)
+            # Simplified for robustness
             format_strategies = [
-                '95/94/93/92/best[height<=720]/best',  # HLS formats
-                'best[height<=480]/best',  # Lower resolution for better compatibility
-                'worst'  # Last resort
+                'best[height<=720]/best',  # Prefer 720p for stability
+                '95/94/93',               # Specific HLS itags
+                'worst'                   # Fallback
             ]
         else:
             # Regular video format strategies
             format_strategies = [
-                '18/22',  # Classic MP4 formats that work everywhere
-                'best[height<=720][ext=mp4]/best[ext=mp4]',  # MP4 with reasonable quality
-                'best[height<=480][ext=mp4]',  # Lower quality MP4
-                'best'  # Last resort
+                'best[ext=mp4]',  # FORCE MP4: Safest for OpenCV VOD
+                '18/22',  # Legacy safe MP4
+                'best[height<=1080][ext=mp4]',
+                'best'  # Fallback
             ]
 
         for strategy_idx, format_spec in enumerate(format_strategies):
             try:
                 print(f"   🎯 Trying format strategy {strategy_idx + 1}/{len(format_strategies)}: {format_spec}")
 
-                cmd = ['yt-dlp', '-f', format_spec, '-g', url]
+                cmd = ['yt-dlp', '--force-ipv4', '-f', format_spec, '-g', url]
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -395,7 +398,11 @@ class VideoLinkSource(VideoSource):
                     # This prevents returning URLs that will fail later
                     import cv2
                     print(f"   🔍 Validating stream URL with OpenCV...")
-                    test_cap = cv2.VideoCapture(stream_url)
+                    
+                    # FORCE FFMPEG backend to avoid CAP_IMAGES fallback
+                    # This fixes the "expected '0?[1-9][du]' pattern" error
+                    test_cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+                    
                     can_open = test_cap.isOpened()
 
                     # Try to read one frame to ensure it's really working
@@ -412,7 +419,7 @@ class VideoLinkSource(VideoSource):
                         return stream_url
                     else:
                         if not can_open:
-                            print(f"   ⚠️  OpenCV cannot open stream URL")
+                            print(f"   ⚠️  OpenCV cannot open stream URL (FFMPEG backend forced)")
                         else:
                             print(f"   ⚠️  OpenCV opened stream but cannot read frames")
                         print(f"   ↻ Trying next format strategy...")
