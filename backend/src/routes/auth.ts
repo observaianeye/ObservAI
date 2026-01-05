@@ -18,14 +18,25 @@ const RegisterSchema = z.object({
 
 const LoginSchema = z.object({
     email: z.string().email(),
-    password: z.string()
+    password: z.string(),
+    rememberMe: z.boolean().optional()
+});
+
+const ForgotPasswordSchema = z.object({
+    email: z.string().email()
+});
+
+const ResetPasswordSchema = z.object({
+    token: z.string(),
+    password: z.string().min(8)
 });
 
 // Helper to create session
-const createSession = async (res: Response, userId: string) => {
+const createSession = async (res: Response, userId: string, rememberMe = false) => {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
+    const days = rememberMe ? 30 : 7; // 30 days if remember me, otherwise 7 days
+    expiresAt.setDate(expiresAt.getDate() + days);
 
     await prisma.session.create({
         data: {
@@ -122,7 +133,7 @@ router.post('/login', async (req: Request, res: Response) => {
             data: { lastLoginAt: new Date() }
         });
 
-        await createSession(res, user.id);
+        await createSession(res, user.id, data.rememberMe);
 
         res.json({
             id: user.id,
@@ -169,6 +180,115 @@ router.get('/me', authenticate, (req: Request, res: Response) => {
         lastName: user.lastName,
         role: user.role
     });
+});
+
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req: Request, res: Response) => {
+    try {
+        const data = ForgotPasswordSchema.parse(req.body);
+
+        // Find user by email
+        const user = await prisma.user.findUnique({
+            where: { email: data.email }
+        });
+
+        // Always return success to prevent email enumeration
+        if (!user) {
+            return res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
+        }
+
+        // Create reset token
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 1); // 1 hour expiry
+
+        await prisma.passwordReset.create({
+            data: {
+                userId: user.id,
+                token,
+                expiresAt
+            }
+        });
+
+        // In development, log the reset URL
+        const resetUrl = `http://localhost:5173/reset-password?token=${token}`;
+        console.log('\n' + '='.repeat(80));
+        console.log('🔑 PASSWORD RESET REQUEST');
+        console.log('='.repeat(80));
+        console.log('📧 Email:', user.email);
+        console.log('🔗 Reset URL:', resetUrl);
+        console.log('⏰ Expires:', expiresAt.toLocaleString());
+        console.log('⏱️  Valid for: 1 hour');
+        console.log('='.repeat(80));
+        console.log('⚠️  DEVELOPMENT MODE: Copy the URL above to reset password');
+        console.log('⚠️  PRODUCTION: This would be sent via email');
+        console.log('='.repeat(80) + '\n');
+
+        // TODO: In production, send email here
+        // await sendPasswordResetEmail(user.email, resetUrl);
+
+        res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Validation error', details: error.errors });
+        }
+        console.error('Forgot password error:', error);
+        res.status(500).json({ error: 'Failed to process request' });
+    }
+});
+
+// POST /api/auth/reset-password
+router.post('/reset-password', async (req: Request, res: Response) => {
+    try {
+        const data = ResetPasswordSchema.parse(req.body);
+
+        // Find reset token
+        const resetToken = await prisma.passwordReset.findUnique({
+            where: { token: data.token },
+            include: { user: true }
+        });
+
+        if (!resetToken) {
+            return res.status(400).json({ error: 'Invalid or expired reset token' });
+        }
+
+        // Check if token is expired
+        if (resetToken.expiresAt < new Date()) {
+            return res.status(400).json({ error: 'Reset token has expired' });
+        }
+
+        // Check if token has been used
+        if (resetToken.used) {
+            return res.status(400).json({ error: 'Reset token has already been used' });
+        }
+
+        // Hash new password
+        const passwordHash = await bcrypt.hash(data.password, 10);
+
+        // Update user password
+        await prisma.user.update({
+            where: { id: resetToken.userId },
+            data: { passwordHash }
+        });
+
+        // Mark token as used
+        await prisma.passwordReset.update({
+            where: { id: resetToken.id },
+            data: { used: true }
+        });
+
+        console.log('✅ Password reset successful for:', resetToken.user.email);
+
+        res.json({ success: true, message: 'Password has been reset successfully' });
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Validation error', details: error.errors });
+        }
+        console.error('Reset password error:', error);
+        res.status(500).json({ error: 'Failed to reset password' });
+    }
 });
 
 export default router;

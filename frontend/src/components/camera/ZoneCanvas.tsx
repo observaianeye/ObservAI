@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Plus, Trash2, Save, Tag, Camera, AlertCircle } from 'lucide-react';
 import { cameraBackendService } from '../../services/cameraBackendService';
+import { useToast } from '../../contexts/ToastContext';
 
 interface Zone {
   id: string;
@@ -13,7 +14,52 @@ interface Zone {
   color: string;
 }
 
+// Validation helper functions
+function isWithinBoundaries(zone: Partial<Zone>): boolean {
+  if (!zone.x || !zone.y || !zone.width || !zone.height) return false;
+
+  return (
+    zone.x >= 0 &&
+    zone.y >= 0 &&
+    zone.x + zone.width <= 1 &&
+    zone.y + zone.height <= 1 &&
+    zone.width > 0 &&
+    zone.height > 0
+  );
+}
+
+function doZonesOverlap(zone1: Zone, zone2: Zone): boolean {
+  const left1 = zone1.x;
+  const right1 = zone1.x + zone1.width;
+  const top1 = zone1.y;
+  const bottom1 = zone1.y + zone1.height;
+
+  const left2 = zone2.x;
+  const right2 = zone2.x + zone2.width;
+  const top2 = zone2.y;
+  const bottom2 = zone2.y + zone2.height;
+
+  return !(right1 <= left2 || right2 <= left1 || bottom1 <= top2 || bottom2 <= top1);
+}
+
+function validateZone(newZone: Zone, existingZones: Zone[]): string | null {
+  // Check boundaries
+  if (!isWithinBoundaries(newZone)) {
+    return 'Zone must stay within the camera view boundaries';
+  }
+
+  // Check overlaps
+  for (const existing of existingZones) {
+    if (doZonesOverlap(newZone, existing)) {
+      return `Zone overlaps with "${existing.name}"`;
+    }
+  }
+
+  return null; // Valid
+}
+
 export default function ZoneCanvas() {
+  const { showToast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [zones, setZones] = useState<Zone[]>(() => {
     // Load saved zones from localStorage
@@ -85,8 +131,16 @@ export default function ZoneCanvas() {
           y: newZone.y! / rect.height,
           width: newZone.width / rect.width,
           height: newZone.height / rect.height
-        };
-        setZones([...zones, normalizedZone as Zone]);
+        } as Zone;
+
+        // Validate zone
+        const error = validateZone(normalizedZone, zones);
+        if (error) {
+          showToast('error', error);
+        } else {
+          setZones([...zones, normalizedZone]);
+          showToast('success', `Zone "${normalizedZone.name}" created`);
+        }
       }
     }
     setNewZone(null);
@@ -113,10 +167,10 @@ export default function ZoneCanvas() {
       // Save zones to localStorage
       localStorage.setItem('cameraZones', JSON.stringify(zones));
       console.log('Zones saved to localStorage:', zones);
-      alert(`Successfully saved ${zones.length} zone${zones.length !== 1 ? 's' : ''}!`);
+      showToast('success', `Successfully saved ${zones.length} zone${zones.length !== 1 ? 's' : ''}!`);
     } catch (error) {
       console.error('Failed to save zones:', error);
-      alert('Failed to save zones. Please try again.');
+      showToast('error', 'Failed to save zones. Please try again.');
     }
   };
 

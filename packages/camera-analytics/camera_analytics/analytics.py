@@ -79,26 +79,30 @@ class TrackedPerson:
     else:
       self.age = float(np.mean(samples))
 
-  def update_gender(self, new_gender: str, confidence: float = 1.0, max_samples: int = 12) -> None:
-    """Update gender with weighted majority voting"""
+  def update_gender(self, new_gender: str, confidence: float = 1.0, max_samples: int = 15) -> None:
+    """Update gender with weighted majority voting and temporal smoothing"""
     if not new_gender or new_gender == "unknown":
       return
 
-    # Ignore very low confidence - Lowered from 0.6 to 0.3 for better detection coverage
+    # Ignore very low confidence - Keep at 0.3 for coverage but rely on voting
     if confidence < 0.3:
         return
 
-    # Weighted voting: High confidence = more votes
+    # Weighted voting: Higher confidence = more votes to reduce noise
+    # This helps handle edge cases like long hair on males and facial hair on misclassified females
     votes = 1
-    if confidence > 0.8:
-        votes = 3
-    elif confidence > 0.7:
-        votes = 2
-    
+    if confidence > 0.85:
+        votes = 4  # Very high confidence gets 4 votes
+    elif confidence > 0.75:
+        votes = 3  # High confidence gets 3 votes
+    elif confidence > 0.6:
+        votes = 2  # Medium-high confidence gets 2 votes
+    # Below 0.6: only 1 vote (more susceptible to errors)
+
     for _ in range(votes):
         self.gender_history.append(new_gender)
-        
-    # Keep history manageable
+
+    # Keep history manageable - increased from 12 to 15 for better temporal smoothing
     while len(self.gender_history) > max_samples:
       self.gender_history.popleft()
 
@@ -109,11 +113,15 @@ class TrackedPerson:
     if total_votes == 0:
       return
 
-    # Require stronger consensus
-    if male_votes / total_votes >= 0.55:
+    # Require stronger consensus (60% threshold) to reduce misclassifications
+    # This prevents flipping between genders due to single misdetections
+    if male_votes / total_votes >= 0.60:
       self.gender = "male"
-    elif female_votes / total_votes >= 0.55:
+      self.gender_confidence = male_votes / total_votes
+    elif female_votes / total_votes >= 0.60:
       self.gender = "female"
+      self.gender_confidence = female_votes / total_votes
+    # If neither reaches 60%, keep previous gender (more stable)
 
 
 class CameraAnalyticsEngine:
@@ -350,10 +358,10 @@ class CameraAnalyticsEngine:
     """
     Validate that the video source can be opened and read.
     Also detects FPS for non-live sources if not already set.
-    Raises ValueError if validation fails.
+    Raises ValueError if validation fails (but allows graceful fallback for cameras).
     """
     print(f"[INFO] Validating video source: {self.source}")
-    
+
     # For camera indices, use platform-specific backend
     if isinstance(self.source, int):
       from .sources import _get_camera_backend
@@ -385,6 +393,16 @@ class CameraAnalyticsEngine:
         pass
 
       print(f"[ERROR] {error_msg}")
+
+      # For cameras: Don't raise error here, let it be caught during actual run
+      # This allows frontend to switch cameras without crashing
+      if isinstance(self.source, int):
+        print(f"[WARN] Camera validation failed, but will retry during stream initialization")
+        if cap:
+          cap.release()
+        return
+
+      # For non-camera sources (YouTube, files, etc): raise error
       raise ValueError(error_msg)
 
     # Try to get FPS from OpenCV if not already set (fallback for non-live videos)
@@ -1351,7 +1369,8 @@ class CameraAnalyticsEngine:
                 gender = "male" if float(largest_face.sex) > 0.5 else "female"
 
             # Boost confidence for targeted crop analysis (it's more reliable)
-            confidence = min(1.0, confidence * 1.2)
+            # Increased boost from 1.2 to 1.3 for better weighted voting
+            confidence = min(1.0, confidence * 1.3)
 
             results.append((track_id, age, gender, confidence))
             print(f"[INFO] Targeted crop analysis successful for track {track_id}: {gender}, {int(age) if age else 'N/A'}y (confidence: {confidence:.2f})")

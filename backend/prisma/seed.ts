@@ -11,20 +11,25 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Create admin user
-  const adminPassword = await bcrypt.hash('admin123', 10);
-  const admin = await prisma.user.upsert({
+  // Create demo user (admin account with demo credentials)
+  const demoPassword = await bcrypt.hash('demo1234', 10);
+  const demoUser = await prisma.user.upsert({
     where: { email: 'admin@observai.com' },
-    update: {},
+    update: {
+      passwordHash: demoPassword,
+      firstName: 'Demo',
+      lastName: 'Manager',
+      role: 'MANAGER'
+    },
     create: {
       email: 'admin@observai.com',
-      passwordHash: adminPassword,
-      firstName: 'Admin',
-      lastName: 'User',
-      role: 'ADMIN'
+      passwordHash: demoPassword,
+      firstName: 'Demo',
+      lastName: 'Manager',
+      role: 'MANAGER'
     }
   });
-  console.log('✅ Created admin user:', admin.email);
+  console.log('✅ Created demo user:', demoUser.email);
 
   // Create manager user
   const managerPassword = await bcrypt.hash('manager123', 10);
@@ -112,7 +117,7 @@ async function main() {
 
   console.log('🎉 Database seeded successfully!');
   console.log('\n📝 Test credentials:');
-  console.log('   Admin: admin@observai.com / admin123');
+  console.log('   Demo Account: admin@observai.com / demo1234 (MANAGER role)');
   console.log('   Manager: manager@observai.com / manager123');
 }
 

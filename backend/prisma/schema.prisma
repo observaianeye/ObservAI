@@ -28,6 +28,7 @@ model User {
   cameras       Camera[]
   zones         Zone[]
   sessions      Session[]
+  passwordResets PasswordReset[]
 
   @@map("users")
 }
@@ -44,6 +45,20 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
+}
+
+// Password reset tokens
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  used      Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
 }
 
 // Camera/Video source configuration

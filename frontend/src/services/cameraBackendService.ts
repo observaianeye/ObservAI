@@ -343,19 +343,53 @@ class CameraBackendService {
         return;
       }
 
-      this.socket.emit('change_source', { source });
+      console.log('[CameraBackendService] Changing source to:', source);
 
-      this.socket.once('source_changed', (response: any) => {
+      // Set up timeout first
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout waiting for source change (30s)'));
+      }, 30000);
+
+      // Listen for both success and error responses
+      const handleSuccess = (response: any) => {
+        clearTimeout(timeout);
+        this.socket?.off('source_error', handleError);
         if (response?.status === 'success') {
-          resolve();
+          console.log('[CameraBackendService] Source changed successfully');
+
+          // Check if fallback occurred
+          if (response.fallback) {
+            console.warn('[CameraBackendService] ⚠️  Fallback occurred:', response.fallback_reason);
+            console.warn(`[CameraBackendService] Requested: ${response.requested_source}, Actual: ${response.actual_source}`);
+
+            // Resolve with fallback info so frontend can update UI
+            resolve({
+              fallback: true,
+              requestedSource: response.requested_source,
+              actualSource: response.actual_source,
+              reason: response.fallback_reason
+            } as any);
+          } else {
+            resolve();
+          }
         } else {
+          console.error('[CameraBackendService] Source change failed:', response?.message);
           reject(new Error(response?.message || 'Failed to change source'));
         }
-      });
+      };
 
-      setTimeout(() => {
-        reject(new Error('Timeout waiting for source change'));
-      }, 30000);
+      const handleError = (response: any) => {
+        clearTimeout(timeout);
+        this.socket?.off('source_changed', handleSuccess);
+        const errorMsg = response?.message || response?.error || 'Failed to change camera source';
+        console.error('[CameraBackendService] Source change error:', errorMsg);
+        reject(new Error(errorMsg));
+      };
+
+      this.socket.once('source_changed', handleSuccess);
+      this.socket.once('source_error', handleError);
+
+      this.socket.emit('change_source', { source });
     });
   }
 

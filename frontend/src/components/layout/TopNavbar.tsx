@@ -10,7 +10,7 @@ interface TopNavbarProps {
 }
 
 export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -74,8 +74,12 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
                 <User className="w-5 h-5 text-white" />
               </div>
               <div className="hidden md:block text-left">
-                <div className="text-sm font-medium text-white">Admin User</div>
-                <div className="text-xs text-gray-400">admin@observai.com</div>
+                <div className="text-sm font-medium text-white">
+                  {user?.firstName && user?.lastName
+                    ? `${user.firstName} ${user.lastName}`
+                    : user?.firstName || user?.email || 'User'}
+                </div>
+                <div className="text-xs text-gray-400">{user?.email || ''}</div>
               </div>
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>

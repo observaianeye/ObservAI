@@ -6,8 +6,15 @@ import ParticleBackground from '../components/visuals/ParticleBackground';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    // Load saved email if remember me was checked
+    return localStorage.getItem('rememberedEmail') || '';
+  });
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(() => {
+    // Load remember me preference
+    return localStorage.getItem('rememberMe') === 'true';
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
@@ -70,12 +77,34 @@ export default function LoginPage() {
     setIsLoading(true);
     setError('');
 
-    const success = await login(email, password);
+    const success = await login(email, password, rememberMe);
+
+    if (success) {
+      // Save email and remember me preference if checkbox is checked
+      if (rememberMe) {
+        localStorage.setItem('rememberedEmail', email);
+        localStorage.setItem('rememberMe', 'true');
+      } else {
+        localStorage.removeItem('rememberedEmail');
+        localStorage.removeItem('rememberMe');
+      }
+      navigate('/dashboard');
+    } else {
+      setError('Invalid email or password');
+      setIsLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    setIsLoading(true);
+    setError('');
+
+    const success = await login('admin@observai.com', 'demo1234');
 
     if (success) {
       navigate('/dashboard');
     } else {
-      setError('Invalid email or password');
+      setError('Demo account unavailable');
       setIsLoading(false);
     }
   };
@@ -120,7 +149,12 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Password</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Password</label>
+                <Link to="/forgot-password" className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
@@ -135,6 +169,19 @@ export default function LoginPage() {
                   required
                 />
               </div>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="remember-me"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-600 rounded bg-white/5 cursor-pointer"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-400 cursor-pointer">
+                Remember me for 30 days
+              </label>
             </div>
 
             <button
@@ -159,7 +206,40 @@ export default function LoginPage() {
             </div>
           )}
 
-          <div className="mt-8 text-center">
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/10"></div>
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="px-2 bg-black/40 text-gray-500">or</span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleDemoLogin}
+              type="button"
+              disabled={isLoading}
+              className="mt-4 w-full py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/50 text-purple-300 font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              <Activity className="w-4 h-4" />
+              Use Demo Account
+            </button>
+          </div>
+
+          <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+            <p className="text-xs font-mono text-blue-400 mb-2">Demo Account Credentials:</p>
+            <div className="space-y-1">
+              <p className="text-xs text-gray-400">
+                <span className="text-gray-500">Email:</span> admin@observai.com
+              </p>
+              <p className="text-xs text-gray-400">
+                <span className="text-gray-500">Password:</span> demo1234
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 text-center">
             <p className="text-sm text-gray-500">
               Don't have an account?{' '}
               <Link to="/register" className="text-blue-400 hover:text-blue-300 font-medium transition-colors">

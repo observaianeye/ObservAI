@@ -162,22 +162,26 @@ class CameraAnalyticsWithWebSocket:
         self.engine = None
         print("✓ Analytics stopped")
 
-    async def change_source(self, new_source: int | str) -> bool:
+    async def change_source(self, new_source: int | str) -> tuple[bool, int | str]:
         """Change camera source and restart analytics
 
         CRITICAL: Ensures proper camera hardware release before switching sources
         to prevent conflicts when multiple sources try to access the same camera.
+
+        Returns:
+            tuple[bool, int | str]: (success, actual_source)
+            The actual_source may differ from new_source if fallback occurred (e.g., iPhone → MacBook)
         """
         try:
             # Check if source is already the same - avoid unnecessary restart
             if self.source == new_source and self.engine and self.engine.running:
                 print(f"ℹ️  Source {new_source} is already active, skipping restart")
-                return True
+                return (True, self.source)
 
             print(f"🔄 ===== CHANGING CAMERA SOURCE =====")
             print(f"🔄 Current source: {self.source}")
-            print(f"🔄 New source: {new_source}")
-            print(f"🔄 New source type: {type(new_source)}")
+            print(f"🔄 Requested source: {new_source}")
+            print(f"🔄 Requested source type: {type(new_source)}")
 
             # Debug: Check if it's a URL
             if isinstance(new_source, str):
@@ -210,12 +214,18 @@ class CameraAnalyticsWithWebSocket:
             if not success:
                 print("❌ Step 4 failed: Could not start analytics with new source")
                 # Reset source to 0 as fallback or just fail
-                return False
-                
+                return (False, new_source)
+
             print("✓ Analytics started with new source")
 
-            print(f"✓ ===== SOURCE CHANGED SUCCESSFULLY TO: {new_source} =====")
-            return True
+            # Get actual source used (may differ due to fallback)
+            actual_source = self.engine.source if self.engine else new_source
+
+            if actual_source != new_source:
+                print(f"⚠️  FALLBACK: Requested {new_source} but using {actual_source}")
+
+            print(f"✓ ===== SOURCE CHANGED SUCCESSFULLY TO: {actual_source} =====")
+            return (True, actual_source)
         except Exception as e:
             print(f"❌ ===== FAILED TO CHANGE SOURCE =====")
             print(f"❌ Error: {e}")

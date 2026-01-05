@@ -130,16 +130,14 @@ class WebcamSource(VideoSource):
                 return best_match
 
             # FAIL: If we passed all retries and found nothing.
-            # Do NOT fallback to 0. Raise error so user knows.
-            error_msg = (
-                f"Camera at index {requested_index} (iPhone/Secondary) not found.\n\n"
-                f"Troubleshooting:\n"
-                f"1. Ensure iPhone is near Mac, unlocked, and WiFi/Bluetooth ON.\n"
-                f"2. Check 'Continuity Camera' in Mac System Settings.\n"
-                f"3. Connect via USB cable for reliability."
-            )
-            print(f"[ERROR] {error_msg}")
-            raise ValueError(error_msg)
+            # As last resort, fallback to primary camera (index 0) with warning
+            print(f"[WARN] Camera at index {requested_index} not available after all attempts")
+            print(f"[WARN] Falling back to primary camera (index 0)")
+            print(f"[INFO] iPhone Troubleshooting:")
+            print(f"[INFO]   1. Ensure iPhone is near Mac, unlocked, WiFi/Bluetooth ON")
+            print(f"[INFO]   2. Check 'Continuity Camera' in Mac System Settings")
+            print(f"[INFO]   3. Connect via USB cable for better reliability")
+            return 0  # Fallback to primary camera instead of failing
 
 
         return requested_index
@@ -335,11 +333,20 @@ class VideoLinkSource(VideoSource):
         return url
 
     def _resolve_youtube_with_retry(self, url: str) -> str:
-        """Extract YouTube stream URL with exponential backoff retry logic"""
+        """Extract YouTube stream URL with exponential backoff retry logic
+
+        CRITICAL FIX: YouTube stream URLs from yt-dlp often fail with OpenCV due to:
+        1. Complex URL signatures that OpenCV can't handle properly
+        2. HTTP redirect chains that timeout
+        3. Stream URLs expire after several hours
+
+        Solution: Use yt-dlp with better format selection to get reliable stream URLs.
+        We prioritize simpler formats that OpenCV can handle reliably.
+        """
         # First, check if it's a live stream
         print(f"   Checking if video is live...")
         self.is_live = self._check_if_live(url)
-        
+
         if self.is_live:
             print(f"   📺 Video is LIVE - using optimized live stream format")
         else:
@@ -347,27 +354,30 @@ class VideoLinkSource(VideoSource):
             self.source_fps = self._get_video_fps(url)
             if self.source_fps:
                 print(f"   📊 Source FPS: {self.source_fps}")
-        
-        for attempt in range(self.max_retries):
-            try:
-                delay = self.retry_delays[min(attempt, len(self.retry_delays) - 1)]
-                if attempt > 0:
-                    print(f"   🔄 Retry {attempt}/{self.max_retries} after {delay}s delay...")
-                    time.sleep(delay)
 
-                # Use different format selection for live vs regular videos
-                # CRITICAL: Always prefer 'best' (video+audio) over 'bestvideo' (video-only)
-                # 'bestvideo' can cause black screen issues in OpenCV due to missing audio stream
-                if self.is_live:
-                    # For live streams: use 720p or lower for real-time processing
-                    # YouTube live streams are typically HLS which has inherent latency
-                    cmd = ['yt-dlp', '-f', 'best[height<=720]/best', '-g', url]
-                else:
-                    # For regular videos: use 'best' format (video+audio combined)
-                    # This ensures OpenCV can properly read the stream without black screen
-                    # Cap at 720p for better performance (1080p is overkill for analytics)
-                    cmd = ['yt-dlp', '-f', 'best[height<=720][ext=mp4]/best[height<=720]/best', '-g', url]
-                
+        # Try multiple format strategies for better compatibility
+        format_strategies = []
+        if self.is_live:
+            # Live stream format strategies (in order of preference)
+            format_strategies = [
+                '95/94/93/92/best[height<=720]/best',  # HLS formats
+                'best[height<=480]/best',  # Lower resolution for better compatibility
+                'worst'  # Last resort
+            ]
+        else:
+            # Regular video format strategies
+            format_strategies = [
+                '18/22',  # Classic MP4 formats that work everywhere
+                'best[height<=720][ext=mp4]/best[ext=mp4]',  # MP4 with reasonable quality
+                'best[height<=480][ext=mp4]',  # Lower quality MP4
+                'best'  # Last resort
+            ]
+
+        for strategy_idx, format_spec in enumerate(format_strategies):
+            try:
+                print(f"   🎯 Trying format strategy {strategy_idx + 1}/{len(format_strategies)}: {format_spec}")
+
+                cmd = ['yt-dlp', '-f', format_spec, '-g', url]
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -378,20 +388,53 @@ class VideoLinkSource(VideoSource):
                 if result.returncode == 0 and result.stdout.strip():
                     stream_url = result.stdout.strip().split('\n')[0]
                     stream_type = "LIVE" if self.is_live else "VIDEO"
-                    print(f"   ✓ YouTube {stream_type} stream extracted (attempt {attempt + 1})")
-                    return stream_url
+                    print(f"   ✓ YouTube {stream_type} stream URL extracted")
+                    print(f"   Stream URL: {stream_url[:80]}...")
+
+                    # Quick validation: Test if OpenCV can open this URL
+                    # This prevents returning URLs that will fail later
+                    import cv2
+                    print(f"   🔍 Validating stream URL with OpenCV...")
+                    test_cap = cv2.VideoCapture(stream_url)
+                    can_open = test_cap.isOpened()
+
+                    # Try to read one frame to ensure it's really working
+                    if can_open:
+                        ret, frame = test_cap.read()
+                        can_read = ret and frame is not None
+                    else:
+                        can_read = False
+
+                    test_cap.release()
+
+                    if can_open and can_read:
+                        print(f"   ✅ Stream URL validated successfully!")
+                        return stream_url
+                    else:
+                        if not can_open:
+                            print(f"   ⚠️  OpenCV cannot open stream URL")
+                        else:
+                            print(f"   ⚠️  OpenCV opened stream but cannot read frames")
+                        print(f"   ↻ Trying next format strategy...")
+                        continue
                 else:
-                    print(f"   ⚠️  yt-dlp failed (attempt {attempt + 1}, code {result.returncode})")
-                    if result.stderr and attempt == self.max_retries - 1:
-                        print(f"   Error: {result.stderr.strip()[:200]}")
+                    print(f"   ⚠️  yt-dlp failed with code {result.returncode}")
+                    if result.stderr:
+                        error_msg = result.stderr.strip()
+                        print(f"   Error: {error_msg[:200]}")
+                    continue
 
             except subprocess.TimeoutExpired:
-                print(f"   ⚠️  yt-dlp timeout (attempt {attempt + 1})")
+                print(f"   ⚠️  yt-dlp timeout on strategy {strategy_idx + 1}")
+                continue
             except Exception as e:
-                print(f"   ⚠️  Error (attempt {attempt + 1}): {e}")
+                print(f"   ⚠️  Error on strategy {strategy_idx + 1}: {e}")
+                continue
 
-        print("   ❌ All retry attempts failed, using original URL")
-        return url
+        # If all strategies failed
+        error_msg = f"Failed to extract valid YouTube stream URL after trying {len(format_strategies)} different format strategies"
+        print(f"   ❌ {error_msg}")
+        raise ValueError(error_msg)
 
     def validate(self) -> bool:
         return True

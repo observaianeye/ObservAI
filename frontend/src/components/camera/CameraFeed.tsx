@@ -649,8 +649,29 @@ export default function CameraFeed() {
         // Change source on backend - this will also start the analytics stream
         console.log('[CameraFeed] Step 8: Changing source on backend...');
         console.log('[CameraFeed] 📤 Sending to backend:', typeof backendSource, backendSource);
-        await cameraBackendService.changeSource(backendSource);
+        const result: any = await cameraBackendService.changeSource(backendSource);
         console.log('[CameraFeed] Backend source changed successfully');
+
+        // Check if fallback occurred (e.g., iPhone camera → MacBook camera)
+        if (result && result.fallback) {
+          console.warn('[CameraFeed] ⚠️  Fallback detected:', result.reason);
+
+          // Update UI to reflect actual source
+          if (type === 'iphone' && result.actualSource === 0) {
+            console.warn('[CameraFeed] iPhone camera not available, falling back to MacBook camera');
+
+            // Show warning toast to user
+            setError(`⚠️  iPhone Camera not available\n\nFalling back to MacBook camera.\n\n${result.reason || 'Please check iPhone connectivity.'}`);
+
+            // Update frontend state to reflect MacBook camera
+            const fallbackSource = { type: 'webcam' as CameraSource };
+            setCurrentSource(fallbackSource);
+            localStorage.setItem('lastCameraSource', JSON.stringify(fallbackSource));
+
+            // Clear error after 5 seconds
+            setTimeout(() => setError(null), 5000);
+          }
+        }
 
         // REMOVED: startStream() call - changeSource already starts the stream internally
         // This was causing "Analytics already running" warning
@@ -681,7 +702,27 @@ export default function CameraFeed() {
 
     } catch (err) {
       console.error('[CameraFeed] Source change failed:', err);
-      setError(`Failed to switch to ${type}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+
+      // Provide user-friendly error messages
+      let errorMessage = 'Unknown error';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+
+        // Enhance error messages for common scenarios
+        if (errorMessage.includes('Timeout')) {
+          errorMessage = `Camera connection timeout. Please check:\n1. Camera is connected and accessible\n2. No other app is using the camera\n3. Try refreshing the page`;
+        } else if (errorMessage.includes('not available') || errorMessage.includes('not found')) {
+          if (type === 'iphone') {
+            errorMessage = `iPhone Camera not found.\n\nTroubleshooting:\n1. Ensure iPhone is near Mac, unlocked\n2. WiFi and Bluetooth are ON\n3. Enable Continuity Camera in System Settings\n4. Connect via USB for better reliability\n\nFalling back to MacBook camera...`;
+          } else {
+            errorMessage = `Camera not available.\n\nThe ${getSourceLabel()} could not be accessed.\nPlease check camera permissions and connections.`;
+          }
+        } else if (errorMessage.includes('YouTube')) {
+          errorMessage = `YouTube video stream error:\n\n${errorMessage}\n\nThis video may be region-locked or unavailable.`;
+        }
+      }
+
+      setError(`Failed to switch to ${getSourceLabel()}:\n\n${errorMessage}`);
       setIsStreaming(false);
     } finally {
       isChangingSourceRef.current = false;

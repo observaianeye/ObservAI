@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { DataModeProvider } from './contexts/DataModeContext';
+import { ToastProvider } from './contexts/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalAlerts from './components/GlobalAlerts';
 import GlobalChatbot from './components/GlobalChatbot';
@@ -11,6 +12,8 @@ const LandingPage = lazy(() => import('./pages/LandingPage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const RegisterPage = lazy(() => import('./pages/RegisterPage'));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 const DashboardLayout = lazy(() => import('./components/layout/DashboardLayout'));
 const CameraAnalyticsPage = lazy(() => import('./pages/dashboard/CameraAnalyticsPage'));
@@ -25,13 +28,16 @@ function App() {
   return (
     <AuthProvider>
       <DataModeProvider>
-        <Router>
+        <ToastProvider>
+          <Router>
           <Suspense fallback={<LoadingScreen />}>
             <Routes>
               <Route path="/" element={<LandingPage />} />
               <Route path="/home" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
 
               <Route
                 path="/dashboard"
@@ -96,7 +102,8 @@ function App() {
 
           <GlobalAlerts />
           <GlobalChatbot />
-        </Router>
+          </Router>
+        </ToastProvider>
       </DataModeProvider>
     </AuthProvider>
   );

@@ -241,21 +241,53 @@ class AnalyticsWebSocketServer:
         @self.sio.event
         async def change_source(sid, data):
             """Handle source change request"""
-            source = data.get("source", 0)
-            logger.info(f"Source change requested by {sid}: {source}")
+            requested_source = data.get("source", 0)
+            logger.info(f"Source change requested by {sid}: {requested_source}")
             if self.on_change_source:
                 try:
-                    # change_source should return True/False or raise Exception
-                    success = await self.on_change_source(source)
-                    if success:
-                        await self.sio.emit("source_changed", {"status": "success", "source": source}, room=sid)
+                    # change_source should return tuple (success, actual_source) or raise Exception
+                    result = await self.on_change_source(requested_source)
+
+                    # Handle different return types for backwards compatibility
+                    if isinstance(result, tuple):
+                        success, actual_source = result
                     else:
-                        await self.sio.emit("source_changed", {"status": "error", "message": "Failed to change source"}, room=sid)
+                        success = result
+                        actual_source = requested_source
+
+                    if success:
+                        logger.info(f"Source changed successfully. Requested: {requested_source}, Actual: {actual_source}")
+
+                        # Inform client about fallback if source changed
+                        did_fallback = (requested_source != actual_source)
+                        response = {
+                            "status": "success",
+                            "requested_source": requested_source,
+                            "actual_source": actual_source,
+                            "fallback": did_fallback
+                        }
+
+                        if did_fallback:
+                            logger.warning(f"⚠️  Fallback occurred: {requested_source} → {actual_source}")
+                            response["fallback_reason"] = f"Source {requested_source} not available, using {actual_source}"
+
+                        await self.sio.emit("source_changed", response, room=sid)
+                    else:
+                        error_msg = "Failed to change source - camera not available"
+                        logger.error(f"Source change failed: {error_msg}")
+                        await self.sio.emit("source_error", {"status": "error", "message": error_msg}, room=sid)
+                except ValueError as e:
+                    # ValueError typically means camera not found or validation failed
+                    error_msg = str(e)
+                    logger.error(f"Source validation error: {error_msg}")
+                    await self.sio.emit("source_error", {"status": "error", "message": error_msg}, room=sid)
                 except Exception as e:
-                    logger.error(f"Error changing source: {e}")
-                    await self.sio.emit("source_changed", {"status": "error", "message": str(e)}, room=sid)
+                    # Other unexpected errors
+                    error_msg = f"Unexpected error changing source: {str(e)}"
+                    logger.error(f"Error changing source: {e}", exc_info=True)
+                    await self.sio.emit("source_error", {"status": "error", "message": error_msg}, room=sid)
             else:
-                await self.sio.emit("source_changed", {"status": "error", "message": "Source change not supported"}, room=sid)
+                await self.sio.emit("source_error", {"status": "error", "message": "Source change not supported"}, room=sid)
 
         @self.sio.event
         async def toggle_heatmap(sid, data):
