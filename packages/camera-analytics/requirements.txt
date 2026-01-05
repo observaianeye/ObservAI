@@ -1,10 +1,20 @@
 opencv-python>=4.8.0
 numpy>=1.24.0
+
+# AI / ML
 ultralytics>=8.3.0
-pyyaml>=6.0
 lap>=0.4.0
 insightface>=0.7.3
+
+# On Mac M-series, prefer onnxruntime-silicon
+# pip install onnxruntime-silicon
 onnxruntime>=1.16.0
+
+# Future: MiVOLO support
+timm>=0.9.0
+yacs>=0.1.8
+
+# Streaming
 python-socketio>=5.11.0
 aiohttp>=3.9.0
 yt-dlp>=2025.12.8

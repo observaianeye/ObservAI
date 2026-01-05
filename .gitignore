@@ -75,6 +75,7 @@ lerna-debug.log*
 
 # Model files
 *.pt
+*.pth
 yolov8n.pt
 
 # Camera data

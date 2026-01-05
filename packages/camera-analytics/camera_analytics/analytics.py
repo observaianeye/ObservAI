@@ -34,6 +34,7 @@ from .metrics import (
   default_age_buckets,
 )
 from .optimize import HardwareOptimizer
+from .age_gender import EstimatorFactory, AgeGenderEstimator
 
 
 @dataclass
@@ -296,18 +297,15 @@ class CameraAnalyticsEngine:
     # before we return success to the frontend.
     self._validate_source_on_init()
 
-    if FaceAnalysis is not None:
-      try:
-        # bufallo_s is a lightweight model. 
-        # Increase det_size to (640, 640) for better detection of small faces in wide shots (YouTube/CCTV)
-        self.face_app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
-        self.face_app.prepare(ctx_id=0, det_size=(640, 640))
-        print("[INFO] InsightFace initialized (buffalo_s model, 640x640)")
-      except Exception as err:  # pragma: no cover - runtime-only
-        print(f"[WARN] InsightFace initialization failed: {err}. Demographics disabled.")
-        self.face_app = None
-    else:
-      self.face_app = None
+    # Initialize Age/Gender Estimator (MiVOLO or InsightFace)
+    # This replaces the raw FaceAnalysis usage with a managed, optimized wrapper
+    try:
+        self.age_gender_estimator = EstimatorFactory.create_estimator()
+        self.age_gender_estimator.prepare(ctx_id=0, det_size=(640, 640))
+        print("[INFO] Age/Gender Estimator initialized (Optimized Mode)")
+    except Exception as err:
+        print(f"[WARN] Age/Gender Estimator initialization failed: {err}")
+        self.age_gender_estimator = None
 
     self.tracks: Dict[int, TrackedPerson] = {}
     self.people_in = 0
@@ -1219,91 +1217,28 @@ class CameraAnalyticsEngine:
     IMPROVED: Targeted face analysis approach
 
     Strategy:
-    1. First try full-frame face detection (fast, works for clear faces)
-    2. For persons without demographics, crop their bbox and analyze individually
-    3. This hybrid approach maximizes accuracy while staying efficient
+    1. Rely on YOLOv11 for detection (already happened).
+    2. Crop each tracked person's face/body region.
+    3. Send crop to MiVOLO/InsightFace for classification ONLY.
+    
+    This eliminates the redundant "Full Frame Face Detection" (Phase 1) step,
+    saving ~50% compute resources and fixing the "CPU overload" issue.
 
     Returns list of (track_id, age, gender, confidence) tuples.
     """
-    if self.face_app is None:
+    if self.age_gender_estimator is None:
       return []
 
     try:
       results = []
 
-      # PHASE 1: Full-frame face detection (for clearly visible faces)
-      faces = self.face_app.get(frame)
-      matched_track_ids = set()  # Track which persons got matched
-
-      # Create snapshot to avoid race condition
-      tracks_snapshot = list(self.tracks.items())
-
-      for face in faces:
-        bbox = face.bbox.astype(float)
-        fx1, fy1, fx2, fy2 = bbox.tolist()
-        fcx, fcy = (fx1 + fx2) / 2.0, (fy1 + fy2) / 2.0
-
-        # Find best matching track
-        best_track_id = None
-        best_distance = float("inf")
-
-        for track_id, person in tracks_snapshot:
-          x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
-          px1_ = x1_norm * frame_w
-          py1_ = y1_norm * frame_h
-          px2_ = x2_norm * frame_w
-          py2_ = y2_norm * frame_h
-
-          cx = (px1_ + px2_) / 2.0
-          cy = (py1_ + py2_) / 2.0
-
-          distance = (fcx - cx) ** 2 + (fcy - cy) ** 2
-
-          # Check overlap
-          ix1 = max(px1_, fx1)
-          iy1 = max(py1_, fy1)
-          ix2 = min(px2_, fx2)
-          iy2 = min(py2_, fy2)
-
-          if ix2 > ix1 and iy2 > iy1:
-             if distance < best_distance:
-                best_track_id = track_id
-                best_distance = distance
-
-        # Improved distance threshold: Tightened from 10000 to 5000 pixels^2 for better accuracy
-        if best_track_id and best_distance < 5000:
-          # Extract age and gender with confidence
-          confidence = float(face.det_score) if hasattr(face, 'det_score') else 0.5
-          age = float(face.age) if face.age is not None else None
-
-          # Improved Gender handling - InsightFace buffalo_s uses 'gender' attribute (0=female, 1=male)
-          gender = None
-          if hasattr(face, "gender") and face.gender is not None:
-             # buffalo_s returns integer: 0 = female, 1 = male
-             gender_value = int(face.gender)
-             gender = "male" if gender_value == 1 else "female"
-          elif hasattr(face, "sex") and face.sex is not None:
-             # Fallback for other models
-             if isinstance(face.sex, str):
-                 gender = "male" if face.sex.upper() == 'M' else "female"
-             else:
-                 gender = "male" if float(face.sex) > 0.5 else "female"
-
-          results.append((best_track_id, age, gender, confidence))
-          matched_track_ids.add(best_track_id)
-
-      # PHASE 2: Targeted crop analysis for unmatched persons
-      # This is the KEY INNOVATION - analyze each person's bbox individually if no match
-      # CRITICAL: Create snapshot of tracks to avoid "dictionary changed size during iteration"
+      # Create snapshot of tracks to avoid "dictionary changed size during iteration"
       # This happens when tracks are added/removed by main thread while demographics thread iterates
       tracks_snapshot = list(self.tracks.items())
 
       for track_id, person in tracks_snapshot:
-        # Skip if already matched in Phase 1
-        if track_id in matched_track_ids:
-          continue
-
         # Skip if already has good demographics (avoid redundant processing)
+        # LOGIC GATE: Only process if needed
         has_age = person.age is not None and len(person.age_history) >= 3
         has_gender = person.gender != "unknown" and len(person.gender_history) >= 5
         if has_age and has_gender:
@@ -1345,35 +1280,17 @@ class CameraAnalyticsEngine:
         if person_crop.shape[0] < 80 or person_crop.shape[1] < 40:
           continue
 
-        # Analyze the CROPPED region (much higher success rate!)
+        # Analyze the CROPPED region
         try:
-          crop_faces = self.face_app.get(person_crop)
-
-          if crop_faces:
-            # Take the largest face in the crop (most likely to be the person)
-            largest_face = max(crop_faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-
-            # Extract demographics
-            confidence = float(largest_face.det_score) if hasattr(largest_face, 'det_score') else 0.7
-            age = float(largest_face.age) if largest_face.age is not None else None
-
-            # Gender parsing
-            gender = None
-            if hasattr(largest_face, "gender") and largest_face.gender is not None:
-              gender_value = int(largest_face.gender)
-              gender = "male" if gender_value == 1 else "female"
-            elif hasattr(largest_face, "sex") and largest_face.sex is not None:
-              if isinstance(largest_face.sex, str):
-                gender = "male" if largest_face.sex.upper() == 'M' else "female"
-              else:
-                gender = "male" if float(largest_face.sex) > 0.5 else "female"
-
-            # Boost confidence for targeted crop analysis (it's more reliable)
-            # Increased boost from 1.2 to 1.3 for better weighted voting
-            confidence = min(1.0, confidence * 1.3)
-
-            results.append((track_id, age, gender, confidence))
-            print(f"[INFO] Targeted crop analysis successful for track {track_id}: {gender}, {int(age) if age else 'N/A'}y (confidence: {confidence:.2f})")
+          age, gender, confidence = self.age_gender_estimator.predict(person_crop)
+          
+          if age is not None and gender is not None:
+             # Boost confidence for targeted crop analysis (it's more reliable)
+             # Increased boost from 1.2 to 1.3 for better weighted voting
+             confidence = min(1.0, confidence * 1.3)
+             
+             results.append((track_id, age, gender, confidence))
+             # print(f"[INFO] Analyzed track {track_id}: {gender}, {int(age)}y ({confidence:.2f})")
 
         except Exception as crop_error:
           # Silently skip - this is expected for some crops
@@ -1388,7 +1305,7 @@ class CameraAnalyticsEngine:
 
   def _update_demographics(self, frame: np.ndarray) -> None:
     # ... existing start ...
-    if self.face_app is None:
+    if self.age_gender_estimator is None:
       return
 
     # Check if previous async task completed
