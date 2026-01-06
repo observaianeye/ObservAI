@@ -125,7 +125,7 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
         onClick={onClose}
       />
 
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="relative rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col backdrop-blur-md bg-gray-900/90 border border-blue-500/30">
         <div className="bg-gradient-to-r from-blue-600 to-violet-600 p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
@@ -144,7 +144,7 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
           </button>
         </div>
 
-        <div className="p-6 border-b border-gray-200">
+        <div className="p-6 border-b border-blue-500/30">
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
@@ -152,18 +152,18 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search help articles, FAQs, and tutorials..."
-              className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none text-sm"
+              className="w-full pl-12 pr-4 py-3 border-2 border-blue-500/30 bg-gray-800/50 text-white rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none text-sm placeholder:text-gray-500"
             />
           </div>
         </div>
 
-        <div className="flex border-b border-gray-200">
+        <div className="flex border-b border-blue-500/30">
           <button
             onClick={() => setActiveTab('articles')}
             className={`flex-1 px-6 py-4 font-semibold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'articles'
-                ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                : 'text-gray-600 hover:bg-gray-50'
+                ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/20'
+                : 'text-gray-300 hover:bg-gray-800/50'
             }`}
           >
             <FileText className="w-5 h-5" />
@@ -204,7 +204,7 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                     className={`px-4 py-2 rounded-lg font-semibold whitespace-nowrap transition-all ${
                       selectedCategory === cat
                         ? 'bg-blue-600 text-white shadow-lg'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        : 'bg-gray-800/50 text-gray-300 hover:bg-gray-800/70 border border-blue-500/30'
                     }`}
                   >
                     {cat === 'all' ? 'All Categories' : cat}
@@ -216,13 +216,13 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                 {filteredArticles.map(article => (
                   <div
                     key={article.id}
-                    className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-400 hover:shadow-lg transition-all cursor-pointer"
+                    className="p-6 border-2 border-blue-500/30 rounded-xl hover:border-blue-500/50 hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all cursor-pointer bg-gray-900/80 backdrop-blur-md"
                   >
-                    <span className="text-xs font-bold text-blue-600 uppercase tracking-wide">
+                    <span className="text-xs font-bold text-blue-400 uppercase tracking-wide">
                       {article.category}
                     </span>
-                    <h3 className="text-lg font-bold text-gray-900 mt-2 mb-3">{article.title}</h3>
-                    <p className="text-sm text-gray-600 leading-relaxed">{article.content}</p>
+                    <h3 className="text-lg font-bold text-white mt-2 mb-3">{article.title}</h3>
+                    <p className="text-sm text-gray-300 leading-relaxed">{article.content}</p>
                   </div>
                 ))}
               </div>
@@ -230,8 +230,8 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
               {filteredArticles.length === 0 && (
                 <div className="text-center py-12">
                   <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-bold text-gray-900 mb-2">No articles found</h3>
-                  <p className="text-gray-600">Try adjusting your search or browse all categories</p>
+                  <h3 className="text-lg font-bold text-white mb-2">No articles found</h3>
+                  <p className="text-gray-400">Try adjusting your search or browse all categories</p>
                 </div>
               )}
             </div>
@@ -242,18 +242,18 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
               {filteredFaqs.map((faq, index) => (
                 <div
                   key={index}
-                  className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-400 transition-all"
+                  className="p-6 border-2 border-blue-500/30 rounded-xl hover:border-blue-500/50 hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all bg-gray-900/80 backdrop-blur-md"
                 >
-                  <h3 className="text-lg font-bold text-gray-900 mb-3">{faq.question}</h3>
-                  <p className="text-sm text-gray-600 leading-relaxed">{faq.answer}</p>
+                  <h3 className="text-lg font-bold text-white mb-3">{faq.question}</h3>
+                  <p className="text-sm text-gray-300 leading-relaxed">{faq.answer}</p>
                 </div>
               ))}
 
               {filteredFaqs.length === 0 && (
                 <div className="text-center py-12">
                   <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-bold text-gray-900 mb-2">No FAQs found</h3>
-                  <p className="text-gray-600">Try a different search term</p>
+                  <h3 className="text-lg font-bold text-white mb-2">No FAQs found</h3>
+                  <p className="text-gray-400">Try a different search term</p>
                 </div>
               )}
             </div>
@@ -266,8 +266,8 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                   <Video className="w-16 h-16 text-white" />
                 </div>
                 <div className="p-4">
-                  <h3 className="font-bold text-gray-900 mb-2">Getting Started with ObservAI</h3>
-                  <p className="text-sm text-gray-600">Learn the basics in 5 minutes</p>
+                  <h3 className="font-bold text-white mb-2">Getting Started with ObservAI</h3>
+                  <p className="text-sm text-gray-300">Learn the basics in 5 minutes</p>
                 </div>
               </div>
 
@@ -276,8 +276,8 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                   <Video className="w-16 h-16 text-white" />
                 </div>
                 <div className="p-4">
-                  <h3 className="font-bold text-gray-900 mb-2">Setting Up Camera Analytics</h3>
-                  <p className="text-sm text-gray-600">Connect and configure your cameras</p>
+                  <h3 className="font-bold text-white mb-2">Setting Up Camera Analytics</h3>
+                  <p className="text-sm text-gray-300">Connect and configure your cameras</p>
                 </div>
               </div>
 
@@ -286,8 +286,8 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                   <Video className="w-16 h-16 text-white" />
                 </div>
                 <div className="p-4">
-                  <h3 className="font-bold text-gray-900 mb-2">Understanding Sales Reports</h3>
-                  <p className="text-sm text-gray-600">Make data-driven decisions</p>
+                  <h3 className="font-bold text-white mb-2">Understanding Sales Reports</h3>
+                  <p className="text-sm text-gray-300">Make data-driven decisions</p>
                 </div>
               </div>
 
@@ -296,8 +296,8 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                   <Video className="w-16 h-16 text-white" />
                 </div>
                 <div className="p-4">
-                  <h3 className="font-bold text-gray-900 mb-2">Managing Employee Schedules</h3>
-                  <p className="text-sm text-gray-600">Optimize staffing and payroll</p>
+                  <h3 className="font-bold text-white mb-2">Managing Employee Schedules</h3>
+                  <p className="text-sm text-gray-300">Optimize staffing and payroll</p>
                 </div>
               </div>
             </div>

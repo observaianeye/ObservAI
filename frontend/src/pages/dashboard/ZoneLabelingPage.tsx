@@ -5,9 +5,9 @@ export default function ZoneLabelingPage() {
     <div className="p-6">
       <ZoneCanvas />
       
-      <div className="mt-6 bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-3">How to Use Zone Labeling</h3>
-        <div className="space-y-3 text-sm text-gray-700">
+      <div className="mt-6 rounded-xl border border-blue-500/30 p-6 shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:border-blue-500/50 backdrop-blur-md bg-gray-900/80">
+        <h3 className="text-lg font-bold text-white mb-3">How to Use Zone Labeling</h3>
+        <div className="space-y-3 text-sm text-gray-300">
           <div className="flex items-start space-x-3">
             <span className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
             <p>Go to <strong>Camera Analytics</strong> page and start your camera in Live mode</p>

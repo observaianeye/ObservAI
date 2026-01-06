@@ -85,7 +85,7 @@ export default function RegisterPage() {
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600/20 mb-4">
               <Activity className="w-6 h-6 text-blue-400" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2">Request Access</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">Register</h2>
             <p className="text-gray-400 text-sm">Join the next generation of retail analytics.</p>
           </div>
 

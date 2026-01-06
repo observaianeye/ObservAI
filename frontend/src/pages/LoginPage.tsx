@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Activity, Lock, Mail, ArrowRight, Loader2 } from 'lucide-react';
 import ParticleBackground from '../components/visuals/ParticleBackground';
 import { useAuth } from '../contexts/AuthContext';
+import logoImage from '../assets/logo.jpeg';
 
 export default function LoginPage() {
   const [email, setEmail] = useState(() => {
@@ -126,10 +127,14 @@ export default function LoginPage() {
         <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600/20 mb-4">
-              <Activity className="w-6 h-6 text-blue-400" />
+              <img 
+                src={logoImage} 
+                alt="ObservAI Logo" 
+                className="w-10 h-10 rounded-lg object-contain"
+              />
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
-            <p className="text-gray-400 text-sm">Enter your credentials to access the command center.</p>
+            <p className="text-gray-400 text-sm">Sign in to your account to continue</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
@@ -227,23 +232,11 @@ export default function LoginPage() {
             </button>
           </div>
 
-          <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-            <p className="text-xs font-mono text-blue-400 mb-2">Demo Account Credentials:</p>
-            <div className="space-y-1">
-              <p className="text-xs text-gray-400">
-                <span className="text-gray-500">Email:</span> admin@observai.com
-              </p>
-              <p className="text-xs text-gray-400">
-                <span className="text-gray-500">Password:</span> demo1234
-              </p>
-            </div>
-          </div>
-
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-500">
               Don't have an account?{' '}
               <Link to="/register" className="text-blue-400 hover:text-blue-300 font-medium transition-colors">
-                Request Access
+                Register
               </Link>
             </p>
           </div>
