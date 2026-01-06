@@ -4,28 +4,61 @@
 
 ### Yöntem 1: Otomatik Script'ler (Önerilen)
 
-**Terminal 1 - Backend:**
+**macOS/Linux:**
 ```bash
-cd /Users/partalle/Projects/ObservAI
-./start-backend.sh
+# Tüm servisleri tek seferde başlat
+./start-all.sh
+
+# Servisleri durdurmak için
+./stop-all.sh
 ```
 
-**Terminal 2 - Frontend:**
+**Windows:**
+```cmd
+REM Tüm servisleri tek seferde başlat
+start-all.bat
+
+REM Servisleri durdurmak için
+stop-all.bat
+```
+
+**Alternatif - Ayrı Script'ler:**
+
+**macOS/Linux:**
 ```bash
-cd /Users/partalle/Projects/ObservAI
+# Terminal 1 - Backend
+./start-backend.sh
+
+# Terminal 2 - Frontend
 ./start-frontend.sh
+```
+
+**Windows:**
+```cmd
+REM Terminal 1 - Backend
+start-backend.bat
+
+REM Terminal 2 - Frontend
+start-frontend.bat
 ```
 
 ### Yöntem 2: Manuel Başlatma
 
-**Backend:**
+**macOS/Linux - Backend:**
 ```bash
 cd packages/camera-analytics
 source venv/bin/activate    # Virtual environment'ı aktif et
 python3 -m camera_analytics.run_with_websocket --source 0
 ```
 
-**Frontend:**
+**Windows - Backend:**
+```cmd
+cd packages\camera-analytics
+venv\Scripts\activate.bat    REM Virtual environment'ı aktif et
+python -m camera_analytics.run_with_websocket --source 0
+```
+
+**Frontend (Tüm Platformlar):**
 ```bash
 cd frontend
 pnpm dev
@@ -52,9 +85,18 @@ pnpm dev
 ## 🐛 Sorun Giderme
 
 ### "No module named 'lap'" Hatası
+
+**macOS/Linux:**
 ```bash
 cd packages/camera-analytics
-./venv/bin/pip install lap
+venv/bin/pip install lap
+```
+
+**Windows:**
+```cmd
+cd packages\camera-analytics
+venv\Scripts\activate.bat
+pip install lap
 ```
 
 ### Kamera Siyah Ekran
@@ -103,28 +145,42 @@ cd packages/camera-analytics
 
 ## 📊 Sistem Gereksinimleri
 
-- macOS (Continuity Camera için)
+- **macOS/Linux/Windows** (Windows için: [WINDOWS_SETUP.md](../WINDOWS_SETUP.md))
 - Python 3.11+ (virtual environment içinde)
-- Node.js + pnpm (frontend için)
+- Node.js 18+ + pnpm (frontend için)
 - Minimum 8GB RAM
-- Webcam veya iPhone (Continuity Camera)
+- Webcam (Windows'ta DirectShow uyumlu)
+- **macOS özel:** iPhone (Continuity Camera) desteği
 
 ## 🎯 İlk Çalıştırma Checklist
 
-- [ ] Backend script'i çalıştır: `./start-backend.sh`
+**macOS/Linux:**
+- [ ] Tüm servisleri başlat: `./start-all.sh` (veya ayrı script'ler)
 - [ ] Backend başladığını doğrula (log'larda "WebSocket server started")
-- [ ] Frontend script'i çalıştır: `./start-frontend.sh`
 - [ ] Browser'da açılan sayfaya git (genellikle http://localhost:5173)
 - [ ] MacBook kamerasını test et (Webcam seçeneği)
 - [ ] AI Insights ve Heatmap butonlarını test et
 - [ ] iPhone kamerasını bağla ve test et (opsiyonel)
+
+**Windows:**
+- [ ] Tüm servisleri başlat: `start-all.bat`
+- [ ] Backend başladığını doğrula (log dosyalarını kontrol et: `logs\`)
+- [ ] Browser'da açılan sayfaya git (genellikle http://localhost:5173)
+- [ ] Webcam'i test et (Source: 0)
+- [ ] AI Insights ve Heatmap butonlarını test et
+- [ ] Detaylı kurulum için: [WINDOWS_SETUP.md](../WINDOWS_SETUP.md)
 
 ## 💡 İpuçları
 
 1. **Backend önce başlatılmalı** - Frontend bağlanmadan önce backend hazır olmalı
 2. **Kamera değiştirirken 5 saniye bekle** - Loading screen gösterir
 3. **Virtual environment unutma** - Backend mutlaka venv içinde çalışmalı
-4. **Log'ları takip et** - Sorun olursa backend terminal'ine bak
+   - **macOS/Linux:** `source venv/bin/activate`
+   - **Windows:** `venv\Scripts\activate.bat`
+4. **Log'ları takip et** - Sorun olursa:
+   - **macOS/Linux:** Backend terminal'ine bak
+   - **Windows:** `logs\` klasöründeki log dosyalarını kontrol et
+5. **Windows kullanıcıları:** Detaylı kurulum ve sorun giderme için [WINDOWS_SETUP.md](../WINDOWS_SETUP.md) dosyasına bakın
 
 ---
 

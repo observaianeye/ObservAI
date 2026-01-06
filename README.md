@@ -361,9 +361,10 @@ npm install -g pnpm
 
 **Windows:**
 - Node.js: [nodejs.org](https://nodejs.org/)
-- Python: [python.org](https://www.python.org/)
-- PostgreSQL: [postgresql.org](https://www.postgresql.org/)
+- Python: [python.org](https://www.python.org/) (Kurulum sırasında "Add Python to PATH" seçeneğini işaretleyin)
+- PostgreSQL: [postgresql.org](https://www.postgresql.org/) (Opsiyonel - SQLite varsayılan)
 - pnpm: `npm install -g pnpm`
+- **📖 Detaylı Windows kurulum rehberi için:** [WINDOWS_SETUP.md](WINDOWS_SETUP.md)
 
 ### 1. Repository'yi Klonlayın
 
@@ -390,22 +391,37 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 
 ### 3. Python Camera Analytics Kurulumu
 
+**macOS/Linux:**
 ```bash
 cd ../packages/camera-analytics
 
 # Virtual environment oluştur
-python3 -m venv .venv
+python3 -m venv venv
 
-# Aktive et (macOS/Linux)
-source .venv/bin/activate
-
-# Aktive et (Windows)
-# .venv\Scripts\activate
+# Aktive et
+source venv/bin/activate
 
 # Bağımlılıkları kur
 pip install --upgrade pip
 pip install -e .
 ```
+
+**Windows:**
+```cmd
+cd ..\packages\camera-analytics
+
+REM Virtual environment oluştur
+python -m venv venv
+
+REM Aktive et
+venv\Scripts\activate.bat
+
+REM Bağımlılıkları kur
+pip install --upgrade pip
+pip install -e .
+```
+
+**Not:** Windows kullanıcıları için detaylı kurulum: [WINDOWS_SETUP.md](WINDOWS_SETUP.md)
 
 İlk çalıştırmada **YOLOv12n** ve **InsightFace** modelleri otomatik indirilecektir (~200 MB).
 
@@ -443,22 +459,52 @@ npx prisma migrate dev
 
 ### 5. İlk Çalıştırma Testi
 
+**macOS/Linux:**
 ```bash
+# Tüm servisleri başlat (önerilen)
+./start-all.sh
+
+# Veya manuel olarak:
 # Terminal 1: Python Backend
 cd packages/camera-analytics
-source .venv/bin/activate
+source venv/bin/activate
 python -m camera_analytics.run_with_websocket --source 0 --ws-port 5001
 
 # Terminal 2: Backend API (opsiyonel)
 cd backend
-pnpm dev
+npm run start:node
 
 # Terminal 3: Frontend
 cd frontend
 pnpm dev
 ```
 
+**Windows:**
+```cmd
+REM Tüm servisleri başlat (önerilen)
+start-all.bat
+
+REM Servisleri durdurmak için:
+REM stop-all.bat
+
+REM Veya manuel olarak:
+REM Terminal 1: Python Backend
+cd packages\camera-analytics
+venv\Scripts\activate.bat
+python -m camera_analytics.run_with_websocket --source 0 --ws-port 5001
+
+REM Terminal 2: Backend API
+cd ..\..\backend
+npm run start:node
+
+REM Terminal 3: Frontend
+cd ..\frontend
+pnpm dev
+```
+
 Tarayıcıda `http://localhost:5173` adresine gidin.
+
+**Windows kullanıcıları için:** Detaylı kurulum ve sorun giderme rehberi: [WINDOWS_SETUP.md](WINDOWS_SETUP.md)
 
 ---
 

@@ -14,7 +14,7 @@ const projectRoot = path.join(__dirname, '../../packages/camera-analytics');
 // Cross-platform venv Python path
 const venvPython = path.join(
   projectRoot,
-  '.venv',
+  'venv',
   isWindows ? 'Scripts' : 'bin',
   isWindows ? 'python.exe' : 'python'
 );
@@ -43,7 +43,7 @@ const pythonProcess = spawn(venvPython, args, {
 
 pythonProcess.on('error', (error) => {
   console.error(`[Python Backend] Failed to start: ${error.message}`);
-  console.error(`[Python Backend] Make sure virtual environment exists at: ${path.join(projectRoot, '.venv')}`);
+  console.error(`[Python Backend] Make sure virtual environment exists at: ${path.join(projectRoot, 'venv')}`);
   process.exit(1);
 });
 
