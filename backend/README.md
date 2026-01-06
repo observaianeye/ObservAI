@@ -1,249 +1,187 @@
-# Backend - ObservAI API Sunucusu
+# Backend API Server
 
-Bu klasör, ObservAI platformunun REST API sunucusunu içerir.
+## Genel Bakış
 
-## İçerik
-
-Bu klasörde şunlar bulunur:
-- **Express.js** tabanlı REST API
-- **PostgreSQL** veritabanı yönetimi
-- **Prisma ORM** ile veritabanı işlemleri
-- Kullanıcı kimlik doğrulama ve yetkilendirme
-- Kamera, bölge ve analitik veri yönetimi
+ObservAI Backend API, Node.js + Express + TypeScript ile geliştirilmiş REST API sunucusudur. Prisma ORM ile SQLite/PostgreSQL veritabanı yönetimi yapar.
 
 ## Klasör Yapısı
 
 ```
 backend/
 ├── src/
-│   ├── routes/         # API endpoint'leri
-│   ├── controllers/    # İş mantığı
-│   ├── middleware/     # Express middleware'ler
-│   ├── models/         # Veri modelleri
-│   └── server.ts       # Ana sunucu dosyası
+│   ├── index.ts              # Ana sunucu başlatma
+│   ├── routes/               # API endpoint'leri
+│   │   ├── auth.ts           # Kimlik doğrulama (UC-01)
+│   │   ├── analytics.ts      # Analitik verileri (UC-02)
+│   │   ├── zones.ts          # Bölge yönetimi (UC-08)
+│   │   ├── cameras.ts        # Kamera yönetimi
+│   │   ├── users.ts          # Kullanıcı yönetimi
+│   │   ├── ai.ts             # Gemini LLM Q&A
+│   │   ├── export.ts         # PDF/CSV export
+│   │   └── python-backend.ts # Python backend kontrolü
+│   ├── middleware/
+│   │   ├── authMiddleware.ts # Session token doğrulama
+│   │   └── roleCheck.ts      # RBAC middleware
+│   └── lib/
+│       ├── db.ts             # Prisma client
+│       ├── kafkaConsumer.ts  # Kafka consumer (opsiyonel)
+│       └── pythonBackendManager.ts # Python process yönetimi
 ├── prisma/
-│   ├── schema.prisma   # Veritabanı şeması
-│   ├── migrations/     # Veritabanı migration'ları
-│   └── seed.ts         # Test verisi
+│   ├── schema.prisma         # Database schema
+│   └── seed.ts               # Seed data
 └── package.json
 ```
 
-## Kullanılan Teknolojiler
+## Nasıl Çalışır?
 
-- **Node.js 18+** - Runtime
-- **Express.js** - Web framework
-- **TypeScript** - Tip güvenliği
-- **Prisma** - Modern ORM
-- **PostgreSQL** - İlişkisel veritabanı
-- **Zod** - Schema validation
-- **bcryptjs** - Şifre hashleme
-- **JWT** - Token bazlı kimlik doğrulama
+### 1. Sunucu Başlatma (`src/index.ts`)
 
-## Kurulum ve Çalıştırma
+```typescript
+// Express app oluşturulur
+const app = express();
 
-### 1. Bağımlılıkları Yükle
+// Middleware'ler eklenir
+app.use(cors());
+app.use(express.json());
+app.use(cookieParser());
+
+// Route'lar bağlanır
+app.use('/api/auth', authRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/zones', zonesRouter);
+// ...
+
+// Sunucu başlatılır
+app.listen(PORT);
+```
+
+**Adımlar:**
+1. Environment variables yüklenir (`.env`)
+2. Database bağlantısı kurulur (Prisma)
+3. Kafka consumer başlatılır (opsiyonel)
+4. Express server port 3001'de dinlemeye başlar
+
+### 2. Authentication (UC-01) - `src/routes/auth.ts`
+
+**Login Akışı:**
+```
+1. POST /api/auth/login
+   ├── Request: { email, password, rememberMe? }
+   ├── Zod validation
+   ├── User lookup (Prisma)
+   ├── Password hash check (bcrypt)
+   ├── Session token oluştur (crypto.randomBytes)
+   ├── Cookie set (httpOnly, secure)
+   └── Response: { id, email, firstName, lastName, role }
+```
+
+**Kod Blokları:**
+- `LoginSchema` (Zod validation) - Satır 19-23
+- `createSession()` - Satır 35-56
+- `router.post('/login')` - Satır 112-153
+
+**Session Yönetimi:**
+- Token: 32 byte random hex
+- Expiry: 30 gün (rememberMe) veya 7 gün
+- Cookie: `session_token` (httpOnly, secure)
+
+### 3. Analytics Dashboard (UC-02) - `src/routes/analytics.ts`
+
+**Veri Akışı:**
+```
+Python Backend (WebSocket)
+    ↓
+Kafka Producer (opsiyonel)
+    ↓
+Kafka Consumer (backend/src/lib/kafkaConsumer.ts)
+    ↓
+Prisma Database (AnalyticsLog)
+    ↓
+GET /api/analytics/:cameraId
+    ↓
+Frontend Dashboard
+```
+
+**Endpoint'ler:**
+- `GET /api/analytics/:cameraId` - Son 24 saat verileri
+- `POST /api/analytics` - Yeni analitik kaydı
+- `GET /api/analytics/compare` - Geçmiş karşılaştırma
+
+### 4. Zone Labeling (UC-08) - `src/routes/zones.ts`
+
+**Zone CRUD:**
+```
+1. GET /api/zones/:cameraId
+   └── Prisma: Zone.findMany({ cameraId, isActive: true })
+
+2. POST /api/zones
+   ├── Validation (CreateZoneSchema)
+   ├── RBAC check (requireManager)
+   ├── Prisma: Zone.create()
+   └── Response: created zone
+
+3. PUT /api/zones/:id
+   └── Prisma: Zone.update()
+
+4. DELETE /api/zones/:id
+   └── Prisma: Zone.update({ isActive: false })
+```
+
+**Zone Format:**
+```typescript
+{
+  id: string (UUID)
+  cameraId: string
+  name: string
+  type: 'ENTRANCE' | 'EXIT' | 'QUEUE' | 'TABLE' | 'CUSTOM'
+  coordinates: [{x: 0-1, y: 0-1}, ...] // Normalized
+  color: string (hex)
+}
+```
+
+## Çalıştırma
 
 ```bash
 cd backend
 pnpm install
+pnpm dev  # Port 3001
 ```
 
-### 2. PostgreSQL Veritabanı Kur
-
-```bash
-# macOS
-brew install postgresql@15
-brew services start postgresql@15
-
-# Veritabanı oluştur
-createdb observai
-```
-
-### 3. Ortam Değişkenleri
-
-`.env` dosyası oluşturun:
+## Environment Variables
 
 ```env
-DATABASE_URL="postgresql://username:password@localhost:5432/observai?schema=public"
-JWT_SECRET="your-secret-key"
+DATABASE_URL="file:./prisma/dev.db"  # SQLite
 PORT=3001
+CORS_ORIGIN=http://localhost:5173
+JWT_SECRET=your-secret-key
+KAFKA_ENABLED=false
+KAFKA_BROKERS=localhost:9092
+GEMINI_API_KEY=your-key  # LLM Q&A için
 ```
 
-### 4. Veritabanı Migration'larını Çalıştır
+## API Endpoints
 
-```bash
-pnpm db:generate  # Prisma client oluştur
-pnpm db:migrate   # Migration'ları uygula
-pnpm db:seed      # Test verisi ekle (opsiyonel)
-```
+| Endpoint | Method | Auth | Açıklama |
+|----------|--------|------|----------|
+| `/api/auth/login` | POST | - | Login (UC-01) |
+| `/api/auth/register` | POST | - | Kayıt |
+| `/api/auth/logout` | POST | ✅ | Çıkış |
+| `/api/analytics/:cameraId` | GET | ✅ | Dashboard verileri (UC-02) |
+| `/api/zones/:cameraId` | GET | ✅ | Bölgeleri getir (UC-08) |
+| `/api/zones` | POST | ✅ MANAGER | Bölge oluştur (UC-08) |
+| `/api/ai/chat` | POST | ✅ | Gemini Q&A |
+| `/api/export/pdf` | GET | ✅ | PDF raporu |
 
-### 5. Geliştirme Modu
+## Database Schema
 
-```bash
-pnpm dev
-```
+**User Model:**
+- `id`, `email`, `passwordHash`, `role`, `isActive`
 
-API sunucusu `http://localhost:3001` adresinde çalışır.
+**Session Model:**
+- `id`, `userId`, `token`, `expiresAt`
 
-### Production Build
+**Zone Model:**
+- `id`, `cameraId`, `name`, `type`, `coordinates` (JSON), `color`
 
-```bash
-pnpm build
-pnpm start
-```
-
-## Veritabanı Şeması
-
-### Ana Tablolar
-
-1. **users** - Kullanıcı hesapları
-   - id, email, password, role, createdAt
-
-2. **sessions** - Oturum yönetimi
-   - id, userId, token, expiresAt
-
-3. **cameras** - Kamera konfigürasyonları
-   - id, name, sourceType, sourceValue, createdBy
-
-4. **zones** - Bölge tanımları
-   - id, cameraId, name, type, coordinates, createdBy
-
-5. **analytics_logs** - Analitik veri kayıtları
-   - id, cameraId, peopleIn, peopleOut, currentCount, demographics, timestamp
-
-6. **zone_insights** - Bölge öngörüleri
-   - id, zoneId, occupancy, alerts, timestamp
-
-7. **analytics_summaries** - Özet raporlar
-   - id, cameraId, dailyVisitors, peakHours, demographics, date
-
-## API Endpoint'leri
-
-### Sağlık Kontrolü
-```
-GET /health - Sunucu durumu
-```
-
-### Kullanıcılar
-```
-GET    /api/users         - Tüm kullanıcıları listele
-POST   /api/users         - Yeni kullanıcı oluştur
-GET    /api/users/:id     - Kullanıcı detayı
-```
-
-### Kameralar
-```
-GET    /api/cameras       - Tüm kameraları listele
-POST   /api/cameras       - Yeni kamera ekle
-GET    /api/cameras/:id   - Kamera detayı
-PUT    /api/cameras/:id   - Kamera güncelle
-DELETE /api/cameras/:id   - Kamera sil
-```
-
-### Bölgeler (Zones)
-```
-GET    /api/zones/:cameraId     - Kameraya ait bölgeleri getir
-POST   /api/zones               - Yeni bölge oluştur
-PUT    /api/zones/:id           - Bölge güncelle
-DELETE /api/zones/:id           - Bölge sil
-POST   /api/zones/batch         - Toplu bölge işlemi
-```
-
-### Analitik Veriler
-```
-POST   /api/analytics                    - Analitik veri kaydet
-GET    /api/analytics/:cameraId          - Kamera analitiklerini getir
-GET    /api/analytics/:cameraId/summary  - Özet rapor
-POST   /api/analytics/insights           - Bölge öngörüsü kaydet
-GET    /api/analytics/insights/:zoneId   - Bölge öngörülerini getir
-```
-
-## Önemli Komutlar
-
-```bash
-# Geliştirme
-pnpm dev              # Hot reload ile sunucu başlat
-
-# Veritabanı
-pnpm db:generate      # Prisma client oluştur
-pnpm db:migrate       # Migration uygula
-pnpm db:studio        # Prisma Studio aç (GUI)
-pnpm db:seed          # Test verisi ekle
-pnpm db:reset         # Veritabanını sıfırla (DİKKAT!)
-
-# Production
-pnpm build            # TypeScript derle
-pnpm start            # Production sunucu
-```
-
-## Prisma Studio
-
-Veritabanını görsel olarak yönetmek için:
-
-```bash
-pnpm db:studio
-```
-
-`http://localhost:5555` adresinde açılır.
-
-## Python Backend ile Entegrasyon
-
-Python kamera analitik backend'i bu API'ye veri gönderir:
-
-```python
-import requests
-
-# Analitik veri gönder
-response = requests.post('http://localhost:3001/api/analytics', json={
-    'cameraId': 'camera-uuid',
-    'peopleIn': 10,
-    'peopleOut': 5,
-    'currentCount': 5,
-    'demographics': {
-        'gender': {'male': 3, 'female': 2},
-        'ages': {'adult': 4, 'young': 1}
-    }
-})
-```
-
-## Güvenlik
-
-- Tüm şifreler bcryptjs ile hash'lenir
-- JWT token'lar kullanıcı oturumları için kullanılır
-- Zod ile gelen veri validasyonu yapılır
-- SQL injection'a karşı Prisma ORM kullanılır
-
-## Sorun Giderme
-
-### Veritabanı Bağlantı Hatası
-
-```bash
-# PostgreSQL çalışıyor mu kontrol et
-brew services list
-
-# PostgreSQL'i yeniden başlat
-brew services restart postgresql@15
-
-# Bağlantıyı test et
-psql -d observai -c "SELECT 1"
-```
-
-### Migration Hatası
-
-```bash
-# Veritabanını sıfırla ve yeniden kur
-pnpm db:reset
-pnpm db:migrate
-pnpm db:seed
-```
-
-## Test Kullanıcıları (Seed Sonrası)
-
-- **Admin**: admin@observai.com / admin123
-- **Manager**: manager@observai.com / manager123
-
-## Notlar
-
-- Production'da güçlü bir JWT_SECRET kullanın
-- SSL ile güvenli DATABASE_URL kullanın
-- Düzenli olarak veritabanı yedeklemesi yapın
+**AnalyticsLog Model:**
+- `id`, `cameraId`, `timestamp`, `peopleIn`, `peopleOut`, `currentCount`, `demographics` (JSON)

@@ -1,139 +1,165 @@
-# Frontend - ObservAI Web Arayüzü
+# Frontend React Application
 
-Bu klasör, ObservAI kamera analitik platformunun kullanıcı arayüzünü içerir.
+## Genel Bakış
 
-## İçerik
-
-Bu klasörde şunlar bulunur:
-- **React + TypeScript** ile yazılmış modern web uygulaması
-- **Tailwind CSS** ile stillendirilmiş responsive arayüz
-- **ECharts** ile canlı veri görselleştirmeleri
-- **Supabase** entegrasyonu ile kullanıcı yönetimi
-- **WebSocket** desteği ile gerçek zamanlı kamera akışı
+ObservAI Frontend, React 18 + TypeScript + Vite ile geliştirilmiş modern web uygulamasıdır. Socket.IO ile Python backend'e bağlanır, gerçek zamanlı analitik verileri gösterir.
 
 ## Klasör Yapısı
 
 ```
 frontend/
 ├── src/
-│   ├── components/      # Yeniden kullanılabilir UI bileşenleri
-│   ├── pages/          # Sayfa bileşenleri ve rotalar
-│   ├── contexts/       # React Context API providers
-│   ├── services/       # API ve backend servisleri
-│   ├── hooks/          # Custom React hooks
-│   └── App.tsx         # Ana uygulama bileşeni
-├── public/             # Statik dosyalar
-├── dist/              # Build çıktısı (production)
-└── package.json       # NPM bağımlılıkları
+│   ├── pages/
+│   │   ├── LoginPage.tsx          # UC-01: Login ekranı
+│   │   ├── DashboardPage.tsx      # UC-02: Operations Dashboard
+│   │   └── ZoneLabelingPage.tsx    # UC-08: Zone labeling
+│   ├── components/
+│   │   ├── camera/
+│   │   │   ├── CameraFeed.tsx      # Canlı video akışı
+│   │   │   ├── GenderChart.tsx     # Cinsiyet dağılımı (UC-02)
+│   │   │   ├── AgeChart.tsx        # Yaş dağılımı (UC-02)
+│   │   │   ├── ZoneCanvas.tsx      # Zone çizimi (UC-08)
+│   │   │   └── VisitorCountWidget.tsx
+│   │   └── ui/
+│   ├── services/
+│   │   ├── cameraBackendService.ts # WebSocket bağlantısı
+│   │   └── analyticsDataService.ts # Veri yönetimi
+│   ├── contexts/
+│   │   ├── AuthContext.tsx         # Authentication state
+│   │   ├── DataModeContext.tsx     # Demo/Live mode
+│   │   └── ToastContext.tsx        # Bildirimler
+│   └── App.tsx
+└── package.json
 ```
 
-## Kullanılan Teknolojiler
+## Nasıl Çalışır?
 
-- **React 18** - UI framework
-- **TypeScript** - Tip güvenliği
-- **Vite** - Hızlı geliştirme ve build aracı
-- **Tailwind CSS** - Utility-first CSS framework
-- **React Router** - Sayfa yönlendirme
-- **ECharts** - Grafik ve görselleştirme
-- **Lucide Icons** - Modern icon seti
-- **Socket.io-client** - WebSocket bağlantıları
-- **Supabase** - Kullanıcı kimlik doğrulama
+### 1. Authentication (UC-01) - `src/pages/LoginPage.tsx`
 
-## Kurulum ve Çalıştırma
+**Login Akışı:**
+```
+1. Kullanıcı email/password girer
+2. "Sign in" butonuna tıklar
+3. AuthContext.login() çağrılır
+4. POST /api/auth/login (backend)
+5. Session cookie set edilir
+6. navigate('/dashboard') → Dashboard'a yönlendirilir
+```
 
-### İlk Kurulum
+**Kod Blokları:**
+- `handleLogin()` - Satır 76-97
+- `handleDemoLogin()` - Satır 99-111
+- `useAuth()` hook - AuthContext'ten
+
+**Demo Account:**
+- Email: `admin@observai.com`
+- Password: `demo1234`
+
+### 2. Operations Dashboard (UC-02) - `src/pages/DashboardPage.tsx`
+
+**Dashboard Bileşenleri:**
+1. **GenderChart** (`src/components/camera/GenderChart.tsx`)
+   - ECharts donut chart
+   - Real-time güncelleme (Socket.IO)
+   - Veri: `analyticsDataService.getData().gender`
+
+2. **AgeChart** (`src/components/camera/AgeChart.tsx`)
+   - ECharts bar chart
+   - 7 yaş kategorisi: 0-17, 18-24, 25-34, 35-44, 45-54, 55-64, 65+
+   - Veri: `analyticsDataService.getData().age`
+
+3. **VisitorCountWidget**
+   - Anlık ziyaretçi sayısı
+   - Giriş/çıkış sayıları
+   - Trend göstergesi
+
+**Veri Akışı:**
+```
+Python Backend (WebSocket:5001)
+    ↓
+cameraBackendService.connect()
+    ↓
+Socket.IO event: 'global'
+    ↓
+analyticsDataService.transformBackendData()
+    ↓
+React components re-render
+```
+
+**Kod Blokları:**
+- `analyticsDataService.startRealtimeUpdates()` - Satır 27-34 (GenderChart.tsx)
+- `cameraBackendService.onAnalytics()` - WebSocket subscription
+
+### 3. Zone Labeling (UC-08) - `src/components/camera/ZoneCanvas.tsx`
+
+**Zone Çizim Akışı:**
+```
+1. "Add Zone" butonuna tıkla
+2. Canvas üzerinde mouse drag
+3. Rectangle oluştur (normalized coordinates: 0-1)
+4. Zone tipi seç (entrance/exit)
+5. "Save All" butonuna tıkla
+6. cameraBackendService.saveZones() → WebSocket
+7. Backend'e gönderilir (config/zones.json)
+```
+
+**Kod Blokları:**
+- `handleMouseDown()` - Satır 82-118 (çizim başlatma)
+- `handleMouseMove()` - Satır 147-195 (çizim güncelleme)
+- `saveZones()` - Satır 235-253 (kaydetme)
+
+**Zone Format:**
+```typescript
+{
+  id: string
+  name: string
+  type: 'entrance' | 'exit'
+  x: number (0-1)
+  y: number (0-1)
+  width: number (0-1)
+  height: number (0-1)
+  color: string (hex)
+}
+```
+
+## WebSocket Bağlantısı
+
+**Service:** `src/services/cameraBackendService.ts`
+
+**Bağlantı:**
+```typescript
+cameraBackendService.connect('http://localhost:5001');
+
+// Events:
+socket.on('global', (data) => { /* analytics */ });
+socket.on('tracks', (tracks) => { /* detections */ });
+socket.on('zone_insights', (insights) => { /* alerts */ });
+```
+
+**Connection Status:**
+- `connected` - Bağlı
+- `disconnected` - Bağlantı kesildi
+- `reconnecting` - Yeniden bağlanıyor
+- `failed` - Bağlantı başarısız
+
+## Çalıştırma
 
 ```bash
 cd frontend
 pnpm install
+pnpm dev  # Port 5173
 ```
 
-### Geliştirme Modu
-
-```bash
-pnpm dev
-```
-
-Uygulama `http://localhost:5173` adresinde açılır.
-
-### Production Build
-
-```bash
-pnpm build
-```
-
-Build çıktısı `dist/` klasöründe oluşur.
-
-### Tip Kontrolü
-
-```bash
-pnpm typecheck
-```
-
-## Ana Özellikler
-
-### 1. Kimlik Doğrulama (LoginPage)
-- Demo hesap: `admin@observai.com` / `demo1234`
-- Supabase ile güvenli giriş
-
-### 2. Kamera Analitik Dashboard
-- Canlı kamera görüntüsü (WebSocket üzerinden)
-- Isı haritası overlay
-- Cinsiyet dağılımı grafiği (donut chart)
-- Yaş dağılımı grafiği (bar chart)
-- Ziyaretçi sayacı widget'ı
-- Bekleme süresi analizi
-
-### 3. Zone Labeling (Bölge Etiketleme)
-- Interaktif canvas üzerinde bölge çizimi
-- Giriş/çıkış noktaları tanımlama
-- Bölgeleri düzenleme ve silme
-- Konfigürasyonları kaydetme
-
-## Kod Yapısı ve Önemli Dosyalar
-
-### Components (Bileşenler)
-- `components/camera/` - Kamera ile ilgili tüm bileşenler
-  - `CameraFeed.tsx` - Canlı kamera akışı
-  - `ZoneCanvas.tsx` - Bölge çizim canvas'ı
-  - `AgeChart.tsx` - Yaş dağılımı grafiği
-  - `GenderChart.tsx` - Cinsiyet grafiği
-  - `VisitorCountWidget.tsx` - Ziyaretçi sayacı
-  - `DwellTimeWidget.tsx` - Bekleme süresi widget'ı
-
-- `components/layout/` - Sayfa düzeni bileşenleri
-  - `Sidebar.tsx` - Yan menü
-  - `Header.tsx` - Üst bar
-
-### Pages (Sayfalar)
-- `pages/LoginPage.tsx` - Giriş sayfası
-- `pages/dashboard/CameraAnalyticsPage.tsx` - Ana dashboard
-- `pages/dashboard/ZoneLabelingPage.tsx` - Bölge etiketleme
-- `pages/dashboard/CameraSelectionPage.tsx` - Kamera seçimi
-- `pages/dashboard/AIInsightsPage.tsx` - AI öngörüleri
-
-### Services (Servisler)
-- `services/cameraBackendService.ts` - Python kamera backend'i ile iletişim
-  - WebSocket bağlantısı (port 5000)
-  - Gerçek zamanlı frame alma
-  - Metrik sorgulama
-
-### Contexts (Bağlamlar)
-- `contexts/DataModeContext.tsx` - Canlı/Demo veri modu yönetimi
-- Supabase auth context (built-in)
-
-## Ortam Değişkenleri
-
-`.env` dosyası oluşturun:
+## Environment Variables
 
 ```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_BACKEND_URL=http://localhost:5001  # Python WebSocket
+VITE_API_URL=http://localhost:3001     # Node.js API
 ```
 
-## Notlar
+## Build
 
-- Kamera akışı için Python backend'in çalışıyor olması gerekir (port 5000)
-- Demo modu, gerçek kamera olmadan test için kullanılabilir
-- Tüm grafikler ECharts ile oluşturulmuştur
-- Responsive tasarım, mobil ve desktop destekler
+```bash
+pnpm build  # dist/ klasörüne build eder
+pnpm preview  # Production build'i test et
+```
