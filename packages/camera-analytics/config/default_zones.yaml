@@ -1,0 +1,25 @@
+entrance_line:
+  start: [0.05, 0.95]
+  end: [0.95, 0.95]
+  inside_on: top
+
+# Minimal zone configuration (Entry/Exit only)
+tables:
+  - id: entrance_zone
+    name: Entrance
+    polygon:
+      - [0.05, 0.05]
+      - [0.30, 0.05]
+      - [0.30, 0.95]
+      - [0.05, 0.95]
+  - id: exit_zone
+    name: Exit
+    polygon:
+      - [0.70, 0.05]
+      - [0.95, 0.05]
+      - [0.95, 0.95]
+      - [0.70, 0.95]
+
+heatmap:
+  grid_width: 6
+  grid_height: 4
