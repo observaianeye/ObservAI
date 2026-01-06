@@ -69,16 +69,6 @@ const VisitorCountWidget = memo(function VisitorCountWidget() {
             <p className="text-sm font-medium text-gray-400">Current Visitors</p>
             <p className="text-4xl font-bold tracking-tight text-white">{metrics.current}</p>
           </div>
-          <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-2">
-            <div>
-              <p className="text-xs text-gray-400">Entry</p>
-              <p className="font-bold text-white">{metrics.entryCount}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Exit</p>
-              <p className="font-bold text-white">{metrics.exitCount}</p>
-            </div>
-          </div>
 
           {/* Zone Occupancy List */}
           {zones.length > 0 && (
