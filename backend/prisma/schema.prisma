@@ -1,0 +1,197 @@
+// Prisma schema for ObservAI database
+// PostgreSQL database schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// User accounts and authentication
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  firstName     String?
+  lastName      String?
+  role          String  @default("MANAGER")
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations
+  cameras       Camera[]
+  zones         Zone[]
+  sessions      Session[]
+  passwordResets PasswordReset[]
+
+  @@map("users")
+}
+
+// User session management
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// Password reset tokens
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  used      Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
+
+// Camera/Video source configuration
+model Camera {
+  id          String       @id @default(uuid())
+  name        String
+  description String?
+  sourceType  String
+  sourceValue String
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  createdBy   String
+
+  // Configuration
+  config      String? // JSON string
+
+  // Relations
+  user          User            @relation(fields: [createdBy], references: [id])
+  zones         Zone[]
+  analyticsLogs AnalyticsLog[]
+
+  @@map("cameras")
+}
+
+// Zone definitions (drawn on camera feed)
+model Zone {
+  id         String   @id @default(uuid())
+  cameraId   String
+  name       String
+  type       String
+
+  // Normalized coordinates [0-1]
+  coordinates String    // JSON string
+
+  // Visual properties
+  color      String   @default("#3b82f6")
+
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  createdBy  String
+
+  // Relations
+  camera        Camera         @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [createdBy], references: [id])
+  zoneInsights  ZoneInsight[]
+
+  @@map("zones")
+}
+
+// Analytics data snapshots (time-series data)
+model AnalyticsLog {
+  id        String   @id @default(uuid())
+  cameraId  String
+  timestamp DateTime @default(now())
+
+  // Metrics
+  peopleIn     Int      @default(0)
+  peopleOut    Int      @default(0)
+  currentCount Int      @default(0)
+
+  // Demographics
+  demographics String?    // JSON string
+
+  // Queue metrics
+  queueCount      Int?
+  avgWaitTime     Float?
+  longestWaitTime Float?
+
+  // Performance
+  fps Float?
+
+  // Heatmap data
+  heatmap String?        // JSON string
+
+  // Active people snapshot
+  activePeople String?   // JSON string
+
+  // Relations
+  camera Camera @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  @@index([cameraId, timestamp])
+  @@map("analytics_logs")
+}
+
+// Zone occupancy insights (alerts for long duration stays)
+model ZoneInsight {
+  id        String   @id @default(uuid())
+  zoneId    String
+  timestamp DateTime @default(now())
+
+  // Person info
+  personId  String   // track_xxx
+  duration  Float    // seconds
+
+  // Demographics (if available)
+  gender    String?
+  age       Int?
+
+  // Message
+  message   String
+
+  // Relations
+  zone Zone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@index([zoneId, timestamp])
+  @@map("zone_insights")
+}
+
+// Historical analytics aggregates (for faster queries)
+model AnalyticsSummary {
+  id        String   @id @default(uuid())
+  cameraId  String
+  date      DateTime // Date only (no time)
+  hour      Int?     // 0-23, null for daily summary
+
+  // Aggregated metrics
+  totalEntries  Int
+  totalExits    Int
+  peakOccupancy Int
+  avgOccupancy  Float
+
+  // Demographics summary
+  demographics String? // JSON string
+
+  // Queue stats
+  avgQueueLength Float?
+  avgWaitTime    Float?
+
+  createdAt DateTime @default(now())
+
+  @@unique([cameraId, date, hour])
+  @@index([cameraId, date])
+  @@map("analytics_summaries")
+}
