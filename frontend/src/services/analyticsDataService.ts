@@ -27,6 +27,14 @@ export interface VisitorMetrics {
   totalToday: number;
 }
 
+export interface ZoneData {
+  id: string;
+  name: string;
+  currentOccupants: number;
+  totalVisitors: number;
+  avgDwellTime: number;
+}
+
 export interface DwellTimeMetrics {
   average: number; // in seconds
   min: number;
@@ -44,6 +52,7 @@ export interface AnalyticsData {
     };
   };
   visitors: VisitorMetrics;
+  zones?: ZoneData[];
   dwellTime: DwellTimeMetrics;
   lastUpdated: Date;
 }
@@ -165,6 +174,7 @@ class LiveDataProvider {
       gender: { male: 0, female: 0, unknown: 0 },
       age: { '0-17': 0, '18-24': 0, '25-34': 0, '35-44': 0, '45-54': 0, '55-64': 0, '65+': 0 },
       visitors: { current: 0, entryCount: 0, exitCount: 0, totalToday: 0 },
+      zones: [],
       dwellTime: { average: 0, min: 0, max: 0 },
       lastUpdated: new Date()
     };
@@ -196,6 +206,7 @@ class LiveDataProvider {
         exitCount: backendData.exits || 0,
         totalToday: backendData.entries || 0
       },
+      zones: backendData.zones || [],
       dwellTime: {
         average: 0, // Backend doesn't provide individual dwell stats in global stream yet
         min: 0,
@@ -209,17 +220,17 @@ class LiveDataProvider {
   // Returns unsubscribe function
   subscribe(callback: AnalyticsCallback): () => void {
     this.callbacks.add(callback);
-    
+
     // Ensure we're connected when first subscriber joins
     if (!this.isConnected && this.callbacks.size === 1) {
       this.connectWebSocket();
     }
-    
+
     // If we have cached data, send it immediately to new subscriber
     if (this.latestData) {
       callback(this.latestData);
     }
-    
+
     return () => {
       this.callbacks.delete(callback);
       // Disconnect when no more subscribers
@@ -275,7 +286,7 @@ class AnalyticsDataService {
 
   setMode(mode: DataMode) {
     if (this.currentMode === mode) return;
-    
+
     // Clean up previous mode
     if (this.currentMode === 'demo') {
       this.stopDemoUpdates();
@@ -284,7 +295,7 @@ class AnalyticsDataService {
       this.liveUnsubscribers.forEach(unsub => unsub());
       this.liveUnsubscribers.clear();
     }
-    
+
     this.currentMode = mode;
   }
 
@@ -316,7 +327,7 @@ class AnalyticsDataService {
 
   private subscribeDemoUpdates(callback: AnalyticsCallback): () => void {
     this.demoCallbacks.add(callback);
-    
+
     // Start the demo update interval if not already running
     if (!this.demoUpdateInterval && this.demoCallbacks.size > 0) {
       this.demoUpdateInterval = window.setInterval(() => {
@@ -326,12 +337,12 @@ class AnalyticsDataService {
         }
       }, 5000); // Update every 5 seconds in demo mode
     }
-    
+
     // Send initial data immediately
     if (this.demoData) {
       callback(this.demoData);
     }
-    
+
     return () => {
       this.demoCallbacks.delete(callback);
       if (this.demoCallbacks.size === 0) {

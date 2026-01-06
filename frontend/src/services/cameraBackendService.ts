@@ -54,6 +54,13 @@ export interface AnalyticsData {
     gridWidth: number;
     gridHeight: number;
   };
+  zones?: Array<{
+    id: string;
+    name: string;
+    currentOccupants: number;
+    totalVisitors: number;
+    avgDwellTime: number;
+  }>;
   fps: number;
 }
 

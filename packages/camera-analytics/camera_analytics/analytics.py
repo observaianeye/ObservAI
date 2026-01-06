@@ -30,6 +30,7 @@ from .metrics import (
   CameraMetrics,
   QueueSnapshot,
   TableSnapshot,
+  ZoneSnapshot,
   bucket_for_age,
   default_age_buckets,
 )
@@ -1459,6 +1460,21 @@ class CameraAnalyticsEngine:
       metrics.queue = QueueSnapshot(active_count, avg_wait, longest)
 
     table_snapshots: list[TableSnapshot] = []
+
+    zone_snapshots: list[ZoneSnapshot] = []
+    for zid, zone in self.zone_definitions.items():
+        durations = self.zone_completed_durations[zid]
+        active = len(self.zone_active_members[zid])
+        avg = float(np.mean(durations)) if durations else 0.0
+        
+        zone_snapshots.append(ZoneSnapshot(
+            id=zid,
+            name=zone.name or zid,
+            current_occupants=active,
+            total_visitors=len(durations),
+            avg_dwell_time=avg
+        ))
+    metrics.zones = zone_snapshots
     for table in self.config.tables:
       durations = self.zone_completed_durations[table.id]
       active = len(self.zone_active_members[table.id])
@@ -1529,6 +1545,15 @@ class CameraAnalyticsEngine:
         "gridWidth": len(metrics.heatmap[0]) if metrics.heatmap else 0,
         "gridHeight": len(metrics.heatmap),
       },
+      "zones": [
+        {
+          "id": z.id,
+          "name": z.name,
+          "currentOccupants": z.current_occupants,
+          "totalVisitors": z.total_visitors,
+          "avgDwellTime": round(z.avg_dwell_time, 1)
+        } for z in metrics.zones
+      ],
       "fps": round(metrics.fps, 1),
     }
 

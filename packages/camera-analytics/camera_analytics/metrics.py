@@ -63,6 +63,15 @@ class QueueSnapshot:
 
 
 @dataclass
+class ZoneSnapshot:
+  id: str
+  name: str
+  current_occupants: int
+  total_visitors: int
+  avg_dwell_time: float
+
+
+@dataclass
 class ActivePersonSnapshot:
   id: int
   age: Optional[float]
@@ -80,6 +89,7 @@ class CameraMetrics:
   gender: Dict[str, int] = field(default_factory=lambda: {"male": 0, "female": 0, "unknown": 0})
   gender_by_age: Dict[str, Dict[str, int]] = field(default_factory=dict)
   queue: QueueSnapshot = field(default_factory=lambda: QueueSnapshot(0, 0.0, 0.0))
+  zones: List[ZoneSnapshot] = field(default_factory=list)
   tables: List[TableSnapshot] = field(default_factory=list)
   heatmap: List[List[int]] = field(default_factory=list)
   active_people: List[ActivePersonSnapshot] = field(default_factory=list)
@@ -101,6 +111,16 @@ class CameraMetrics:
         "averageWaitSeconds": round(self.queue.average_wait_seconds, 1),
         "longestWaitSeconds": round(self.queue.longest_wait_seconds, 1),
       },
+      "zones": [
+        {
+          "id": zone.id,
+          "name": zone.name,
+          "currentOccupants": zone.current_occupants,
+          "totalVisitors": zone.total_visitors,
+          "avgDwellTime": round(zone.avg_dwell_time, 1),
+        }
+        for zone in self.zones
+      ],
       "tables": [
         {
           "id": table.id,

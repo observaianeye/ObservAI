@@ -1,6 +1,6 @@
 import { Users, TrendingUp, TrendingDown } from 'lucide-react';
 import { useEffect, useState, memo } from 'react';
-import { analyticsDataService, VisitorMetrics } from '../../services/analyticsDataService';
+import { analyticsDataService, VisitorMetrics, ZoneData } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { GlassCard } from '../ui/GlassCard';
 
@@ -12,6 +12,7 @@ const VisitorCountWidget = memo(function VisitorCountWidget() {
     exitCount: 0,
     totalToday: 0
   });
+  const [zones, setZones] = useState<ZoneData[]>([]);
   const [loading, setLoading] = useState(true);
   const [trend, setTrend] = useState(0);
 
@@ -22,6 +23,7 @@ const VisitorCountWidget = memo(function VisitorCountWidget() {
       setLoading(true);
       const data = await analyticsDataService.getData();
       setMetrics(data.visitors);
+      setZones(data.zones || []);
       // Calculate trend (simplified - comparing current to average)
       const avgOccupancy = 15; // Typical café occupancy
       setTrend(Math.round(((data.visitors.current - avgOccupancy) / avgOccupancy) * 100));
@@ -33,6 +35,7 @@ const VisitorCountWidget = memo(function VisitorCountWidget() {
     // Subscribe and get unsubscribe function
     const unsubscribe = analyticsDataService.startRealtimeUpdates((data) => {
       setMetrics(data.visitors);
+      setZones(data.zones || []);
       const avgOccupancy = 15;
       setTrend(Math.round(((data.visitors.current - avgOccupancy) / avgOccupancy) * 100));
     });
@@ -76,6 +79,28 @@ const VisitorCountWidget = memo(function VisitorCountWidget() {
               <p className="font-bold text-white">{metrics.exitCount}</p>
             </div>
           </div>
+
+          {/* Zone Occupancy List */}
+          {zones.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Zone Activity</p>
+              <div className="space-y-1.5 max-h-[100px] overflow-y-auto custom-scrollbar">
+                {zones.map(zone => (
+                  <div key={zone.id} className="flex justify-between items-center text-xs">
+                    <span className="text-gray-300 truncate max-w-[120px]" title={zone.name}>{zone.name}</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-mono">
+                        {zone.currentOccupants} in
+                      </span>
+                      <span className="text-gray-500 border-l border-gray-700 pl-2">
+                        {zone.totalVisitors} tot
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </GlassCard>
