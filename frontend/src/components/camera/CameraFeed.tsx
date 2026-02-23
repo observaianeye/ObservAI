@@ -1,5 +1,5 @@
 import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Activity } from 'lucide-react';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { cameraBackendService, Detection } from '../../services/cameraBackendService';
 import { GlassCard } from '../ui/GlassCard';
@@ -88,6 +88,12 @@ export default function CameraFeed() {
   const isChangingSourceRef = useRef(false);
   const mjpegImgRef = useRef<HTMLImageElement>(null);
   const canvasSizeInitialized = useRef(false);
+
+  // Stable MJPEG URL — computed once to avoid re-connecting on every re-render
+  const mjpegUrl = useMemo(
+    () => `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg`,
+    []
+  );
 
   /**
    * Start Python backend automatically when camera source changes
@@ -1068,7 +1074,7 @@ export default function CameraFeed() {
           {dataMode === 'live' && isStreaming && !error && !stream && !isSwitchingSource && (
             <img
               ref={mjpegImgRef}
-              src={`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg?t=${Date.now()}`}
+              src={mjpegUrl}
               alt="Camera stream"
               className="w-full h-full object-contain bg-black"
               onLoad={(e) => {
