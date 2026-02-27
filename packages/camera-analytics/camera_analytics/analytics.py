@@ -115,15 +115,15 @@ class TrackedPerson:
     if total_votes == 0:
       return
 
-    # Require stronger consensus (60% threshold) to reduce misclassifications
-    # This prevents flipping between genders due to single misdetections
-    if male_votes / total_votes >= 0.60:
+    # Require stronger consensus (70% threshold) to reduce misclassifications
+    # RTX 5070 profile: conservative to minimize false gender classifications
+    if male_votes / total_votes >= 0.70:
       self.gender = "male"
       self.gender_confidence = male_votes / total_votes
-    elif female_votes / total_votes >= 0.60:
+    elif female_votes / total_votes >= 0.70:
       self.gender = "female"
       self.gender_confidence = female_votes / total_votes
-    # If neither reaches 60%, keep previous gender (more stable)
+    # If neither reaches 70%, keep previous gender (unknown is better than wrong)
 
 
 class CameraAnalyticsEngine:
@@ -237,7 +237,7 @@ class CameraAnalyticsEngine:
       self.model.overrides['verbose'] = False
       self.model.overrides['conf'] = self.conf
       self.model.overrides['iou'] = 0.45
-      self.model.overrides['max_det'] = 50
+      self.model.overrides['max_det'] = 100  # RTX 5070: crowded scene support (was 50)
       self.model.overrides['half'] = self.inference_params.get('half', False)
       self.model.overrides['device'] = self.device
       print(f"[INFO] Model configured for {self.device.upper()} with imgsz={self.inference_params['imgsz']}")
@@ -245,12 +245,12 @@ class CameraAnalyticsEngine:
       pass
 
     # Frame skipping for face analysis (async processing)
-    # Use frequent updates for all streams to ensure quick demographics capture
-    # Reduced from 5 to 3 frames for faster age/gender detection
+    # RTX 5070 "Balanced Profile": higher intervals reduce GPU contention between
+    # YOLO tracking and demographics, resulting in better overall FPS.
     if isinstance(source, str) and source.startswith(('http', 'rtsp', 'rtmp')):
-      self.face_detection_interval = 3  # More frequent for network streams (was 20, then 5)
+      self.face_detection_interval = 10  # Network streams: balanced GPU utilization (was 3)
     else:
-      self.face_detection_interval = 3  # Frequent updates for local cameras (was 10, then 5)
+      self.face_detection_interval = 5   # Local cameras: responsive demographics (was 3)
 
     self.frame_count = 0
     self.demographics_executor = ThreadPoolExecutor(

@@ -22,7 +22,7 @@ class CameraAnalyticsWithWebSocket:
         self,
         config_path: Path,
         source: str | int,
-        model_path: str = "yolo11n.pt",
+        model_path: str = "yolo11s.pt",
         display: bool = False,
         ws_host: str = "0.0.0.0",
         ws_port: int = 5000,
@@ -316,8 +316,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        default="yolo11n.pt",
-        help="YOLO model checkpoint (default: yolo11n.pt)",
+        default="yolo11s.pt",
+        help="YOLO model checkpoint (default: yolo11s.pt)",
     )
     parser.add_argument(
         "--display",

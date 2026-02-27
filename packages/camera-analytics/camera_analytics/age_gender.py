@@ -204,9 +204,16 @@ class InsightFaceEstimator(AgeGenderEstimator):
     """
     def __init__(self, model_name: str = "buffalo_s", providers: list = None):
         self.model_name = model_name
-        # Default providers: prefer CoreML (macOS), then CUDA (NVIDIA), then CPU
+        # Default providers: platform-aware order to avoid silent fallback to CPU
         if providers is None:
-            self.providers = ["CoreMLExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
+            import platform as _platform
+            _system = _platform.system()
+            if _system == "Darwin":
+                # macOS: CoreML first for Apple Silicon acceleration
+                self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+            else:
+                # Windows / Linux: CUDA first for NVIDIA GPU acceleration
+                self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         else:
             self.providers = providers
         self.app = None

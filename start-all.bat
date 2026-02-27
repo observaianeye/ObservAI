@@ -114,11 +114,11 @@ cd "%SCRIPT_DIR%packages\camera-analytics"
 REM Use venv Python directly
 set "VENV_PYTHON=%SCRIPT_DIR%packages\camera-analytics\venv\Scripts\python.exe"
 
-REM Check if lap is installed
-"%VENV_PYTHON%" -c "import lap" >nul 2>&1
+REM Check if lapx is installed (Windows-compatible ByteTrack dependency, no C++ build tools needed)
+"%VENV_PYTHON%" -c "import lapx" >nul 2>&1
 if errorlevel 1 (
-    echo       %YELLOW%⚠️  Installing missing dependency: lap...%NC%
-    "%VENV_PYTHON%" -m pip install lap >nul 2>&1
+    echo       %YELLOW%⚠️  Installing missing dependency: lapx...%NC%
+    "%VENV_PYTHON%" -m pip install lapx >nul 2>&1
 )
 
 REM Check if yt-dlp is installed
@@ -128,7 +128,19 @@ if errorlevel 1 (
     "%VENV_PYTHON%" -m pip install yt-dlp >nul 2>&1
 )
 
-start "ObservAI Camera AI" /min cmd /c ""%VENV_PYTHON%" -m camera_analytics.run_with_websocket --source 0 > "%SCRIPT_DIR%logs\camera-ai.log" 2>&1"
+REM Check CUDA / GPU availability
+echo       %BLUE%Checking GPU (CUDA) availability...%NC%
+"%VENV_PYTHON%" -c "import torch; assert torch.cuda.is_available()" >nul 2>&1
+if errorlevel 1 (
+    echo       %YELLOW%⚠️  WARNING: CUDA not available - running on CPU (slow).%NC%
+    echo       %YELLOW%   Install PyTorch with CUDA 12.8 for RTX 5070:%NC%
+    echo       %YELLOW%   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128%NC%
+) else (
+    for /f "delims=" %%G in ('"%VENV_PYTHON%" -c "import torch; print(torch.cuda.get_device_name(0))" 2^>nul') do set GPU_NAME=%%G
+    echo       %GREEN%✓ GPU: !GPU_NAME!%NC%
+)
+
+start "ObservAI Camera AI" /min cmd /c ""%VENV_PYTHON%" -m camera_analytics.run_with_websocket --source 0 --model yolo11s.pt > "%SCRIPT_DIR%logs\camera-ai.log" 2>&1"
 timeout /t 2 /nobreak >nul
 echo       %BLUE%→ Camera AI running on ws://0.0.0.0:5001%NC%
 
