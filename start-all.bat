@@ -130,14 +130,12 @@ if errorlevel 1 (
 
 REM Check CUDA / GPU availability
 echo       %BLUE%Checking GPU (CUDA) availability...%NC%
-"%VENV_PYTHON%" -c "import torch; assert torch.cuda.is_available()" >nul 2>&1
+"%VENV_PYTHON%" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" >nul 2>&1
 if errorlevel 1 (
-    echo       %YELLOW%⚠️  WARNING: CUDA not available - running on CPU (slow).%NC%
-    echo       %YELLOW%   Install PyTorch with CUDA 12.8 for RTX 5070:%NC%
-    echo       %YELLOW%   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128%NC%
+    echo       %YELLOW%WARNING: CUDA not available - running on CPU.%NC%
+    echo       %YELLOW%  To enable GPU: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128%NC%
 ) else (
-    for /f "delims=" %%G in ('"%VENV_PYTHON%" -c "import torch; print(torch.cuda.get_device_name(0))" 2^>nul') do set GPU_NAME=%%G
-    echo       %GREEN%✓ GPU: !GPU_NAME!%NC%
+    echo       %GREEN%GPU CUDA available and ready.%NC%
 )
 
 start "ObservAI Camera AI" /min cmd /c ""%VENV_PYTHON%" -m camera_analytics.run_with_websocket --source 0 --model yolo11s.pt > "%SCRIPT_DIR%logs\camera-ai.log" 2>&1"

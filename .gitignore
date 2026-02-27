@@ -17,6 +17,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Exception: backend TypeScript source lib is NOT a Python venv lib
+!backend/src/lib/
 parts/
 sdist/
 var/
