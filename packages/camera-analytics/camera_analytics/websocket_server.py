@@ -117,8 +117,8 @@ class AnalyticsWebSocketServer:
                         frame = await asyncio.to_thread(self.on_get_frame)
 
                     if frame is not None:
-                        # Encode frame to JPEG (quality 92 for high quality video)
-                        _, jpeg_buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+                        # Encode frame to JPEG (quality 80 balances visual quality and encode speed)
+                        _, jpeg_buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                         jpeg_bytes = jpeg_buffer.tobytes()
 
                         # Write MJPEG frame

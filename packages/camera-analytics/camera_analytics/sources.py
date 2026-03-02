@@ -7,12 +7,29 @@ from __future__ import annotations
 
 import platform
 import subprocess
+import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Union, Optional
 import numpy as np
 import cv2
+
+
+def _get_ytdlp_executable() -> str:
+    """Find yt-dlp executable, preferring the one in the current venv."""
+    # Derive yt-dlp path from Python executable (works in venv)
+    python_path = Path(sys.executable)
+    scripts_dir = python_path.parent
+
+    # On Windows the executable is yt-dlp.exe
+    for candidate in ["yt-dlp.exe", "yt-dlp"]:
+        candidate_path = scripts_dir / candidate
+        if candidate_path.exists():
+            return str(candidate_path)
+
+    # Fallback: hope it's on PATH
+    return "yt-dlp"
 
 try:
     from mss import mss
@@ -133,10 +150,18 @@ class WebcamSource(VideoSource):
             # As last resort, fallback to primary camera (index 0) with warning
             print(f"[WARN] Camera at index {requested_index} not available after all attempts")
             print(f"[WARN] Falling back to primary camera (index 0)")
-            print(f"[INFO] iPhone Troubleshooting:")
-            print(f"[INFO]   1. Ensure iPhone is near Mac, unlocked, WiFi/Bluetooth ON")
-            print(f"[INFO]   2. Check 'Continuity Camera' in Mac System Settings")
-            print(f"[INFO]   3. Connect via USB cable for better reliability")
+            if system == "Darwin":
+                print(f"[INFO] iPhone Troubleshooting (macOS):")
+                print(f"[INFO]   1. Ensure iPhone is near Mac, unlocked, WiFi/Bluetooth ON")
+                print(f"[INFO]   2. Check 'Continuity Camera' in Mac System Settings")
+                print(f"[INFO]   3. Connect via USB cable for better reliability")
+            elif system == "Windows":
+                print(f"[INFO] Phone Camera Troubleshooting (Windows):")
+                print(f"[INFO]   1. Install EpocCam or iVCam on your iPhone and Windows PC")
+                print(f"[INFO]      EpocCam: https://www.elgato.com/epoccam")
+                print(f"[INFO]      iVCam:   https://www.e2esoft.com/ivcam/")
+                print(f"[INFO]   2. Connect iPhone via USB or WiFi and launch the app")
+                print(f"[INFO]   3. The virtual camera driver should appear as camera index 1 or higher")
             return 0  # Fallback to primary camera instead of failing
 
 
@@ -187,7 +212,8 @@ class YouTubeSource(VideoSource):
         try:
             print("   Trying yt-dlp...")
             # Use best mp4 video or best available if mp4 not found
-            cmd = ['yt-dlp', '-f', 'best[ext=mp4]/best', '-g', url]
+            ytdlp = _get_ytdlp_executable()
+            cmd = [ytdlp, '-f', 'best[ext=mp4]/best', '-g', url]
             print(f"   Command: {' '.join(cmd)}")
 
             result = subprocess.run(
@@ -282,7 +308,7 @@ class VideoLinkSource(VideoSource):
         """Check if YouTube URL is a live stream using yt-dlp"""
         try:
             # Added --force-ipv4 to avoid IPv6 timeouts
-            cmd = ['yt-dlp', '--force-ipv4', '--print', 'is_live', '--no-warnings', url]
+            cmd = [_get_ytdlp_executable(), '--force-ipv4', '--print', 'is_live', '--no-warnings', url]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -299,7 +325,7 @@ class VideoLinkSource(VideoSource):
     def _get_video_fps(self, url: str) -> Optional[float]:
         """Get video FPS using yt-dlp (for non-live videos)"""
         try:
-            cmd = ['yt-dlp', '--force-ipv4', '--print', 'fps', '--no-warnings', url]
+            cmd = [_get_ytdlp_executable(), '--force-ipv4', '--print', 'fps', '--no-warnings', url]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -317,7 +343,7 @@ class VideoLinkSource(VideoSource):
     def _resolve_youtube(self, url: str) -> str:
         """Extract direct stream URL from YouTube using yt-dlp (legacy single-attempt)"""
         try:
-            cmd = ['yt-dlp', '--force-ipv4', '-f', 'best[ext=mp4]/best', '-g', url]
+            cmd = [_get_ytdlp_executable(), '--force-ipv4', '-f', 'best[ext=mp4]/best', '-g', url]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
             if result.returncode == 0 and result.stdout.strip():
@@ -360,27 +386,28 @@ class VideoLinkSource(VideoSource):
         # Try multiple format strategies for better compatibility
         format_strategies = []
         if self.is_live:
-            # Live stream format strategies (in order of preference)
-            # Simplified for robustness
+            # Live stream format strategies (prefer 480p for lower latency and better FPS)
             format_strategies = [
-                'best[height<=720]/best',  # Prefer 720p for stability
+                'best[height<=480]/best',  # 480p: better FPS and lower latency for live streams
+                'best[height<=720]/best',  # 720p fallback
                 '95/94/93',               # Specific HLS itags
-                'worst'                   # Fallback
+                'worst'                   # Last resort
             ]
         else:
-            # Regular video format strategies
+            # Regular video format strategies (prefer 480p for better processing FPS)
             format_strategies = [
-                'best[ext=mp4]',  # FORCE MP4: Safest for OpenCV VOD
-                '18/22',  # Legacy safe MP4
+                'best[ext=mp4][height<=480]',  # 480p MP4: fastest for processing
+                'best[ext=mp4]',               # Any MP4 fallback
+                '18/22',                       # Legacy safe MP4
                 'best[height<=1080][ext=mp4]',
-                'best'  # Fallback
+                'best'
             ]
 
         for strategy_idx, format_spec in enumerate(format_strategies):
             try:
                 print(f"   🎯 Trying format strategy {strategy_idx + 1}/{len(format_strategies)}: {format_spec}")
 
-                cmd = ['yt-dlp', '--force-ipv4', '-f', format_spec, '-g', url]
+                cmd = [_get_ytdlp_executable(), '--force-ipv4', '-f', format_spec, '-g', url]
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
@@ -393,37 +420,8 @@ class VideoLinkSource(VideoSource):
                     stream_type = "LIVE" if self.is_live else "VIDEO"
                     print(f"   ✓ YouTube {stream_type} stream URL extracted")
                     print(f"   Stream URL: {stream_url[:80]}...")
-
-                    # Quick validation: Test if OpenCV can open this URL
-                    # This prevents returning URLs that will fail later
-                    import cv2
-                    print(f"   🔍 Validating stream URL with OpenCV...")
-                    
-                    # FORCE FFMPEG backend to avoid CAP_IMAGES fallback
-                    # This fixes the "expected '0?[1-9][du]' pattern" error
-                    test_cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
-                    
-                    can_open = test_cap.isOpened()
-
-                    # Try to read one frame to ensure it's really working
-                    if can_open:
-                        ret, frame = test_cap.read()
-                        can_read = ret and frame is not None
-                    else:
-                        can_read = False
-
-                    test_cap.release()
-
-                    if can_open and can_read:
-                        print(f"   ✅ Stream URL validated successfully!")
-                        return stream_url
-                    else:
-                        if not can_open:
-                            print(f"   ⚠️  OpenCV cannot open stream URL (FFMPEG backend forced)")
-                        else:
-                            print(f"   ⚠️  OpenCV opened stream but cannot read frames")
-                        print(f"   ↻ Trying next format strategy...")
-                        continue
+                    print(f"   ✅ Returning stream URL (skipping OpenCV pre-validation)")
+                    return stream_url
                 else:
                     print(f"   ⚠️  yt-dlp failed with code {result.returncode}")
                     if result.stderr:

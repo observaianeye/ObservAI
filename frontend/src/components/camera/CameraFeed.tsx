@@ -248,12 +248,8 @@ export default function CameraFeed() {
 
     const checkInterval = setInterval(() => {
       const img = mjpegImgRef.current;
-      const canvas = canvasRef.current;
 
-      if (img && canvas && img.naturalWidth > 0 && img.naturalHeight > 0) {
-        console.log(`[CameraFeed] Proactive canvas resize: ${img.naturalWidth}x${img.naturalHeight}`);
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
+      if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
         setVideoDimensions({ width: img.naturalWidth, height: img.naturalHeight });
         canvasSizeInitialized.current = true;
         clearInterval(checkInterval);
@@ -268,54 +264,15 @@ export default function CameraFeed() {
     if (!canvasRef.current || !isStreaming) return;
 
     const canvas = canvasRef.current;
-    const video = videoRef.current;
-    const mjpegImg = mjpegImgRef.current;
 
-    // CRITICAL: Don't render until canvas is properly sized
+    // Don't render until canvas has real dimensions
     if (canvas.width <= 16 || canvas.height <= 9) {
-      console.log('[CameraFeed] Waiting for canvas to be sized...');
       return;
     }
 
     const drawFrame = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-
-      // CRITICAL: Always sync canvas size with actual video/image dimensions
-      // This ensures bounding boxes are drawn at correct positions
-      let targetWidth = videoDimensions.width;
-      let targetHeight = videoDimensions.height;
-
-      // Double-check with actual DOM elements for accuracy
-      if (mjpegImg && mjpegImg.naturalWidth > 0) {
-        // MJPEG stream is active - use actual image dimensions
-        targetWidth = mjpegImg.naturalWidth;
-        targetHeight = mjpegImg.naturalHeight;
-      } else if (video && video.videoWidth > 0) {
-        // Video element is active - use actual video dimensions
-        targetWidth = video.videoWidth;
-        targetHeight = video.videoHeight;
-      }
-
-      // ALWAYS update canvas size to match source - this prevents bbox scaling issues
-      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-        console.log(`[CameraFeed] Updating canvas size: ${canvas.width}x${canvas.height} → ${targetWidth}x${targetHeight}`);
-        canvas.width = targetWidth;
-        canvas.height = targetHeight;
-      }
-
-      // FALLBACK: If dimensions are still default (16x9), try to read from DOM one more time
-      if (canvas.width === 16 && canvas.height === 9) {
-        if (mjpegImg && mjpegImg.naturalWidth && mjpegImg.naturalWidth > 0) {
-          canvas.width = mjpegImg.naturalWidth;
-          canvas.height = mjpegImg.naturalHeight;
-          console.log(`[CameraFeed] Forced canvas size from MJPEG: ${canvas.width}x${canvas.height}`);
-        } else if (video && video.videoWidth && video.videoWidth > 0) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          console.log(`[CameraFeed] Forced canvas size from video: ${canvas.width}x${canvas.height}`);
-        }
-      }
 
       // Calculate responsive sizes based on canvas dimensions
       // Font size: 1.5% of canvas height (min 10px, max 18px)
@@ -477,11 +434,12 @@ export default function CameraFeed() {
               });
             } else {
               throw new Error(
-                'No iPhone or secondary camera found.\n\n' +
-                'For iPhone:\n' +
-                '1. Connect iPhone via USB or Wi-Fi\n' +
-                '2. Enable Continuity Camera on macOS\n' +
-                '3. Or: Open this page in iPhone Safari for native camera'
+                'No secondary camera found.\n\n' +
+                'To use your iPhone as a camera on Windows:\n' +
+                '1. Install EpocCam on iPhone and Windows (elgato.com/epoccam)\n' +
+                '   Or iVCam (e2esoft.com/ivcam)\n' +
+                '2. Connect via USB or Wi-Fi and launch the app\n' +
+                '3. Select "Phone Cam" again once connected'
               );
             }
           }
@@ -736,8 +694,8 @@ export default function CameraFeed() {
 
   const getSourceLabel = () => {
     switch (currentSource.type) {
-      case 'webcam': return 'MacBook Camera';
-      case 'iphone': return 'iPhone Camera';
+      case 'webcam': return 'Camera';
+      case 'iphone': return 'Phone Cam';
       case 'ip': {
         const camera = ipCameras.find(cam => cam.id === currentSource.ipCameraId);
         return camera ? camera.name : 'IP Camera';
@@ -863,7 +821,7 @@ export default function CameraFeed() {
                 {currentSource.type === 'webcam' && (
                   <span className="absolute left-2 w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                 )}
-                MacBook Cam
+                Camera
               </span>
             </button>
             <button
@@ -877,7 +835,7 @@ export default function CameraFeed() {
                 {currentSource.type === 'iphone' && (
                   <span className="absolute left-2 w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                 )}
-                iPhone
+                Phone Cam
               </span>
             </button>
           </div>
@@ -1080,20 +1038,8 @@ export default function CameraFeed() {
               onLoad={(e) => {
                 const img = e.currentTarget;
                 if (img.naturalWidth && img.naturalHeight) {
-                  console.log(`[CameraFeed] MJPEG loaded: ${img.naturalWidth}x${img.naturalHeight}`);
                   setVideoDimensions({ width: img.naturalWidth, height: img.naturalHeight });
-
-                  // CRITICAL: Force canvas resize on next frame to prevent bbox scaling issues
-                  if (canvasRef.current) {
-                    const canvas = canvasRef.current;
-                    if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
-                      canvas.width = img.naturalWidth;
-                      canvas.height = img.naturalHeight;
-                      console.log(`[CameraFeed] Canvas immediately resized to match MJPEG: ${canvas.width}x${canvas.height}`);
-                    }
-                  }
                 }
-                // Clear any error when stream loads successfully
                 setError(null);
               }}
               onError={() => {
@@ -1125,6 +1071,8 @@ export default function CameraFeed() {
           {dataMode === 'live' && isStreaming && !error && (
             <canvas
               ref={canvasRef}
+              width={videoDimensions.width}
+              height={videoDimensions.height}
               className="absolute inset-0 w-full h-full pointer-events-none"
             />
           )}

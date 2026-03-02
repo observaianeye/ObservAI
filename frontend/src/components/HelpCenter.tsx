@@ -26,7 +26,7 @@ const helpArticles: HelpArticle[] = [
     id: '3',
     category: 'Live Mode',
     title: 'Connecting your camera',
-    content: 'In Live mode, select your camera source: MacBook webcam, iPhone (via Continuity Camera), or IP camera. The system uses YOLO object detection and InsightFace for demographics. Ensure camera permissions are granted in your browser.'
+    content: 'In Live mode, select your camera source: built-in webcam (Camera), phone camera (Phone Cam), or IP camera. On Windows, to use your iPhone as a camera, install EpocCam or iVCam on both your iPhone and Windows PC — this creates a virtual webcam that appears as "Phone Cam". The system uses YOLO object detection and InsightFace for demographics. Ensure camera permissions are granted in your browser.'
   },
   {
     id: '4',
@@ -87,7 +87,7 @@ const faqs = [
   },
   {
     question: 'What cameras are supported?',
-    answer: 'ObservAI works with MacBook webcams, iPhone cameras (via Continuity Camera), IP cameras (RTSP/HTTP), and screen sharing for Zoom. For best results, use 1080p or higher resolution cameras with good lighting.'
+    answer: 'ObservAI works with built-in webcams (Camera), phone cameras (Phone Cam), and IP cameras (RTSP/HTTP). On Windows, use EpocCam or iVCam to connect your iPhone as a virtual webcam via USB or WiFi — install the app on your iPhone and the PC driver from the respective website. For best results, use 1080p or higher resolution with good lighting.'
   },
   {
     question: 'How do I troubleshoot connection issues?',

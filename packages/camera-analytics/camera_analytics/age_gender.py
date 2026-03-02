@@ -274,17 +274,33 @@ class EstimatorFactory:
     def create_estimator(config: dict = None) -> AgeGenderEstimator:
         if config is None:
             config = {}
-        
-        # CHANGED: Default is now MiVOLO unless explicitly set otherwise
-        model_type = config.get("model_type", "mivolo")
-        
-        if model_type == "mivolo":
-            logger.info("Factory: Creating MiVOLO Estimator (Default)...")
-            return MiVOLOEstimator()
-        
+
+        model_type = config.get("model_type", "auto")
+
         if model_type == "insightface":
-             logger.info("Factory: Creating InsightFace Estimator...")
-             return InsightFaceEstimator()
-        
-        # Fallback
+            logger.info("Factory: Creating InsightFace Estimator...")
+            return InsightFaceEstimator()
+
+        if model_type == "mivolo":
+            logger.info("Factory: Creating MiVOLO Estimator...")
+            return MiVOLOEstimator()
+
+        # "auto" mode: try MiVOLO first (better accuracy), fall back to InsightFace
+        try:
+            import importlib
+            importlib.import_module("mivolo.model.mi_volo")
+            mivolo_model_path = os.path.join(PARENT_DIR, "models", "mivolo_model.pth")
+            if os.path.exists(mivolo_model_path):
+                logger.info("Factory: MiVOLO available — creating MiVOLO Estimator...")
+                return MiVOLOEstimator()
+            else:
+                logger.info("Factory: MiVOLO module found but model weights missing — falling back to InsightFace")
+        except ImportError:
+            logger.info("Factory: MiVOLO not installed — falling back to InsightFace")
+
+        if insightface is not None:
+            logger.info("Factory: Creating InsightFace Estimator (auto-fallback)...")
+            return InsightFaceEstimator()
+
+        logger.warning("Factory: No demographics estimator available (install InsightFace or MiVOLO)")
         return MiVOLOEstimator()

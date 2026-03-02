@@ -248,9 +248,9 @@ class CameraAnalyticsEngine:
     # RTX 5070 "Balanced Profile": higher intervals reduce GPU contention between
     # YOLO tracking and demographics, resulting in better overall FPS.
     if isinstance(source, str) and source.startswith(('http', 'rtsp', 'rtmp')):
-      self.face_detection_interval = 10  # Network streams: balanced GPU utilization (was 3)
+      self.face_detection_interval = 15  # Network streams: reduced load for higher FPS
     else:
-      self.face_detection_interval = 5   # Local cameras: responsive demographics (was 3)
+      self.face_detection_interval = 5   # Local cameras: responsive demographics
 
     self.frame_count = 0
     self.demographics_executor = ThreadPoolExecutor(
@@ -734,7 +734,8 @@ class CameraAnalyticsEngine:
     # First, get video dimensions using yt-dlp
     try:
       print("[INFO] Detecting stream resolution...")
-      info_cmd = ['yt-dlp', '--print', 'width', '--print', 'height', '-f', 'best[height<=720]/best', url]
+      from .sources import _get_ytdlp_executable
+      info_cmd = [_get_ytdlp_executable(), '--print', 'width', '--print', 'height', '-f', 'best[height<=480]/best[height<=720]/best', url]
       info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=15)
       if info_result.returncode == 0:
         lines = info_result.stdout.strip().split('\n')
@@ -750,10 +751,11 @@ class CameraAnalyticsEngine:
     
     frame_size = width * height * 3  # BGR format
     
-    # yt-dlp command: stream to stdout
+    # yt-dlp command: stream to stdout (480p preferred for lower latency and better processing FPS)
+    from .sources import _get_ytdlp_executable
     ytdlp_cmd = [
-      'yt-dlp',
-      '-f', 'best[height<=720]/best',
+      _get_ytdlp_executable(),
+      '-f', 'best[height<=480]/best[height<=720]/best',
       '-o', '-',  # Output to stdout
       '--quiet',
       '--no-warnings',
@@ -805,10 +807,18 @@ class CameraAnalyticsEngine:
       frame_count = 0
       consecutive_failures = 0
       target_interval = 1.0 / 30.0  # 30 FPS target
-      
+      _last_process_time = 0.0
+
       while self.running:
         frame_start = time.time()
-        
+
+        # Adaptive frame skip: if YOLO took >2x target interval last cycle,
+        # drain one buffered frame to keep the live stream current
+        if _last_process_time > target_interval * 2:
+          drain = ffmpeg_proc.stdout.read(frame_size)
+          if len(drain) == 0:
+            break
+
         # Read raw frame from FFmpeg stdout
         raw_frame = ffmpeg_proc.stdout.read(frame_size)
         
@@ -858,6 +868,7 @@ class CameraAnalyticsEngine:
         
         # Frame rate control
         processing_time = time.time() - frame_start
+        _last_process_time = processing_time
         sleep_time = target_interval - processing_time
         if sleep_time > 0:
           time.sleep(sleep_time)
