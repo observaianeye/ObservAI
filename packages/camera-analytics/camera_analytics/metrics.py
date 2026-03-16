@@ -96,6 +96,9 @@ class CameraMetrics:
   ts: str = field(default_factory=lambda: datetime.utcnow().isoformat())
   fps: float = 0.0
   avg_dwell_time: float = 0.0
+  # Task 2.1.1: Async pipeline per-thread FPS
+  capture_fps: float = 0.0
+  inference_fps: float = 0.0
 
   def to_dict(self) -> Dict[str, object]:
     return {
@@ -144,4 +147,6 @@ class CameraMetrics:
       ],
       "fps": round(self.fps, 1),
       "avgDwellTime": round(self.avg_dwell_time, 1),
+      "captureFps": round(self.capture_fps, 1),
+      "inferenceFps": round(self.inference_fps, 1),
     }

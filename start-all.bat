@@ -103,6 +103,13 @@ echo       %BLUE%→ Frontend running on http://localhost:5173%NC%
 REM Service 2: Backend Node.js API (Port 3001)
 echo %GREEN%[2/4] 🔌 Starting Backend API...%NC%
 cd "%SCRIPT_DIR%backend"
+
+REM Install cross-env if not present (needed for ESBUILD_BINARY_PATH on Windows)
+if not exist "node_modules\cross-env" (
+    echo       %YELLOW%⚠️  Installing cross-env...%NC%
+    call npm install cross-env --save-dev >nul 2>&1
+)
+
 start "ObservAI Backend API" /min cmd /c "npm run start:node > ..\logs\backend-api.log 2>&1"
 timeout /t 2 /nobreak >nul
 echo       %BLUE%→ Backend API running on http://localhost:3001%NC%

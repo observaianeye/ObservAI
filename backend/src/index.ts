@@ -6,7 +6,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { connectDatabase, disconnectDatabase, checkDatabaseHealth } from './lib/db';
+import { connectDatabase, disconnectDatabase, checkDatabaseHealth, prisma } from './lib/db';
 import camerasRouter from './routes/cameras';
 import zonesRouter from './routes/zones';
 import analyticsRouter from './routes/analytics';
@@ -14,6 +14,7 @@ import usersRouter from './routes/users';
 import pythonBackendRouter from './routes/python-backend';
 import aiRouter from './routes/ai';
 import exportRouter from './routes/export';
+import insightsRouter from './routes/insights';
 import { pythonBackendManager } from './lib/pythonBackendManager';
 import { getKafkaConsumer } from './lib/kafkaConsumer';
 import cookieParser from 'cookie-parser';
@@ -57,6 +58,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/python-backend', pythonBackendRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/export', exportRouter);
+app.use('/api/insights', insightsRouter);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
@@ -69,6 +71,36 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
   res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
+// insights tablosunu otomatik oluştur (migrasyon uygulanmamışsa)
+async function ensureInsightsTable() {
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "insights" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "cameraId" TEXT NOT NULL,
+        "zoneId" TEXT,
+        "type" TEXT NOT NULL,
+        "severity" TEXT NOT NULL DEFAULT 'medium',
+        "title" TEXT NOT NULL,
+        "message" TEXT NOT NULL,
+        "context" TEXT,
+        "isRead" BOOLEAN NOT NULL DEFAULT false,
+        "expiresAt" DATETIME,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "insights_cameraId_createdAt_idx" ON "insights"("cameraId", "createdAt")
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE INDEX IF NOT EXISTS "insights_type_severity_idx" ON "insights"("type", "severity")
+    `);
+    console.log('✅ insights tablosu hazır');
+  } catch (err) {
+    console.warn('⚠️  insights tablosu oluşturulamadı:', err);
+  }
+}
+
 // Start server
 async function startServer() {
   try {
@@ -76,6 +108,8 @@ async function startServer() {
     try {
       await connectDatabase();
       console.log('✅ Database connected');
+      // Ensure insights table exists (migrasyon uygulanmamış olabilir)
+      await ensureInsightsTable();
     } catch (dbError) {
       console.warn('⚠️  Database connection failed (continuing without DB):', (dbError as Error).message);
       console.warn('   Python backend manager will still work!');

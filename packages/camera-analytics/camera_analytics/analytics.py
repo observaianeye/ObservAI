@@ -55,75 +55,171 @@ class TrackedPerson:
   active_zones: Dict[str, float] = field(default_factory=dict)
   anonymous_id: Optional[str] = None  # Privacy-preserving ID for cross-zone tracking
 
-  # Temporal smoothing for demographics
-  age_history: deque = field(default_factory=lambda: deque(maxlen=24))
-  gender_history: deque = field(default_factory=lambda: deque(maxlen=24))
+  # Task 2.2.1: Improved temporal smoothing for demographics
+  age_history: deque = field(default_factory=lambda: deque(maxlen=30))
+  age_confidence_history: deque = field(default_factory=lambda: deque(maxlen=30))
+  gender_history: deque = field(default_factory=lambda: deque(maxlen=30))
+  gender_confidence_history: deque = field(default_factory=lambda: deque(maxlen=30))
   gender_confidence: float = 0.5
+  age_ema: Optional[float] = None     # Exponential moving average for age
+  age_stability: float = 0.0          # How stable the age prediction is (0-1)
+  gender_stability: float = 0.0       # How stable the gender prediction is (0-1)
+  _demo_update_count: int = 0         # Total demographic update count
 
   def contains_pixel(self, px: float, py: float) -> bool:
     x1, y1, x2, y2 = self.bbox_norm
     return x1 <= px <= x2 and y1 <= py <= y2
 
-  def update_age(self, new_age: float, confidence: float = 1.0, max_samples: int = 10) -> None:
-    """Update age with temporal smoothing - weighted by confidence"""
+  def update_age(self, new_age: float, confidence: float = 1.0,
+                 ema_alpha: float = 0.3, min_confidence: float = 0.25) -> None:
+    """
+    Task 2.2.1: Confidence-weighted EMA + median hybrid for age estimation.
+
+    Uses exponential moving average weighted by confidence for responsive updates,
+    combined with median filtering for outlier robustness.
+
+    Args:
+        new_age: Raw age prediction from model
+        confidence: Detection/prediction confidence (0-1)
+        ema_alpha: EMA smoothing factor (higher = more responsive, from config)
+        min_confidence: Minimum confidence to accept (from config)
+    """
     if new_age is None:
       return
 
-    # Filter low confidence updates to prevent noise (Open Source CV Tip: Quality > Quantity)
-    # Lowered from 0.7 to 0.3 for better detection coverage
-    if confidence < 0.3:
-        return
+    # Filter very low confidence to prevent noise injection
+    if confidence < min_confidence:
+      return
 
+    self._demo_update_count += 1
+
+    # Store with confidence for weighted calculations
     self.age_history.append(float(new_age))
-    samples = list(self.age_history)
-    if len(samples) >= 3:
-      self.age = float(np.median(samples))
-    else:
-      self.age = float(np.mean(samples))
+    self.age_confidence_history.append(float(confidence))
 
-  def update_gender(self, new_gender: str, confidence: float = 1.0, max_samples: int = 15) -> None:
-    """Update gender with weighted majority voting and temporal smoothing"""
+    samples = list(self.age_history)
+    confidences = list(self.age_confidence_history)
+
+    if len(samples) == 1:
+      # First sample: accept directly
+      self.age = float(new_age)
+      self.age_ema = float(new_age)
+      self.age_stability = 0.0
+      return
+
+    # --- Confidence-weighted EMA ---
+    # Alpha scales with confidence: high-confidence updates shift the EMA more
+    effective_alpha = ema_alpha * confidence
+    if self.age_ema is None:
+      self.age_ema = float(new_age)
+    else:
+      self.age_ema = effective_alpha * new_age + (1 - effective_alpha) * self.age_ema
+
+    # --- Confidence-weighted median (outlier-robust) ---
+    if len(samples) >= 3:
+      # Sort samples by value, compute weighted median
+      paired = sorted(zip(samples, confidences), key=lambda x: x[0])
+      sorted_ages = [p[0] for p in paired]
+      sorted_confs = [p[1] for p in paired]
+      total_weight = sum(sorted_confs)
+
+      if total_weight > 0:
+        cumulative = 0.0
+        weighted_median = sorted_ages[-1]  # fallback
+        for age_val, conf_val in paired:
+          cumulative += conf_val
+          if cumulative >= total_weight / 2:
+            weighted_median = age_val
+            break
+      else:
+        weighted_median = float(np.median(samples))
+
+      # Blend EMA (responsive) with weighted median (robust)
+      # More samples = trust median more; fewer = trust EMA more
+      blend = min(0.6, len(samples) / 20.0)  # Caps at 60% median weight
+      self.age = (1 - blend) * self.age_ema + blend * weighted_median
+    else:
+      # Few samples: use EMA directly
+      self.age = self.age_ema
+
+    # --- Stability score ---
+    # Low variance in recent predictions = high stability
+    if len(samples) >= 3:
+      recent = samples[-min(10, len(samples)):]
+      std_dev = float(np.std(recent))
+      # Normalize: std_dev of 0 => stability 1.0, std_dev of 10+ => stability ~0
+      self.age_stability = max(0.0, 1.0 - std_dev / 10.0)
+
+  def update_gender(self, new_gender: str, confidence: float = 1.0,
+                    consensus_threshold: float = 0.65,
+                    temporal_decay: float = 0.95,
+                    min_confidence: float = 0.25) -> None:
+    """
+    Task 2.2.1: Confidence-weighted gender voting with temporal decay.
+
+    Recent high-confidence predictions matter more than old low-confidence ones.
+    Uses temporal decay so stale predictions fade, preventing early misclassifications
+    from permanently locking in the wrong gender.
+
+    Args:
+        new_gender: Predicted gender ("male"/"female")
+        confidence: Prediction confidence (0-1)
+        consensus_threshold: Required vote fraction for gender assignment (from config)
+        temporal_decay: Decay multiplier for older votes (from config)
+        min_confidence: Minimum confidence to accept (from config)
+    """
     if not new_gender or new_gender == "unknown":
       return
 
-    # Ignore very low confidence - Keep at 0.3 for coverage but rely on voting
-    if confidence < 0.3:
-        return
-
-    # Weighted voting: Higher confidence = more votes to reduce noise
-    # This helps handle edge cases like long hair on males and facial hair on misclassified females
-    votes = 1
-    if confidence > 0.85:
-        votes = 4  # Very high confidence gets 4 votes
-    elif confidence > 0.75:
-        votes = 3  # High confidence gets 3 votes
-    elif confidence > 0.6:
-        votes = 2  # Medium-high confidence gets 2 votes
-    # Below 0.6: only 1 vote (more susceptible to errors)
-
-    for _ in range(votes):
-        self.gender_history.append(new_gender)
-
-    # Keep history manageable - increased from 12 to 15 for better temporal smoothing
-    while len(self.gender_history) > max_samples:
-      self.gender_history.popleft()
-
-    male_votes = self.gender_history.count("male")
-    female_votes = self.gender_history.count("female")
-
-    total_votes = len(self.gender_history)
-    if total_votes == 0:
+    if confidence < min_confidence:
       return
 
-    # Require stronger consensus (70% threshold) to reduce misclassifications
-    # RTX 5070 profile: conservative to minimize false gender classifications
-    if male_votes / total_votes >= 0.70:
+    # Store gender + confidence pair
+    self.gender_history.append(new_gender)
+    self.gender_confidence_history.append(float(confidence))
+
+    # Trim to max history size (deque handles this, but keep confidence in sync)
+    while len(self.gender_confidence_history) > len(self.gender_history):
+      self.gender_confidence_history.popleft()
+
+    # --- Temporal-decay confidence-weighted voting ---
+    genders = list(self.gender_history)
+    confs = list(self.gender_confidence_history)
+    n = len(genders)
+
+    male_score = 0.0
+    female_score = 0.0
+
+    for i in range(n):
+      # Temporal decay: most recent sample (index n-1) has weight 1.0
+      # Older samples decay by temporal_decay^(distance from newest)
+      recency_weight = temporal_decay ** (n - 1 - i)
+      weighted_vote = confs[i] * recency_weight
+
+      if genders[i] == "male":
+        male_score += weighted_vote
+      elif genders[i] == "female":
+        female_score += weighted_vote
+
+    total_score = male_score + female_score
+    if total_score == 0:
+      return
+
+    male_ratio = male_score / total_score
+    female_ratio = female_score / total_score
+
+    # Apply consensus threshold (configurable, default 0.65 for less aggressive locking)
+    if male_ratio >= consensus_threshold:
       self.gender = "male"
-      self.gender_confidence = male_votes / total_votes
-    elif female_votes / total_votes >= 0.70:
+      self.gender_confidence = male_ratio
+    elif female_ratio >= consensus_threshold:
       self.gender = "female"
-      self.gender_confidence = female_votes / total_votes
-    # If neither reaches 70%, keep previous gender (unknown is better than wrong)
+      self.gender_confidence = female_ratio
+    # If neither reaches consensus, keep previous assignment (unknown > wrong)
+
+    # --- Gender stability score ---
+    # High if dominant gender consistently wins over time
+    self.gender_stability = max(male_ratio, female_ratio)
 
 
 class CameraAnalyticsEngine:
@@ -174,6 +270,8 @@ class CameraAnalyticsEngine:
     on_metrics: Optional[Callable[[Dict[str, object]], None]] = None,
     on_tracks: Optional[Callable[[List[Dict[str, object]]], None]] = None,
     on_zone_insights: Optional[Callable[[List[Dict[str, object]]], None]] = None,
+    preloaded_yolo=None,
+    preloaded_estimator=None,
   ) -> None:
     self.config = config
     self.source = source
@@ -210,37 +308,52 @@ class CameraAnalyticsEngine:
     # Video capture tracking for explicit cleanup
     self._video_capture = None
 
+    # Task 2.1.2: YOLO optimization parameters from config
+    self.nms_iou = config.nms_iou_threshold
+    self.agnostic_nms = config.agnostic_nms
+    self.max_det = config.max_detections
+
     # Hardware-specific optimization (MPS for M3 Pro, TensorRT for RTX, ONNX for CPU)
     print("[INFO] Initializing hardware-optimized YOLOv12n...")
     self.device = HardwareOptimizer.get_optimal_device()
-    self.inference_params = HardwareOptimizer.get_optimal_inference_params()
+    self.inference_params = HardwareOptimizer.get_optimal_inference_params(
+        override_imgsz=config.yolo_input_size,
+    )
 
-    # Load base model
-    self.model = YOLO(model_path)
+    # Load base model (use preloaded if available for faster startup)
+    if preloaded_yolo is not None:
+      print("[INFO] Using preloaded YOLO model (no reload needed)")
+      self.model = preloaded_yolo
+    else:
+      self.model = YOLO(model_path)
 
-    # Attempt hardware-specific optimization
-    try:
-      optimized_path = HardwareOptimizer.optimize_model(
-        self.model,
-        model_path,
-        target_format=None  # Auto-detect best format
-      )
-      # Reload if optimized version was created
-      if optimized_path != model_path and Path(optimized_path).exists():
-        self.model = YOLO(optimized_path)
-    except Exception as e:
-      print(f"[WARN] Hardware optimization failed: {e}")
-      print("[INFO] Continuing with standard PyTorch model")
+      # Attempt hardware-specific optimization
+      try:
+        optimized_path = HardwareOptimizer.optimize_model(
+          self.model,
+          model_path,
+          target_format=None  # Auto-detect best format
+        )
+        # Reload if optimized version was created
+        if optimized_path != model_path and Path(optimized_path).exists():
+          self.model = YOLO(optimized_path)
+      except Exception as e:
+        print(f"[WARN] Hardware optimization failed: {e}")
+        print("[INFO] Continuing with standard PyTorch model")
 
-    # Configure YOLO runtime with optimal settings
+    # Configure YOLO runtime with optimal settings (Task 2.1.2: configurable NMS/IoU/input)
     try:
       self.model.overrides['verbose'] = False
       self.model.overrides['conf'] = self.conf
-      self.model.overrides['iou'] = 0.45
-      self.model.overrides['max_det'] = 100  # RTX 5070: crowded scene support (was 50)
+      self.model.overrides['iou'] = self.nms_iou
+      self.model.overrides['max_det'] = self.max_det
       self.model.overrides['half'] = self.inference_params.get('half', False)
       self.model.overrides['device'] = self.device
-      print(f"[INFO] Model configured for {self.device.upper()} with imgsz={self.inference_params['imgsz']}")
+      self.model.overrides['agnostic_nms'] = self.agnostic_nms
+      print(f"[INFO] YOLO configured: device={self.device.upper()}, "
+            f"imgsz={self.inference_params['imgsz']}, conf={self.conf}, "
+            f"iou={self.nms_iou}, agnostic_nms={self.agnostic_nms}, "
+            f"max_det={self.max_det}")
     except Exception:  # pragma: no cover - safety guard
       pass
 
@@ -299,14 +412,18 @@ class CameraAnalyticsEngine:
     self._validate_source_on_init()
 
     # Initialize Age/Gender Estimator (MiVOLO or InsightFace)
-    # This replaces the raw FaceAnalysis usage with a managed, optimized wrapper
-    try:
-        self.age_gender_estimator = EstimatorFactory.create_estimator()
-        self.age_gender_estimator.prepare(ctx_id=0, det_size=(640, 640))
-        print("[INFO] Age/Gender Estimator initialized (Optimized Mode)")
-    except Exception as err:
-        print(f"[WARN] Age/Gender Estimator initialization failed: {err}")
-        self.age_gender_estimator = None
+    # Use preloaded estimator if available to skip slow model initialization
+    if preloaded_estimator is not None:
+        print("[INFO] Using preloaded Age/Gender estimator (no reload needed)")
+        self.age_gender_estimator = preloaded_estimator
+    else:
+        try:
+            self.age_gender_estimator = EstimatorFactory.create_estimator()
+            self.age_gender_estimator.prepare(ctx_id=0, det_size=(640, 640))
+            print("[INFO] Age/Gender Estimator initialized (Optimized Mode)")
+        except Exception as err:
+            print(f"[WARN] Age/Gender Estimator initialization failed: {err}")
+            self.age_gender_estimator = None
 
     self.tracks: Dict[int, TrackedPerson] = {}
     self.people_in = 0
@@ -339,6 +456,9 @@ class CameraAnalyticsEngine:
     self.fps_counter = 0
     self.fps = 0.0
     self.running = False
+    # Task 2.1.1: Async pipeline per-thread FPS counters
+    self.capture_fps   = 0.0   # Thread 1: Frame capture FPS
+    self.inference_fps = 0.0   # Thread 2: YOLO inference FPS
     
     # Initialize Glass Visualization Overlay
     from .overlay_viz import GlassOverlay
@@ -609,11 +729,134 @@ class CameraAnalyticsEngine:
       # For regular videos, use frame-by-frame with timing control
       self._run_video_with_timing(cap, frame_interval)
 
+
+  def _run_async_pipeline(self, cap) -> None:
+    """
+    Task 2.1.1: 3-Thread Async Processing Pipeline
+    ================================================
+    Thread 1 (Capture)   : Kameradan frame okur → raw_frame_queue (~30fps)
+    Thread 2 (Inference) : YOLO inference çalıştırır → result_queue (~10-15fps)
+    Main thread          : Sonuçları işler, demographics, metrics, MJPEG output
+
+    Fayda:
+    - Frame capture hiçbir zaman YOLO tarafından bloklanmaz
+    - YOLO inference hiçbir zaman capture gecikmeleri yaşamaz
+    - FPS tutarlılığı artar, latency azalır
+    - Webcam ve IP kamera için optimize edilmiş
+    """
+    import threading
+    import queue as _queue
+
+    raw_frame_q = _queue.Queue(maxsize=3)   # Capture → Inference
+    result_q    = _queue.Queue(maxsize=2)   # Inference → Main
+    stop_event  = threading.Event()
+
+    # FPS sayaçları (her thread için ayrı)
+    self.capture_fps  = 0.0
+    self.inference_fps = 0.0
+    _cap_cnt  = [0]; _cap_t   = [time.time()]
+    _inf_cnt  = [0]; _inf_t   = [time.time()]
+
+    # ── Thread 1: Frame Capture ──────────────────────────────────────────────
+    def capture_fn():
+      while not stop_event.is_set():
+        ret, frame = cap.read()
+        if not ret or frame is None:
+          time.sleep(0.005)
+          continue
+        # Eski frame'i at, yeniyi koy (her zaman en güncel frame)
+        if raw_frame_q.full():
+          try: raw_frame_q.get_nowait()
+          except _queue.Empty: pass
+        try: raw_frame_q.put_nowait(frame)
+        except _queue.Full: pass
+        # FPS say
+        _cap_cnt[0] += 1
+        now = time.time()
+        if now - _cap_t[0] >= 1.0:
+          self.capture_fps = _cap_cnt[0] / (now - _cap_t[0])
+          _cap_cnt[0] = 0; _cap_t[0] = now
+
+    # ── Thread 2: YOLO Inference ─────────────────────────────────────────────
+    def inference_fn():
+      while not stop_event.is_set():
+        try:
+          frame = raw_frame_q.get(timeout=1.0)
+        except _queue.Empty:
+          continue
+        try:
+          results = self.model.track(
+            source=frame,
+            persist=True,
+            verbose=False,
+            classes=[0],
+            tracker="camera_analytics/bytetrack.yaml",
+            imgsz=self.inference_params["imgsz"],
+            device=self.device,
+            conf=self.conf,
+            iou=self.nms_iou,
+            half=self.inference_params.get("half", False),
+            agnostic_nms=self.agnostic_nms,
+          )
+          if results:
+            if result_q.full():
+              try: result_q.get_nowait()
+              except _queue.Empty: pass
+            try: result_q.put_nowait((frame, results))
+            except _queue.Full: pass
+          # FPS say
+          _inf_cnt[0] += 1
+          now = time.time()
+          if now - _inf_t[0] >= 1.0:
+            self.inference_fps = _inf_cnt[0] / (now - _inf_t[0])
+            _inf_cnt[0] = 0; _inf_t[0] = now
+        except Exception as e:
+          print(f"[WARN] Inference thread error: {e}")
+          time.sleep(0.01)
+
+    # ── Thread başlat ────────────────────────────────────────────────────────
+    cap_thread = threading.Thread(target=capture_fn,   daemon=True, name="obs-capture")
+    inf_thread = threading.Thread(target=inference_fn, daemon=True, name="obs-inference")
+    cap_thread.start()
+    inf_thread.start()
+    print("[INFO] Async pipeline started: capture + inference threads running")
+
+    # ── Main thread: sonuçları işle ──────────────────────────────────────────
+    try:
+      while self.running:
+        try:
+          _frame, results = result_q.get(timeout=1.0)
+        except _queue.Empty:
+          continue
+        for result in results:
+          if not self._process_result(result):
+            self.running = False
+            break
+        if not self.running:
+          break
+    except Exception as e:
+      print(f"[ERROR] Async pipeline main thread error: {e}")
+      import traceback; traceback.print_exc()
+    finally:
+      stop_event.set()
+      cap_thread.join(timeout=3.0)
+      inf_thread.join(timeout=3.0)
+      cap.release()
+      print(f"[INFO] Async pipeline stopped. Capture FPS: {self.capture_fps:.1f}, Inference FPS: {self.inference_fps:.1f}")
+      if self.display:
+        import cv2; cv2.destroyAllWindows()
+
   def _run_live_with_threaded_reader(self, cap, source_fps: float) -> None:
     """
-    Run live stream processing with a threaded frame reader.
-    This ensures we always have the latest frame available without blocking.
+    Run live stream processing.
+    Task 2.1.1: Routes to 3-thread async pipeline for better performance.
     """
+    # Task 2.1.1: Async pipeline — daha iyi FPS ve düşük latency
+    print(f"[INFO] Using 3-thread async pipeline (capture / inference / main)")
+    self._run_async_pipeline(cap)
+
+  def _run_live_with_threaded_reader_legacy(self, cap, source_fps: float) -> None:
+    """Legacy single-threaded reader — replaced by _run_async_pipeline."""
     import threading
     import queue
     
@@ -678,8 +921,9 @@ class CameraAnalyticsEngine:
           imgsz=self.inference_params['imgsz'],
           device=self.device,
           conf=self.conf,
-          iou=0.45,
+          iou=self.nms_iou,
           half=self.inference_params.get('half', False),
+          agnostic_nms=self.agnostic_nms,
         )
         
         # Process results
@@ -849,8 +1093,9 @@ class CameraAnalyticsEngine:
           imgsz=self.inference_params['imgsz'],
           device=self.device,
           conf=self.conf,
-          iou=0.45,
+          iou=self.nms_iou,
           half=self.inference_params.get('half', False),
+          agnostic_nms=self.agnostic_nms,
         )
         
         # Process results
@@ -925,8 +1170,9 @@ class CameraAnalyticsEngine:
           imgsz=self.inference_params['imgsz'],
           device=self.device,
           conf=self.conf,
-          iou=0.45,
+          iou=self.nms_iou,
           half=self.inference_params.get('half', False),
+          agnostic_nms=self.agnostic_nms,
         )
         
         # Process results
@@ -976,8 +1222,9 @@ class CameraAnalyticsEngine:
       device=self.device,
       vid_stride=self.vid_stride,
       conf=self.conf,
-      iou=0.45,
+      iou=self.nms_iou,
       half=self.inference_params.get('half', False),
+      agnostic_nms=self.agnostic_nms,
     )
 
     try:
@@ -1040,8 +1287,9 @@ class CameraAnalyticsEngine:
           imgsz=self.inference_params['imgsz'],
           device=self.device,
           conf=self.confidence_threshold,
-          iou=0.45,
+          iou=self.nms_iou,
           half=self.inference_params.get('half', False),
+          agnostic_nms=self.agnostic_nms,
         )
         
         for result in results:
@@ -1273,35 +1521,46 @@ class CameraAnalyticsEngine:
 
   def _process_demographics_async(self, frame: np.ndarray, frame_w: int, frame_h: int) -> List[tuple]:
     """
-    IMPROVED: Targeted face analysis approach
+    Task 2.2.1: Enhanced targeted face analysis with continuous refinement.
 
     Strategy:
     1. Rely on YOLOv11 for detection (already happened).
     2. Crop each tracked person's face/body region.
     3. Send crop to MiVOLO/InsightFace for classification ONLY.
-    
-    This eliminates the redundant "Full Frame Face Detection" (Phase 1) step,
-    saving ~50% compute resources and fixing the "CPU overload" issue.
+    4. Continue refining demographics over time (temporal smoothing)
+       instead of stopping after initial classification.
 
     Returns list of (track_id, age, gender, confidence) tuples.
     """
     if self.age_gender_estimator is None:
       return []
 
+    continuous_refinement = self.config.demo_continuous_refinement
+
     try:
       results = []
 
       # Create snapshot of tracks to avoid "dictionary changed size during iteration"
-      # This happens when tracks are added/removed by main thread while demographics thread iterates
       tracks_snapshot = list(self.tracks.items())
 
       for track_id, person in tracks_snapshot:
-        # Skip if already has good demographics (avoid redundant processing)
-        # LOGIC GATE: Only process if needed
-        has_age = person.age is not None and len(person.age_history) >= 3
-        has_gender = person.gender != "unknown" and len(person.gender_history) >= 5
-        if has_age and has_gender:
-          continue
+        # Task 2.2.1: Continuous refinement mode
+        # In continuous mode, keep refining even after initial classification
+        # but reduce processing frequency for stable tracks
+        if not continuous_refinement:
+          # Legacy mode: skip if already has good demographics
+          has_age = person.age is not None and len(person.age_history) >= 3
+          has_gender = person.gender != "unknown" and len(person.gender_history) >= 5
+          if has_age and has_gender:
+            continue
+        else:
+          # Continuous mode: skip only if demographics are highly stable
+          # High stability + many samples = low value in re-processing
+          if (person.age_stability > 0.85 and person.gender_stability > 0.85
+              and person._demo_update_count >= 10):
+            # Still process occasionally (every ~5th opportunity) for drift detection
+            if person._demo_update_count % 5 != 0:
+              continue
 
         # Crop person's bbox from frame
         x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
@@ -1323,9 +1582,8 @@ class CameraAnalyticsEngine:
           continue
 
         # Expand bbox slightly for better face detection (add 20% padding)
-        # This helps capture faces at the edge of person bbox
         padding_x = int(bbox_width * 0.2)
-        padding_y = int(bbox_height * 0.15)  # Less vertical padding (head is usually at top)
+        padding_y = int(bbox_height * 0.15)
 
         x1_padded = max(0, x1 - padding_x)
         y1_padded = max(0, y1 - padding_y)
@@ -1342,14 +1600,12 @@ class CameraAnalyticsEngine:
         # Analyze the CROPPED region
         try:
           age, gender, confidence = self.age_gender_estimator.predict(person_crop)
-          
+
           if age is not None and gender is not None:
-             # Boost confidence for targeted crop analysis (it's more reliable)
-             # Increased boost from 1.2 to 1.3 for better weighted voting
+             # Boost confidence for targeted crop analysis (more reliable than full-frame)
              confidence = min(1.0, confidence * 1.3)
-             
+
              results.append((track_id, age, gender, confidence))
-             # print(f"[INFO] Analyzed track {track_id}: {gender}, {int(age)}y ({confidence:.2f})")
 
         except Exception as crop_error:
           # Silently skip - this is expected for some crops
@@ -1367,21 +1623,33 @@ class CameraAnalyticsEngine:
     if self.age_gender_estimator is None:
       return
 
+    # Task 2.2.1: Config-driven demographic smoothing parameters
+    cfg = self.config
+    age_ema_alpha = cfg.demo_age_ema_alpha
+    min_conf = cfg.demo_min_confidence
+    gender_consensus = cfg.demo_gender_consensus
+    temporal_decay = cfg.demo_temporal_decay
+
     # Check if previous async task completed
     if self.pending_demographics_future is not None:
       if self.pending_demographics_future.done():
         try:
           results = self.pending_demographics_future.result(timeout=0)
-          # Apply demographics to tracks
+          # Apply demographics to tracks with Task 2.2.1 smoothing params
           for item in results:
             if len(item) == 4:
                 track_id, age, gender, conf = item
                 if track_id in self.tracks:
                   person = self.tracks[track_id]
                   if age is not None:
-                    person.update_age(age, confidence=conf)
+                    person.update_age(age, confidence=conf,
+                                      ema_alpha=age_ema_alpha,
+                                      min_confidence=min_conf)
                   if gender is not None:
-                    person.update_gender(gender, confidence=conf)
+                    person.update_gender(gender, confidence=conf,
+                                         consensus_threshold=gender_consensus,
+                                         temporal_decay=temporal_decay,
+                                         min_confidence=min_conf)
             elif len(item) == 3: # Legacy fallback
                 track_id, age, gender = item
                 if track_id in self.tracks:
@@ -1503,6 +1771,10 @@ class CameraAnalyticsEngine:
     metrics.tables = table_snapshots
     metrics.heatmap = self.heatmap.astype(int).tolist()
     metrics.fps = self.fps
+    # Task 2.1.1: Async pipeline FPS'leri metrics'e ekle
+    if hasattr(self, 'capture_fps'):
+      metrics.capture_fps   = round(self.capture_fps, 1)
+      metrics.inference_fps = round(self.inference_fps, 1)
     return metrics
 
   def _heatmap_to_points(self, grid: List[List[int]]) -> List[Dict[str, float]]:

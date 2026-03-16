@@ -39,6 +39,21 @@ class AnalyticsConfig:
   snapshot_interval: float = 0.0
   privacy_mode: bool = False  # GDPR/KVKK compliance: blur faces/bodies in streams
 
+  # Task 2.1.2: YOLO Model Optimization parameters
+  nms_iou_threshold: float = 0.45      # NMS IoU threshold (lower = stricter dedup, faster)
+  yolo_input_size: Optional[int] = None # Override YOLO input size (None = auto from hardware)
+  agnostic_nms: bool = True             # Class-agnostic NMS (faster for single-class person detection)
+  max_detections: int = 100             # Max detections per frame (crowded scene support)
+
+  # Task 2.2.1: Demographic Prediction Improvement parameters
+  demo_age_ema_alpha: float = 0.3       # EMA smoothing factor for age (0=slow adapt, 1=instant)
+  demo_min_confidence: float = 0.25     # Minimum confidence to accept a demographic prediction
+  demo_gender_consensus: float = 0.65   # Gender consensus threshold (fraction of weighted votes)
+  demo_max_age_history: int = 30        # Max age samples for temporal smoothing
+  demo_max_gender_history: int = 30     # Max gender samples for temporal smoothing
+  demo_temporal_decay: float = 0.95     # Decay factor for older gender votes (per sample)
+  demo_continuous_refinement: bool = True  # Keep refining demographics even after initial classification
+
 
 def _load_normalized_point(raw: Sequence[float]) -> NormalizedPoint:
   if len(raw) != 2:
@@ -85,6 +100,10 @@ def load_config(path: Path) -> AnalyticsConfig:
     grid_height=int(heatmap_raw.get("grid_height", 4)),
   )
 
+  # Task 2.1.2: YOLO optimization params from config
+  yolo_input_size_raw = data.get("yolo_input_size", None)
+  yolo_input_size = int(yolo_input_size_raw) if yolo_input_size_raw is not None else None
+
   return AnalyticsConfig(
     entrance_line=entrance_line,
     queue_zone=queue_zone,
@@ -93,4 +112,16 @@ def load_config(path: Path) -> AnalyticsConfig:
     confidence_threshold=float(data.get("confidence_threshold", 0.5)),
     snapshot_interval=float(data.get("snapshot_interval", 0.0)),
     privacy_mode=bool(data.get("privacy_mode", False)),
+    nms_iou_threshold=float(data.get("nms_iou_threshold", 0.45)),
+    yolo_input_size=yolo_input_size,
+    agnostic_nms=bool(data.get("agnostic_nms", True)),
+    max_detections=int(data.get("max_detections", 100)),
+    # Task 2.2.1: Demographic smoothing params
+    demo_age_ema_alpha=float(data.get("demo_age_ema_alpha", 0.3)),
+    demo_min_confidence=float(data.get("demo_min_confidence", 0.25)),
+    demo_gender_consensus=float(data.get("demo_gender_consensus", 0.65)),
+    demo_max_age_history=int(data.get("demo_max_age_history", 30)),
+    demo_max_gender_history=int(data.get("demo_max_gender_history", 30)),
+    demo_temporal_decay=float(data.get("demo_temporal_decay", 0.95)),
+    demo_continuous_refinement=bool(data.get("demo_continuous_refinement", True)),
   )

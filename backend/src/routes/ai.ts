@@ -1,6 +1,6 @@
 /**
  * AI Q&A Routes
- * Natural language interface powered by Google Gemini 3.0
+ * Natural language interface powered by Google Gemini
  */
 
 import { Router, Request, Response } from 'express';
@@ -10,14 +10,14 @@ import { z } from 'zod';
 
 const router = Router();
 
-// Initialize Gemini API
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyCWHOJxdWO_GF0foPfSbkHSYcfnfYn1nrQ';
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+// NOT: GEMINI_API_KEY ve genAI modül yüklenirken değil,
+// her request'te okunuyor — dotenv.config() sonra çalıştığı için.
 
 // Validation schema
 const ChatRequestSchema = z.object({
   message: z.string().min(1),
-  cameraId: z.string().uuid().optional(),
+  // UUID zorunluluğu kaldırıldı — 'sample-camera-1' gibi non-uuid ID'leri destekler
+  cameraId: z.string().min(1).optional(),
 });
 
 /**
@@ -35,9 +35,22 @@ router.post('/chat', async (req: Request, res: Response) => {
     // Build context for Gemini
     const contextPrompt = buildContextPrompt(message, recentAnalytics);
 
-    // Call Gemini API
-    // Try Gemini 3.0 first, fallback to 1.5 Flash if quota exceeded
-    let modelName = 'gemini-3-pro-preview';
+    // API key'i her request'te oku (dotenv.config() sonra çalıştığı için)
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+    if (!GEMINI_API_KEY) {
+      return res.json({
+        message: 'Gemini API key bulunamadı. Lütfen backend/.env dosyasına GEMINI_API_KEY ekleyin.',
+        timestamp: new Date().toISOString(),
+        model: 'demo-mode'
+      });
+    }
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+    // Call Gemini API — model öncelik sırası (test edildi, 2026-03-15):
+    // gemini-2.5-flash: ÇALIŞIYOR ✓
+    // gemini-2.0-flash-001: yedek
+    // gemini-2.0-flash-lite: son yedek
+    let modelName = 'gemini-2.5-flash';
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(contextPrompt);
@@ -50,17 +63,16 @@ router.post('/chat', async (req: Request, res: Response) => {
         model: modelName
       });
       return;
-    } catch (gemini3Error: any) {
-      // If Gemini 3.0 fails due to quota/not found, try older stable model
-      if (gemini3Error?.message?.includes('quota') || gemini3Error?.message?.includes('429') || gemini3Error?.message?.includes('404')) {
-        console.log('[AI] Gemini 3.0 unavailable, falling back to Gemini Pro (stable)');
-        modelName = 'gemini-pro';
+    } catch (primaryErr: any) {
+      if (primaryErr?.message?.includes('quota') || primaryErr?.message?.includes('429') || primaryErr?.message?.includes('404') || primaryErr?.message?.includes('RESOURCE_EXHAUSTED')) {
+        console.log(`[AI] ${modelName} unavailable, falling back to gemini-2.0-flash-001`);
+        modelName = 'gemini-2.0-flash-001';
       } else {
-        throw gemini3Error;
+        throw primaryErr;
       }
     }
 
-    // Fallback to stable Gemini Pro
+    // Fallback model
     const model = genAI.getGenerativeModel({ model: modelName });
     const result = await model.generateContent(contextPrompt);
     const response = await result.response;
@@ -78,13 +90,11 @@ router.post('/chat', async (req: Request, res: Response) => {
     }
     console.error('AI Chat Error:', error);
 
-    // Demo mode fallback when API key is invalid/quota exceeded
-    if (error instanceof Error && (error.message.includes('404') || error.message.includes('quota') || error.message.includes('429'))) {
-      console.log('[AI] Gemini API unavailable, using demo response');
+    // Demo mode fallback: quota aşıldığında veya model bulunamadığında
+    if (error instanceof Error && (error.message.includes('404') || error.message.includes('quota') || error.message.includes('429') || error.message.includes('403') || error.message.includes('API_KEY') || error.message.includes('PERMISSION'))) {
+      console.log('[AI] Gemini API hatası:', error.message);
       return res.json({
-        message: `I don't have enough data to answer that. The system is currently tracking visitor counts, demographics (age/gender), queue metrics, and zone occupancy.
-
-**Note**: AI integration requires a valid Gemini API key with proper quota. Please configure \`GEMINI_API_KEY\` in your environment variables.`,
+        message: 'Gemini API hatası (debug): ' + error.message,
         timestamp: new Date().toISOString(),
         model: 'demo-mode'
       });
@@ -95,6 +105,31 @@ router.post('/chat', async (req: Request, res: Response) => {
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+});
+
+/**
+ * GET /api/ai/debug — Gemini API key ve model durumunu test eder
+ */
+router.get('/debug', async (req: Request, res: Response) => {
+  const key = process.env.GEMINI_API_KEY || '';
+  if (!key) {
+    return res.json({ status: 'NO_KEY', message: 'GEMINI_API_KEY tanımlı değil' });
+  }
+  // Test sırası — Chrome ile test edildi (2026-03-15)
+  const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite'];
+  for (const m of candidates) {
+    try {
+      const genAI = new GoogleGenerativeAI(key);
+      const model = genAI.getGenerativeModel({ model: m });
+      const result = await model.generateContent('Say "OK" only.');
+      return res.json({ status: 'OK', model: m, response: result.response.text(), keyPrefix: key.slice(0, 8) + '...' });
+    } catch (err: any) {
+      if (!err?.message?.includes('quota') && !err?.message?.includes('429') && !err?.message?.includes('404') && !err?.message?.includes('RESOURCE_EXHAUSTED')) {
+        return res.json({ status: 'ERROR', model: m, error: err?.message, keyPrefix: key.slice(0, 8) + '...' });
+      }
+    }
+  }
+  return res.json({ status: 'ALL_QUOTA_EXHAUSTED', tried: candidates, keyPrefix: key.slice(0, 8) + '...' });
 });
 
 /**
@@ -187,6 +222,27 @@ async function getRecentAnalyticsContext(cameraId?: string): Promise<string> {
     if (zoneInsights) {
       context += `\n--- Zone Insights ---\n${zoneInsights}\n`;
     }
+
+    // Hava durumu (Open-Meteo, ücretsiz, API key gerektirmiyor)
+    try {
+      const weatherRes = await fetch(
+        'https://api.open-meteo.com/v1/forecast?latitude=39.9334&longitude=32.8597&current_weather=true&hourly=precipitation_probability&forecast_days=1'
+      );
+      if (weatherRes.ok) {
+        const weatherData: any = await weatherRes.json();
+        const cw = weatherData.current_weather;
+        const wmoDesc: Record<number, string> = {
+          0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+          45: 'Foggy', 51: 'Light drizzle', 61: 'Slight rain', 63: 'Moderate rain',
+          65: 'Heavy rain', 71: 'Slight snow', 80: 'Rain showers', 95: 'Thunderstorm',
+        };
+        const desc = wmoDesc[cw.weathercode] || `Code ${cw.weathercode}`;
+        const precipProb = weatherData.hourly?.precipitation_probability?.[new Date().getHours()] ?? null;
+        context += `\n--- Current Weather (Ankara) ---\n`;
+        context += `Temperature: ${cw.temperature}°C, ${desc}, Wind: ${cw.windspeed} km/h\n`;
+        if (precipProb !== null) context += `Rain Probability: ${precipProb}%\n`;
+      }
+    } catch { /* hava durumu opsiyonel */ }
 
     // Add latest snapshot data
     const latestLog = logs[0];

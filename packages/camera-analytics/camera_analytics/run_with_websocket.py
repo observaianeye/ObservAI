@@ -52,6 +52,10 @@ class CameraAnalyticsWithWebSocket:
 
         self.engine: Optional[CameraAnalyticsEngine] = None
         self.analytics_task: Optional[asyncio.Task] = None
+        
+        # Preloaded model cache (set during startup by _preload_models)
+        self._preloaded_yolo = None
+        self._preloaded_estimator = None
 
     async def update_zones(self, zones: List[Dict]) -> None:
         """Update zones in the running analytics engine"""
@@ -87,8 +91,9 @@ class CameraAnalyticsWithWebSocket:
         print(
             f"✓ WebSocket server started on {self.ws_server.host}:{self.ws_server.port}"
         )
-        # Do not start analytics automatically
-        print("✓ Waiting for client to start stream...")
+        # Preload models in background so first start_analytics is fast
+        asyncio.ensure_future(self._preload_models())
+        print("✓ Waiting for client to start stream (models loading in background)...")
         
         # Keep the main loop running until signal
         await stop_event.wait()
@@ -96,6 +101,59 @@ class CameraAnalyticsWithWebSocket:
         # Cleanup
         await self.stop_analytics()
         # self.ws_server.stop() # If implemented in future
+
+    async def _preload_models(self) -> None:
+        """Eagerly load YOLO and InsightFace models in the background.
+        
+        This runs right after the WebSocket server starts so the first call to
+        start_analytics() reuses the pre-warmed objects instead of waiting for
+        cold model loading (which can take 5-30s on first run).
+        """
+        try:
+            await self.ws_server.update_status("model_loading", model_loaded=False)
+            print("🔄 Preloading YOLO model in background...")
+            
+            from ultralytics import YOLO
+            from .age_gender import EstimatorFactory
+            
+            loop = asyncio.get_running_loop()
+            
+            # Load YOLO in thread executor (CPU/GPU bound)
+            def _load_yolo():
+                model = YOLO(self.model_path)
+                # Warmup with a dummy forward pass (reduces first-inference latency)
+                try:
+                    import numpy as np
+                    dummy = np.zeros((1, 3, 320, 320), dtype=np.uint8)
+                    _ = model.predict(dummy, verbose=False, imgsz=320)
+                    print("✓ YOLO model warmed up")
+                except Exception:
+                    pass
+                return model
+            
+            self._preloaded_yolo = await loop.run_in_executor(None, _load_yolo)
+            print(f"✓ YOLO model preloaded: {self.model_path}")
+            
+            # Load InsightFace/MiVOLO in thread executor
+            def _load_estimator():
+                try:
+                    estimator = EstimatorFactory.create_estimator()
+                    estimator.prepare(ctx_id=0, det_size=(640, 640))
+                    return estimator
+                except Exception as e:
+                    print(f"[WARN] Age/Gender preload failed: {e}")
+                    return None
+            
+            self._preloaded_estimator = await loop.run_in_executor(None, _load_estimator)
+            if self._preloaded_estimator:
+                print("✓ Age/Gender estimator preloaded")
+            
+            await self.ws_server.update_status("ready", model_loaded=True)
+            print("✅ All models preloaded — backend ready for instant stream start")
+            
+        except Exception as e:
+            print(f"❌ Model preloading failed: {e}")
+            await self.ws_server.update_status("error", model_loaded=False, error=str(e))
 
     async def start_analytics(self) -> bool:
         # Check if engine exists and is either running or being created
@@ -130,6 +188,9 @@ class CameraAnalyticsWithWebSocket:
                 self.ws_server.broadcast_zone_insights(payload), loop
             )
 
+        # Notify frontend that we're about to start
+        await self.ws_server.update_status("connecting", source_connected=False, streaming=False)
+
         try:
             self.engine = CameraAnalyticsEngine(
                 config=self.config,
@@ -141,9 +202,13 @@ class CameraAnalyticsWithWebSocket:
                 on_metrics=emit_metrics,
                 on_tracks=emit_tracks,
                 on_zone_insights=emit_zone_insights,
+                preloaded_yolo=self._preloaded_yolo,
+                preloaded_estimator=self._preloaded_estimator,
             )
+            await self.ws_server.update_status("source_connected", model_loaded=True, source_connected=True)
         except Exception as e:
             print(f"❌ Failed to initialize analytics engine: {e}")
+            await self.ws_server.update_status("error", error=str(e))
             self.engine = None
             raise e
 

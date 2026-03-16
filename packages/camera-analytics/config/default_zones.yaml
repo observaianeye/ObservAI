@@ -23,3 +23,46 @@ tables:
 heatmap:
   grid_width: 6
   grid_height: 4
+
+# Task 2.1.2: YOLO Model Optimization
+# NMS IoU threshold: lower = stricter duplicate removal (faster, may miss overlapping people)
+# Range: 0.3 (aggressive) to 0.7 (permissive). Default: 0.45
+nms_iou_threshold: 0.45
+
+# YOLO input size: smaller = faster inference, lower accuracy
+# Options: 320 (speed), 416 (balanced), 480 (quality), 640 (max quality)
+# Leave commented to auto-detect from hardware
+# yolo_input_size: 480
+
+# Class-agnostic NMS: faster for single-class (person) detection
+agnostic_nms: true
+
+# Confidence threshold for person detection
+confidence_threshold: 0.5
+
+# Max detections per frame (increase for crowded scenes)
+max_detections: 100
+
+# Task 2.2.1: Demographic Prediction Improvement
+# EMA smoothing factor for age: 0.1 (very smooth) to 0.5 (responsive). Default: 0.3
+demo_age_ema_alpha: 0.3
+
+# Minimum model confidence to accept a demographic prediction
+# Lower = more predictions accepted (noisier). Range: 0.1-0.5. Default: 0.25
+demo_min_confidence: 0.25
+
+# Gender consensus threshold: fraction of weighted votes needed to assign gender
+# Lower = faster assignment but more misclassifications. Range: 0.55-0.85. Default: 0.65
+demo_gender_consensus: 0.65
+
+# Max history samples for temporal smoothing (age and gender)
+demo_max_age_history: 30
+demo_max_gender_history: 30
+
+# Temporal decay for older gender votes (per sample, recent = 1.0)
+# Lower = older votes fade faster. Range: 0.85-0.99. Default: 0.95
+demo_temporal_decay: 0.95
+
+# Continuous refinement: keep improving demographics even after initial classification
+# Set to false for legacy behavior (stop after first good classification)
+demo_continuous_refinement: true

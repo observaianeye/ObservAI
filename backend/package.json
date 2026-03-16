@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "npm run start:all",
-    "start:node": "tsx watch src/index.ts",
+    "start:node": "cross-env ESBUILD_BINARY_PATH=./node_modules/@esbuild/win32-x64/esbuild.exe tsx watch src/index.ts",
     "start:python": "node scripts/start-python-backend.js",
     "start:all": "concurrently --names \"API,AI\" --prefix-colors \"blue,green\" \"npm run start:node\" \"npm run start:python\"",
     "db:generate": "prisma generate",
@@ -41,11 +41,15 @@
     "@types/node": "^20.10.0",
     "@types/pdfkit": "^0.17.4",
     "concurrently": "^8.2.2",
+    "cross-env": "^10.1.0",
     "prisma": "^5.22.0",
-    "tsx": "^4.7.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "optionalDependencies": {
+    "@esbuild/win32-x64": "^0.27.2"
   }
 }

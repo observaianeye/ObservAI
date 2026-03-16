@@ -169,6 +169,25 @@ model ZoneInsight {
   @@map("zone_insights")
 }
 
+// AI-generated insights (real-time alerts, trends, recommendations)
+model Insight {
+  id        String   @id @default(uuid())
+  cameraId  String
+  zoneId    String?
+  type      String   // 'occupancy_alert' | 'wait_time_alert' | 'crowd_surge' | 'trend' | 'recommendation' | 'demographic_trend'
+  severity  String   @default("medium") // 'low' | 'medium' | 'high' | 'critical'
+  title     String
+  message   String
+  context   String?  // JSON string with raw data context
+  isRead    Boolean  @default(false)
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([cameraId, createdAt])
+  @@index([type, severity])
+  @@map("insights")
+}
+
 // Historical analytics aggregates (for faster queries)
 model AnalyticsSummary {
   id        String   @id @default(uuid())

@@ -10,7 +10,7 @@ const router = Router();
 
 // Validation schema
 const CreateAnalyticsLogSchema = z.object({
-  cameraId: z.string().uuid(),
+  cameraId: z.string().min(1),
   peopleIn: z.number().int().min(0),
   peopleOut: z.number().int().min(0),
   currentCount: z.number().int().min(0),
@@ -354,6 +354,106 @@ function generateDemoComparisonStats(startDate: Date, endDate: Date): any {
     endDate: endDate.toISOString()
   };
 }
+
+// POST /api/analytics/seed-demo - Generate 30 days of realistic historical data
+router.post('/seed-demo', async (req: Request, res: Response) => {
+  try {
+    const cameraId = (req.body?.cameraId as string) || 'sample-camera-1';
+
+    // Delete existing data for clean seed
+    await prisma.$executeRawUnsafe(`DELETE FROM analytics_logs WHERE cameraId = ?`, cameraId);
+
+    const getHourlyMultiplier = (hour: number, isWeekend: boolean): number => {
+      const weekday = [0.05,0.03,0.02,0.02,0.03,0.10,0.25,0.45,0.60,0.55,0.50,0.70,
+                       1.00,0.90,0.65,0.55,0.60,0.80,0.95,0.90,0.75,0.55,0.35,0.15];
+      const weekend = [0.10,0.05,0.05,0.03,0.02,0.05,0.15,0.25,0.40,0.55,0.70,0.85,
+                       1.00,0.95,0.90,0.85,0.80,0.85,0.95,1.00,0.90,0.75,0.55,0.30];
+      return isWeekend ? weekend[hour] : weekday[hour];
+    };
+
+    const randG = (mean: number, std: number) => {
+      // Box-Muller
+      const u = 1 - Math.random(), v = Math.random();
+      return mean + std * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    };
+
+    const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+    const now = new Date();
+    const endDate = new Date(now);
+    endDate.setHours(23, 55, 0, 0);
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 30);
+
+    const entries: any[] = [];
+    let currentTime = new Date(startDate);
+    let occupancy = 0;
+    const MAX_OCC = 45;
+
+    while (currentTime <= endDate) {
+      const hour = currentTime.getHours();
+      const isWeekend = currentTime.getDay() === 0 || currentTime.getDay() === 6;
+      const dayNoise = 1 + 0.2 * Math.sin(currentTime.getDate() * 0.7);
+      const mult = getHourlyMultiplier(hour, isWeekend) * dayNoise * clamp(randG(1, 0.12), 0.5, 1.6);
+
+      const peopleIn = Math.max(0, Math.round(8 * mult * clamp(randG(1, 0.2), 0.4, 2)));
+      const peopleOut = Math.max(0, Math.round(peopleIn * clamp(randG(0.85, 0.15), 0.4, 1.2)));
+      occupancy = clamp(occupancy + peopleIn - peopleOut, 0, MAX_OCC);
+      if (mult < 0.1 && Math.random() > 0.3) { occupancy = 0; }
+
+      const male = Math.round(occupancy * clamp(randG(0.55, 0.08), 0.3, 0.75));
+      const female = occupancy - male;
+      const demographics = {
+        gender: { male, female, unknown: 0 },
+        age: occupancy > 0 ? { '18-24': Math.round(occupancy*0.20), '25-34': Math.round(occupancy*0.35), '35-44': Math.round(occupancy*0.25), '45-54': Math.round(occupancy*0.12), '55+': Math.max(0, occupancy - Math.round(occupancy*0.92)) } : {}
+      };
+
+      const queueCount = (occupancy > 20 && mult > 0.7) ? Math.max(0, Math.round((occupancy-15)*clamp(randG(0.4,0.1),0.1,0.8))) : null;
+      const avgWaitTime = queueCount && queueCount > 0 ? Math.max(10, randG(45, 15)) : null;
+      const fps = clamp(randG(28.5, 1.5), 20, 35);
+
+      entries.push({
+        id: crypto.randomUUID(),
+        cameraId,
+        timestamp: currentTime.toISOString(),
+        peopleIn,
+        peopleOut,
+        currentCount: occupancy,
+        demographics: JSON.stringify(demographics),
+        queueCount,
+        avgWaitTime,
+        fps,
+      });
+
+      currentTime = new Date(currentTime.getTime() + 5 * 60 * 1000); // +5 min
+    }
+
+    // Batch insert using raw SQL
+    let inserted = 0;
+    const BATCH = 200;
+    for (let i = 0; i < entries.length; i += BATCH) {
+      const batch = entries.slice(i, i + BATCH);
+      for (const e of batch) {
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO analytics_logs (id, cameraId, timestamp, peopleIn, peopleOut, currentCount, demographics, queueCount, avgWaitTime, fps)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          e.id, e.cameraId, e.timestamp, e.peopleIn, e.peopleOut, e.currentCount,
+          e.demographics, e.queueCount ?? null, e.avgWaitTime ?? null, e.fps
+        );
+      }
+      inserted += batch.length;
+    }
+
+    res.json({
+      success: true,
+      message: `Seeded ${inserted} data points (30 days) for camera ${cameraId}`,
+      totalEntries: inserted,
+    });
+  } catch (error: any) {
+    console.error('[seed-demo] Error:', error);
+    res.status(500).json({ error: 'Seed failed', message: error.message });
+  }
+});
 
 // Helper function to generate comparison summary
 function generateComparisonSummary(period1: any, period2: any): string {

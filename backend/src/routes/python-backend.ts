@@ -97,6 +97,38 @@ router.get('/status', (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/python-backend/health
+ * Proxy health-check to Python WebSocket server's /health endpoint.
+ * Returns 200 when Python backend is ready, 503 otherwise.
+ * No auth required — used by frontend connection state machine.
+ */
+router.get('/health', async (req: Request, res: Response) => {
+  try {
+    const wsPort = pythonBackendManager.getStatus()?.config?.wsPort || 5001;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
+    const upstream = await fetch(`http://localhost:${wsPort}/health`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const body = await upstream.json();
+    res.status(upstream.status).json(body);
+  } catch (error: any) {
+    // Python backend unreachable
+    res.status(503).json({
+      status: 'unreachable',
+      phase: 'offline',
+      model_loaded: false,
+      source_connected: false,
+      streaming: false,
+      error: 'Python backend is not running or not reachable',
+    });
+  }
+});
+
+/**
  * POST /api/python-backend/restart
  * Restart the Python backend with new configuration
  * Requires MANAGER role or higher

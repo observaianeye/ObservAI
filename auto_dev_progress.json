@@ -1,0 +1,201 @@
+{
+  "tasks": [
+    {
+      "id": "1.1.1",
+      "phase": 1,
+      "name": "Backend Health-Check Endpoint",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 20000,
+      "last_error": "",
+      "completed_at": "2026-03-03T15:34:49.637290",
+      "started_at": ""
+    },
+    {
+      "id": "1.1.2",
+      "phase": 1,
+      "name": "Frontend Baglanti State Machine",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 40000,
+      "last_error": "",
+      "completed_at": "2026-03-03T15:41:18.629289",
+      "started_at": "2026-03-03T15:34:48.066549"
+    },
+    {
+      "id": "1.1.3",
+      "phase": 1,
+      "name": "Python Backend Ready Event",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 0,
+      "last_error": "",
+      "completed_at": "2026-03-03T15:34:48.066549",
+      "started_at": ""
+    },
+    {
+      "id": "1.2.1",
+      "phase": 1,
+      "name": "Model Preloading Mekanizmasi",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 0,
+      "last_error": "",
+      "completed_at": "2026-03-03T15:41:18.629289",
+      "started_at": ""
+    },
+    {
+      "id": "1.2.2",
+      "phase": 1,
+      "name": "Entegrasyon Testi - Kamera Stabilite",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 3000,
+      "last_error": "",
+      "completed_at": "2026-03-03T16:32:35.449034",
+      "started_at": ""
+    },
+    {
+      "id": "2.1.1",
+      "phase": 2,
+      "name": "Asenkron Processing Pipeline",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 5000,
+      "last_error": "",
+      "completed_at": "2026-03-03T16:44:07.273608",
+      "started_at": ""
+    },
+    {
+      "id": "2.1.2",
+      "phase": 2,
+      "name": "YOLO Model Optimizasyonu",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 25000,
+      "last_error": "",
+      "completed_at": "2026-03-03T17:36:24.294473",
+      "started_at": "2026-03-03T17:31:32.000000"
+    },
+    {
+      "id": "2.2.1",
+      "phase": 2,
+      "name": "Demografik Tahmin Iyilestirme",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 15000,
+      "last_error": "",
+      "completed_at": "2026-03-03T18:05:13.319992",
+      "started_at": "2026-03-03T17:50:00.000000"
+    },
+    {
+      "id": "2.2.2",
+      "phase": 2,
+      "name": "Performans Entegrasyon Testi",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 10000,
+      "last_error": "",
+      "completed_at": "2026-03-03T19:13:23.946170",
+      "started_at": "2026-03-03T19:10:00.000000"
+    },
+    {
+      "id": "3.1.1",
+      "phase": 3,
+      "name": "Insight Engine Backend Servisi",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 50000,
+      "last_error": "",
+      "completed_at": "2026-03-03T21:35:00.000000",
+      "started_at": "2026-03-03T21:31:00.000000"
+    },
+    {
+      "id": "3.2.1",
+      "phase": 3,
+      "name": "AI Insights Frontend Sayfasi",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 35000,
+      "last_error": "",
+      "completed_at": "2026-03-03T22:04:12.000000",
+      "started_at": "2026-03-03T22:00:00.000000"
+    },
+    {
+      "id": "3.2.2",
+      "phase": 3,
+      "name": "Bildirim Sistemi",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 30000,
+      "last_error": "",
+      "completed_at": "2026-03-04T00:15:00.000000",
+      "started_at": "2026-03-04T00:00:00.000000"
+    },
+    {
+      "id": "3.3.1",
+      "phase": 3,
+      "name": "AI Insight Entegrasyon Testi",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 25000,
+      "last_error": "",
+      "completed_at": "2026-03-04T01:30:00.000000",
+      "started_at": "2026-03-04T01:00:00.000000"
+    },
+    {
+      "id": "4.1.1",
+      "phase": 4,
+      "name": "Historical Analytics Sayfasi",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 45000,
+      "last_error": "",
+      "completed_at": "2026-03-04T03:31:00.000000",
+      "started_at": "2026-03-04T03:00:00.000000"
+    },
+    {
+      "id": "4.2.1",
+      "phase": 4,
+      "name": "Settings Sayfasi Iyilestirme",
+      "status": "completed",
+      "retries": 0,
+      "tokens_used": 35000,
+      "last_error": "",
+      "completed_at": "2026-03-04T05:15:00.000000",
+      "started_at": "2026-03-04T04:45:00.000000"
+    },
+    {
+      "id": "5.0.0",
+      "phase": 5,
+      "name": "Sistem Saglık Kontrolü (Test)",
+      "status": "pending",
+      "retries": 0,
+      "tokens_used": 0,
+      "last_error": "",
+      "completed_at": "",
+      "started_at": ""
+    }
+  ],
+  "total_tokens_today": 278000,
+  "last_run_date": "2026-03-04",
+  "last_task_id": "4.2.1",
+  "session_count": 0,
+  "created_at": "2026-03-03T14:15:53.087107",
+  "updated_at": "2026-03-04T10:54:59.563971",
+  "completed_phases": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "notification_log": [],
+  "current_phase": 4,
+  "session": {
+    "current_ai": "Claude Sonnet 4.6",
+    "started_at": "2026-03-08T15:32:00.000000",
+    "last_note": "Scheduled task calisti (2026-03-08). observai_auto_dev.py --once komutu VM sandbox'ta internet erisimi olmadigi icin erken cikti (beklenen davranis). Tüm 15 gelistirme gorevi (Faz 1-4) tamamlanmis durumda. Kalan tek pending gorev: 5.0.0 Sistem Saglik Kontrolü — bu gorev Windows'ta internet erisimi ile calistirilmalidir. Handoff guncellendi.",
+    "updated_at": "2026-03-09T00:29:27.777196"
+  },
+  "pending_notifications": []
+}

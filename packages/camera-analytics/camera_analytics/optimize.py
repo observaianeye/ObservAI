@@ -141,9 +141,18 @@ class HardwareOptimizer:
         return model_path
 
     @staticmethod
-    def get_optimal_inference_params() -> dict:
+    def get_optimal_inference_params(
+        override_imgsz: Optional[int] = None,
+        performance_mode: str = "balanced",
+    ) -> dict:
         """
         Get optimal inference parameters based on hardware.
+
+        Task 2.1.2: Enhanced with configurable input size and performance modes.
+
+        Args:
+            override_imgsz: Override image size (None = auto-detect from hardware)
+            performance_mode: 'quality' (640), 'balanced' (480/416), 'speed' (320)
 
         Returns:
             Dict with recommended settings (imgsz, half, device, etc.)
@@ -155,30 +164,40 @@ class HardwareOptimizer:
             "verbose": False,
         }
 
+        # Performance mode image size mapping
+        mode_sizes = {
+            "quality": 640,
+            "balanced": 480,
+            "speed": 320,
+        }
+
         # NVIDIA CUDA settings
         if hw["cuda_available"]:
+            default_size = 640 if performance_mode == "quality" else 480
             params.update(
                 {
                     "half": True,  # FP16 for faster inference
-                    "imgsz": 640,  # Standard for RTX GPUs
+                    "imgsz": override_imgsz or default_size,
                 }
             )
 
         # Apple Silicon MPS settings
         elif hw["mps_available"]:
+            default_size = 640 if performance_mode == "quality" else 480
             params.update(
                 {
                     "half": False,  # MPS doesn't support FP16 well yet
-                    "imgsz": 640,  # Optimal for M3 Pro
+                    "imgsz": override_imgsz or default_size,
                 }
             )
 
-        # CPU settings
+        # CPU settings — always prefer smaller input for usable FPS
         else:
+            default_size = mode_sizes.get(performance_mode, 416)
             params.update(
                 {
                     "half": False,
-                    "imgsz": 512,  # Smaller for CPU
+                    "imgsz": override_imgsz or min(default_size, 416),
                 }
             )
 

@@ -1,10 +1,19 @@
-import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Activity } from 'lucide-react';
+import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Activity, Loader2 } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useDataMode } from '../../contexts/DataModeContext';
-import { cameraBackendService, Detection } from '../../services/cameraBackendService';
+import { cameraBackendService, Detection, BackendHealth } from '../../services/cameraBackendService';
 import { GlassCard } from '../ui/GlassCard';
 
 export type CameraSource = 'webcam' | 'iphone' | 'ip' | 'videolink' | 'file';
+
+// Connection state machine states
+export type ConnectionState =
+  | 'DISCONNECTED'
+  | 'CONNECTING'
+  | 'WAITING_FOR_BACKEND'
+  | 'CONNECTED'
+  | 'STREAMING'
+  | 'FAILED';
 
 interface CameraSourceConfig {
   type: CameraSource;
@@ -79,6 +88,20 @@ export default function CameraFeed() {
 
   // Source switching loading state
   const [isSwitchingSource, setIsSwitchingSource] = useState(false);
+
+  // Backend readiness state machine
+  const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
+  const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Connection state machine
+  const [connectionState, setConnectionState] = useState<ConnectionState>('DISCONNECTED');
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 5;
+  const [retryCountDisplay, setRetryCountDisplay] = useState(0);
+  const [nextRetryIn, setNextRetryIn] = useState(0); // countdown seconds
+  const retryCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mjpegRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mjpegRetryCountRef = useRef(0);
+  const MAX_MJPEG_RETRIES = 8;
 
   // Dynamic video dimensions for proper aspect ratio
   const [videoDimensions, setVideoDimensions] = useState({ width: 16, height: 9 });
@@ -158,7 +181,7 @@ export default function CameraFeed() {
   // REMOVED: Initialize camera useEffect was causing race conditions
   // Camera initialization is now exclusively handled by handleSourceChange
 
-  // Connect to backend Socket.IO for detections
+  // Connect to backend Socket.IO for detections + health monitoring
   // This effect runs once when entering Live mode and stays connected
   useEffect(() => {
     if (dataMode === 'live') {
@@ -183,16 +206,103 @@ export default function CameraFeed() {
         setBackendConnected(true);
       });
 
+      // Subscribe to backend status events (real-time readiness updates)
+      const unsubscribeHealth = cameraBackendService.onBackendStatus((health) => {
+        setBackendHealth(health);
+        if (health.streaming) {
+          setBackendConnected(true);
+          setConnectionState('STREAMING');
+        } else if (health.model_loaded) {
+          setConnectionState('CONNECTED');
+        } else {
+          setConnectionState('WAITING_FOR_BACKEND');
+        }
+      });
+
+      // Poll health endpoint with exponential backoff until backend is streaming
+      // States: CONNECTING -> WAITING_FOR_BACKEND -> CONNECTED -> STREAMING
+      setConnectionState('CONNECTING');
+      retryCountRef.current = 0;
+
+      const pollHealthWithBackoff = async () => {
+        const h = await cameraBackendService.checkHealth();
+        if (h) {
+          setBackendHealth(h);
+          if (h.streaming) {
+            setBackendConnected(true);
+            setConnectionState('STREAMING');
+            if (healthPollRef.current) {
+              clearInterval(healthPollRef.current);
+              healthPollRef.current = null;
+            }
+          } else if (h.model_loaded) {
+            setConnectionState('CONNECTED');
+            retryCountRef.current = 0; // reset on progress
+          } else if (h.status === 'loading' || h.phase !== 'offline') {
+            setConnectionState('WAITING_FOR_BACKEND');
+            retryCountRef.current = 0;
+          } else {
+            // Backend offline — count retries with exponential backoff
+            retryCountRef.current += 1;
+            setRetryCountDisplay(retryCountRef.current);
+            if (retryCountRef.current >= MAX_RETRIES) {
+              setConnectionState('FAILED');
+              if (healthPollRef.current) {
+                clearInterval(healthPollRef.current);
+                healthPollRef.current = null;
+              }
+            } else {
+              // Exponential backoff: reschedule with longer delay
+              const delay = Math.min(30000, Math.pow(2, retryCountRef.current - 1) * 1000); // 1s, 2s, 4s, 8s, 16s, 30s cap
+              setNextRetryIn(Math.round(delay / 1000));
+              if (healthPollRef.current) {
+                clearInterval(healthPollRef.current);
+                healthPollRef.current = null;
+              }
+              healthPollRef.current = setTimeout(pollHealthWithBackoff, delay) as unknown as ReturnType<typeof setInterval>;
+              return;
+            }
+          }
+        } else {
+          // checkHealth returned null — backend unreachable
+          retryCountRef.current += 1;
+          if (retryCountRef.current >= MAX_RETRIES) {
+            setConnectionState('FAILED');
+            if (healthPollRef.current) {
+              clearInterval(healthPollRef.current);
+              healthPollRef.current = null;
+            }
+            return;
+          }
+        }
+      };
+      pollHealthWithBackoff(); // immediate first check
+      healthPollRef.current = setInterval(pollHealthWithBackoff, 2000); // Poll every 2s
+
       // Store cleanup function
       cleanupRef.current = () => {
         unsubscribeDetections();
+        unsubscribeHealth();
       };
 
       return () => {
-        console.log('[CameraFeed] Cleanup: Unsubscribing from detections');
+        console.log('[CameraFeed] Cleanup: Unsubscribing from detections + health');
         if (cleanupRef.current) {
           cleanupRef.current();
           cleanupRef.current = null;
+        }
+        if (healthPollRef.current) {
+          clearInterval(healthPollRef.current);
+          healthPollRef.current = null;
+        }
+        // Cleanup MJPEG retry refs
+        if (mjpegRetryTimeoutRef.current) {
+          clearTimeout(mjpegRetryTimeoutRef.current);
+          mjpegRetryTimeoutRef.current = null;
+        }
+        if (retryCountdownRef.current) {
+          clearInterval(retryCountdownRef.current);
+          retryCountdownRef.current = null;
         }
         // CRITICAL: Do NOT stop backend stream on component unmount
         // This allows backend to keep running when navigating to Zone Labeling
@@ -201,6 +311,23 @@ export default function CameraFeed() {
     } else {
       setBackendConnected(false);
       setDetections([]);
+      setBackendHealth(null);
+      setConnectionState('DISCONNECTED');
+      setRetryCountDisplay(0);
+      setNextRetryIn(0);
+      mjpegRetryCountRef.current = 0;
+      if (healthPollRef.current) {
+        clearInterval(healthPollRef.current);
+        healthPollRef.current = null;
+      }
+      if (mjpegRetryTimeoutRef.current) {
+        clearTimeout(mjpegRetryTimeoutRef.current);
+        mjpegRetryTimeoutRef.current = null;
+      }
+      if (retryCountdownRef.current) {
+        clearInterval(retryCountdownRef.current);
+        retryCountdownRef.current = null;
+      }
       localStorage.removeItem('backendRunning');
     }
   }, [dataMode]);
@@ -1016,15 +1143,54 @@ export default function CameraFeed() {
               </div>
             </div>
           ) : !isStreaming || isSwitchingSource ? (
-            // Not streaming or switching - show loading
+            // Not streaming or switching - show state machine status
             <div className="w-full h-full flex items-center justify-center">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                <p className="text-gray-400 font-medium">
-                  {isSwitchingSource ? 'Switching camera source...' : 'Connecting to camera...'}
-                </p>
-                <p className="text-gray-500 text-sm mt-1">Please allow camera permissions</p>
-              </div>
+              {connectionState === 'FAILED' ? (
+                <div className="text-center">
+                  <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+                  <p className="text-red-400 font-medium mb-2">Bağlantı Kurulamadı</p>
+                  <p className="text-gray-500 text-sm mt-1 mb-4">
+                    Python backend çalışmıyor veya erişilemiyor ({MAX_RETRIES} deneme başarısız)
+                  </p>
+                  <button
+                    onClick={() => {
+                      retryCountRef.current = 0;
+                      setConnectionState('CONNECTING');
+                      const pollRetry = async () => {
+                        const h = await cameraBackendService.checkHealth();
+                        if (h) {
+                          setBackendHealth(h);
+                          if (h.streaming) { setBackendConnected(true); setConnectionState('STREAMING'); }
+                          else if (h.model_loaded) setConnectionState('CONNECTED');
+                          else setConnectionState('WAITING_FOR_BACKEND');
+                        }
+                      };
+                      pollRetry();
+                      if (healthPollRef.current) clearInterval(healthPollRef.current);
+                      healthPollRef.current = setInterval(pollRetry, 2000);
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Tekrar Dene
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                  <p className="text-gray-400 font-medium">
+                    {isSwitchingSource ? 'Kaynak değiştiriliyor...' :
+                     connectionState === 'CONNECTING' ? 'Backend\'e bağlanılıyor...' :
+                     connectionState === 'WAITING_FOR_BACKEND' ? 'Backend hazırlanıyor, model yükleniyor...' :
+                     connectionState === 'CONNECTED' ? 'Kamera akışı başlatılıyor...' :
+                     'Kameraya bağlanılıyor...'}
+                  </p>
+                  <p className="text-gray-500 text-sm mt-1">
+                    {connectionState === 'WAITING_FOR_BACKEND'
+                      ? `Lütfen bekleyin — ${retryCountRef.current > 0 ? `Deneme ${retryCountRef.current}/${MAX_RETRIES}` : 'model yükleniyor'}`
+                      : 'Lütfen kamera izinlerine onay verin'}
+                  </p>
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -1040,14 +1206,53 @@ export default function CameraFeed() {
                 if (img.naturalWidth && img.naturalHeight) {
                   setVideoDimensions({ width: img.naturalWidth, height: img.naturalHeight });
                 }
+                // Reset retry counters on successful load
+                mjpegRetryCountRef.current = 0;
+                setRetryCountDisplay(0);
+                setNextRetryIn(0);
+                if (retryCountdownRef.current) {
+                  clearInterval(retryCountdownRef.current);
+                  retryCountdownRef.current = null;
+                }
                 setError(null);
               }}
               onError={() => {
-                // Only show error if we're not switching sources
-                if (!isChangingSourceRef.current && isStreaming) {
-                  console.error('[CameraFeed] MJPEG stream error');
-                  setError('MJPEG stream connection failed.\n\nMake sure Python backend is running:\npython -m camera_analytics.run_with_websocket --source 0');
+                // Skip errors while switching sources
+                if (isChangingSourceRef.current || !isStreaming) return;
+                console.warn(`[CameraFeed] MJPEG stream error (attempt ${mjpegRetryCountRef.current + 1}/${MAX_MJPEG_RETRIES})`);
+
+                if (mjpegRetryCountRef.current >= MAX_MJPEG_RETRIES) {
+                  setError(`MJPEG stream failed after ${MAX_MJPEG_RETRIES} attempts.\n\nCheck Python backend:\npython -m camera_analytics.run_with_websocket --source 0`);
+                  return;
                 }
+
+                // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s cap
+                const attempt = mjpegRetryCountRef.current;
+                const delayMs = Math.min(30000, Math.pow(2, attempt) * 1000);
+                mjpegRetryCountRef.current += 1;
+                setRetryCountDisplay(mjpegRetryCountRef.current);
+
+                // Start countdown
+                let remaining = Math.round(delayMs / 1000);
+                setNextRetryIn(remaining);
+                if (retryCountdownRef.current) clearInterval(retryCountdownRef.current);
+                retryCountdownRef.current = setInterval(() => {
+                  remaining -= 1;
+                  setNextRetryIn(remaining);
+                  if (remaining <= 0 && retryCountdownRef.current) {
+                    clearInterval(retryCountdownRef.current);
+                    retryCountdownRef.current = null;
+                  }
+                }, 1000);
+
+                // Force MJPEG reconnect by briefly hiding the img
+                if (mjpegRetryTimeoutRef.current) clearTimeout(mjpegRetryTimeoutRef.current);
+                mjpegRetryTimeoutRef.current = setTimeout(() => {
+                  if (!isChangingSourceRef.current) {
+                    setIsStreaming(false);
+                    setTimeout(() => setIsStreaming(true), 150);
+                  }
+                }, delayMs);
               }}
             />
           )}
@@ -1097,7 +1302,12 @@ export default function CameraFeed() {
       <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
         <div className="text-xs text-gray-600">
           <span className="font-semibold">Status:</span> {
-            dataMode === 'demo' ? 'Demo mode' : (isStreaming ? `Live from ${getSourceLabel()}` : 'Waiting for camera')
+            dataMode === 'demo' ? 'Demo mode' :
+            isStreaming ? `Live from ${getSourceLabel()}` :
+            connectionState === 'FAILED' ? 'Backend unreachable' :
+            connectionState === 'WAITING_FOR_BACKEND' ? 'Loading model...' :
+            connectionState === 'CONNECTING' ? 'Connecting...' :
+            'Waiting for camera'
           }
         </div>
         {dataMode === 'live' && isStreaming && (

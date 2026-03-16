@@ -86,10 +86,24 @@ export interface ZoneInsight {
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting' | 'failed';
 
+export interface BackendHealth {
+  status: 'ready' | 'loading' | 'error' | 'unreachable';
+  phase: string;
+  model_loaded: boolean;
+  source_connected: boolean;
+  streaming: boolean;
+  fps: number;
+  error?: string;
+}
+
 type AnalyticsCallback = (data: AnalyticsData) => void;
 type DetectionsCallback = (detections: Detection[]) => void;
 type ZoneInsightsCallback = (insights: ZoneInsight[]) => void;
 type ConnectionStatusCallback = (status: ConnectionStatus, attempts?: number) => void;
+type BackendStatusCallback = (health: BackendHealth) => void;
+
+// Node.js backend URL for persisting analytics
+const NODE_BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 class CameraBackendService {
   private socket: Socket | null = null;
@@ -97,15 +111,51 @@ class CameraBackendService {
   private detectionsCallbacks: Set<DetectionsCallback> = new Set();
   private zoneInsightsCallbacks: Set<ZoneInsightsCallback> = new Set();
   private connectionStatusCallbacks: Set<ConnectionStatusCallback> = new Set();
+  private backendStatusCallbacks: Set<BackendStatusCallback> = new Set();
   private isConnected: boolean = false;
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 10;
   private connectionStatus: ConnectionStatus = 'disconnected';
 
+  // Analytics persistence (throttled)
+  private persistCameraId: string = 'sample-camera-1';
+  private lastPersistTime: number = 0;
+  private readonly PERSIST_INTERVAL_MS = 30_000; // save to DB every 30 seconds
+
+  /** Set the camera ID to use when saving analytics to the Node.js backend */
+  setCameraId(id: string): void {
+    this.persistCameraId = id;
+  }
+
+  /** Save latest analytics snapshot to the Node.js backend (throttled) */
+  private async persistAnalytics(data: AnalyticsData): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastPersistTime < this.PERSIST_INTERVAL_MS) return;
+    this.lastPersistTime = now;
+    try {
+      await fetch(`${NODE_BACKEND_URL}/api/analytics`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cameraId: this.persistCameraId,
+          peopleIn: data.entries || 0,
+          peopleOut: data.exits || 0,
+          currentCount: data.current || 0,
+          demographics: data.demographics || {},
+          queueCount: data.queue || undefined,
+          fps: data.fps || undefined,
+        }),
+      });
+    } catch {
+      // Silently ignore — persistence is best-effort
+    }
+  }
+
   // Data caching for fallback
   private lastAnalyticsData: AnalyticsData | null = null;
   private lastDetections: Detection[] = [];
   private lastZoneInsights: ZoneInsight[] = [];
+  private lastBackendHealth: BackendHealth | null = null;
 
   constructor() {
     // Socket.IO will be initialized when connect() is called
@@ -126,6 +176,7 @@ class CameraBackendService {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: this.maxReconnectAttempts,
+      timeout: 20000,
     });
 
     this.socket.on('connect', () => {
@@ -151,6 +202,8 @@ class CameraBackendService {
     this.socket.on('global', (data: AnalyticsData) => {
       this.lastAnalyticsData = data; // Cache for fallback
       this.analyticsCallbacks.forEach(callback => callback(data));
+      // Persist to Node.js backend DB (throttled to every 30s)
+      this.persistAnalytics(data);
     });
 
     // Listen for detection tracks
@@ -163,6 +216,12 @@ class CameraBackendService {
     this.socket.on('zone_insights', (insights: ZoneInsight[]) => {
       this.lastZoneInsights = insights; // Cache for fallback
       this.zoneInsightsCallbacks.forEach(callback => callback(insights));
+    });
+
+    // Listen for backend status updates (readiness, model loading, etc.)
+    this.socket.on('backend_status', (health: BackendHealth) => {
+      this.lastBackendHealth = health;
+      this.backendStatusCallbacks.forEach(callback => callback(health));
     });
 
     this.socket.on('connect_error', () => {
@@ -232,6 +291,52 @@ class CameraBackendService {
 
   getLastZoneInsights(): ZoneInsight[] {
     return this.lastZoneInsights;
+  }
+
+  // Backend health / status helpers
+  onBackendStatus(callback: BackendStatusCallback): () => void {
+    this.backendStatusCallbacks.add(callback);
+    if (this.lastBackendHealth) {
+      callback(this.lastBackendHealth);
+    }
+    return () => { this.backendStatusCallbacks.delete(callback); };
+  }
+
+  getLastBackendHealth(): BackendHealth | null {
+    return this.lastBackendHealth;
+  }
+
+  /**
+   * Poll the /health endpoint via Node.js proxy.
+   * Returns BackendHealth or null if unreachable.
+   */
+  async checkHealth(): Promise<BackendHealth | null> {
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const resp = await fetch(`${apiUrl}/api/python-backend/health`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const data: BackendHealth = await resp.json();
+      this.lastBackendHealth = data;
+      this.backendStatusCallbacks.forEach(cb => cb(data));
+      return data;
+    } catch {
+      const unreachable: BackendHealth = {
+        status: 'unreachable',
+        phase: 'offline',
+        model_loaded: false,
+        source_connected: false,
+        streaming: false,
+        fps: 0,
+        error: 'Backend unreachable',
+      };
+      this.lastBackendHealth = unreachable;
+      this.backendStatusCallbacks.forEach(cb => cb(unreachable));
+      return unreachable;
+    }
   }
 
   saveZones(zones: Zone[]): Promise<void> {

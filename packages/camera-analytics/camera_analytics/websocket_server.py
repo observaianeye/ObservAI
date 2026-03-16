@@ -60,6 +60,16 @@ class AnalyticsWebSocketServer:
         )
         self.camera_id = "default"  # Default camera ID
 
+        # Backend readiness state
+        self._status = {
+            "phase": "initializing",
+            "model_loaded": False,
+            "source_connected": False,
+            "streaming": False,
+            "error": None,
+            "fps": 0.0,
+        }
+
         # Callbacks
         self.on_start_stream = None
         self.on_stop_stream = None
@@ -156,7 +166,29 @@ class AnalyticsWebSocketServer:
 
             return response
 
-        # Register MJPEG HTTP route
+        # Health-check HTTP endpoint
+        async def health_handler(request):
+            """Health check endpoint for backend readiness"""
+            status_str = "ready" if self._status["streaming"] else (
+                "error" if self._status["error"] else "loading"
+            )
+            body = {
+                "status": status_str,
+                "phase": self._status["phase"],
+                "model_loaded": self._status["model_loaded"],
+                "source_connected": self._status["source_connected"],
+                "streaming": self._status["streaming"],
+                "fps": self._status["fps"],
+                "clients": len(self.clients),
+            }
+            if self._status["error"]:
+                body["error"] = str(self._status["error"])
+
+            http_status = 200 if status_str == "ready" else 503
+            return web.json_response(body, status=http_status)
+
+        # Register HTTP routes
+        self.app.router.add_get('/health', health_handler)
         self.app.router.add_get('/mjpeg', mjpeg_handler)
 
         @self.sio.event
@@ -309,8 +341,38 @@ class AnalyticsWebSocketServer:
             else:
                 await self.sio.emit("heatmap_toggled", {"status": "error", "message": "Heatmap toggle not supported"}, room=sid)
 
+    # ------------------------------------------------------------------
+    # Backend readiness / status helpers (Task 1.1.1 + 1.1.3)
+    # ------------------------------------------------------------------
+
+    async def update_status(self, phase: str, **kwargs):
+        """Update backend status and broadcast to all connected clients.
+
+        Phases: initializing -> loading_model -> model_ready ->
+                connecting_source -> source_connected -> streaming
+                (or 'error' at any point)
+        """
+        self._status["phase"] = phase
+        self._status.update(kwargs)
+        logger.info(f"[Status] Phase: {phase}  extras={kwargs}")
+        # Broadcast to every connected Socket.IO client
+        await self.sio.emit("backend_status", self._status)
+
+    def update_status_sync(self, phase: str, **kwargs):
+        """Synchronous wrapper — safe to call from non-async threads."""
+        self._status["phase"] = phase
+        self._status.update(kwargs)
+        logger.info(f"[Status-sync] Phase: {phase}  extras={kwargs}")
+
+    def get_health(self) -> Dict:
+        """Return current health dict (used by /health endpoint)."""
+        return dict(self._status)
+
     async def broadcast_global_stream(self, data: Dict):
         """Broadcast GlobalStream data to all clients and publish to Kafka"""
+        # Keep FPS metric updated in status
+        if "fps" in data.get("metrics", {}):
+            self._status["fps"] = data["metrics"]["fps"]
         await self.sio.emit("global", data)
 
         # Publish to Kafka if enabled
