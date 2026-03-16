@@ -447,11 +447,6 @@ export default function CameraFeed() {
         const pw = w * canvas.width;
         const ph = h * canvas.height;
 
-        // Debug log for first detection to verify canvas size
-        if (idx === 0 && detections.length > 0) {
-          console.log(`[CameraFeed] Drawing detection: bbox=[${x.toFixed(3)}, ${y.toFixed(3)}, ${w.toFixed(3)}, ${h.toFixed(3)}], canvas=${canvas.width}x${canvas.height}, pixels=[${px.toFixed(0)}, ${py.toFixed(0)}, ${pw.toFixed(0)}, ${ph.toFixed(0)}], fontSize=${fontSize}px, lineWidth=${lineWidth}px`);
-        }
-
         // Draw bounding box with responsive line width
         ctx.strokeStyle = detection.state === 'entering' ? '#10b981' :
           detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
