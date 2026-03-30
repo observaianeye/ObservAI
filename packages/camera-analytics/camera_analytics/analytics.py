@@ -997,7 +997,7 @@ class CameraAnalyticsEngine:
     print(f"[INFO] Starting yt-dlp pipe mode for live stream: {url[:50]}...")
     
     # Frame dimensions - will be detected from stream
-    width, height = 1280, 720  # Default, will be updated
+    width, height = 1920, 1080  # Default: assume 1080p; overridden by info command
 
     # YouTube live için en iyi kalite: önce 1080p dene, 720p fallback
     # "best" = tek parça stream (video+audio combined, DASH değil)

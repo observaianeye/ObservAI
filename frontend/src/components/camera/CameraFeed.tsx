@@ -86,6 +86,11 @@ export default function CameraFeed() {
   // Heatmap visibility toggle
   const [showHeatmap, setShowHeatmap] = useState(false);
 
+  // Tailscale / Remote ivCam URL (Phone Cam modunda HTTP stream URL)
+  const [iphoneRemoteUrl, setIphoneRemoteUrl] = useState(() => {
+    return localStorage.getItem('iphoneRemoteUrl') || '';
+  });
+
   // Source switching loading state
   const [isSwitchingSource, setIsSwitchingSource] = useState(false);
 
@@ -104,7 +109,7 @@ export default function CameraFeed() {
   const MAX_MJPEG_RETRIES = 8;
 
   // Dynamic video dimensions for proper aspect ratio
-  const [videoDimensions, setVideoDimensions] = useState({ width: 16, height: 9 });
+  const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0 });
 
   // Refs for cleanup tracking
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -368,20 +373,22 @@ export default function CameraFeed() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // Proactively update canvas size as soon as MJPEG image loads
-  // This ensures canvas is sized BEFORE first detections arrive
+  // Update canvas size ONLY from actual MJPEG frame dimensions — never from container.
+  // Using container.clientHeight as fallback was causing the layout to stretch to a
+  // portrait aspect ratio at startup before the stream delivered the first frame.
   useEffect(() => {
     if (!isStreaming || canvasSizeInitialized.current) return;
 
     const checkInterval = setInterval(() => {
       const img = mjpegImgRef.current;
 
-      if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      if (img && img.naturalWidth > 64 && img.naturalHeight > 64) {
         setVideoDimensions({ width: img.naturalWidth, height: img.naturalHeight });
         canvasSizeInitialized.current = true;
         clearInterval(checkInterval);
       }
-    }, 100);
+      // Do NOT fall back to container dimensions — that corrupts the aspect ratio.
+    }, 200);
 
     return () => clearInterval(checkInterval);
   }, [isStreaming]);
@@ -392,9 +399,20 @@ export default function CameraFeed() {
 
     const canvas = canvasRef.current;
 
-    // Don't render until canvas has real dimensions
-    if (canvas.width <= 16 || canvas.height <= 9) {
-      return;
+    if (canvas.width < 64 || canvas.height < 64) {
+      // Use actual video dimensions if available, else 16:9 default
+      if (videoDimensions.width > 64 && videoDimensions.height > 64) {
+        canvas.width = videoDimensions.width;
+        canvas.height = videoDimensions.height;
+      } else {
+        const container = containerRef.current;
+        if (container && container.clientWidth > 64) {
+          canvas.width = container.clientWidth;
+          canvas.height = Math.round(container.clientWidth * 9 / 16);
+        } else {
+          return;
+        }
+      }
     }
 
     const drawFrame = () => {
@@ -701,9 +719,14 @@ export default function CameraFeed() {
             backendSource = 0; // MacBook camera
             break;
           case 'iphone':
-            // iPhone camera requires Continuity Camera to be set up on macOS
-            // Backend will attempt index 1, but may fallback to index 0 if not available
-            backendSource = 1;
+            // Eğer Tailscale/remote URL girilmişse, ivCam HTTP stream'ini direkt kullan
+            // Bu sayede ivCam Windows client'a gerek kalmaz (Parsec/uzaktan erişim için)
+            if (iphoneRemoteUrl.trim()) {
+              backendSource = iphoneRemoteUrl.trim();
+            } else {
+              // Aynı ağdayken: ivCam virtual kamera (index 1)
+              backendSource = 1;
+            }
             break;
           case 'ip':
             if (config?.ipCameraId) {
@@ -962,6 +985,34 @@ export default function CameraFeed() {
             </button>
           </div>
 
+          {/* Phone Cam — Tailscale / Remote ivCam URL */}
+          {currentSource.type === 'iphone' && (
+            <div className="mt-2">
+              <label className="text-xs text-gray-300 mb-1 flex items-center">
+                <LinkIcon className="w-3 h-3 mr-1" />
+                ivCam Tailscale URL
+                <span className="ml-2 text-gray-500">(uzaktan erişim için)</span>
+              </label>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  value={iphoneRemoteUrl}
+                  onChange={(e) => {
+                    setIphoneRemoteUrl(e.target.value);
+                    localStorage.setItem('iphoneRemoteUrl', e.target.value);
+                  }}
+                  placeholder="http://100.127.69.88:4747/video"
+                  className="flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {iphoneRemoteUrl.trim()
+                  ? '🌐 Tailscale HTTP stream kullanılacak (ivCam Windows client gerekmez)'
+                  : '📱 Boş bırakırsan: ivCam virtual kamera (index 1) — aynı ağda çalışır'}
+              </p>
+            </div>
+          )}
+
           {/* Video Link Input (YouTube, HLS, RTMP, MP4) */}
           <div className="mt-3">
             <label className="text-xs text-gray-300 mb-1 flex items-center">
@@ -1105,7 +1156,7 @@ export default function CameraFeed() {
       {/* Video Feed - Container maintains proper aspect ratio */}
       <div 
         className="relative bg-gray-900" 
-        style={{ aspectRatio: `${videoDimensions.width}/${videoDimensions.height}` }}
+        style={{ aspectRatio: (videoDimensions.width > 0 && videoDimensions.height > 0) ? `${videoDimensions.width}/${videoDimensions.height}` : '16/9' }}
       >
         <div className="absolute inset-0">
           {dataMode === 'demo' ? (
@@ -1271,9 +1322,10 @@ export default function CameraFeed() {
           {dataMode === 'live' && isStreaming && !error && (
             <canvas
               ref={canvasRef}
-              width={videoDimensions.width}
-              height={videoDimensions.height}
+              width={(videoDimensions.width > 64 ? videoDimensions.width : null) || containerRef.current?.clientWidth || 1280}
+              height={(videoDimensions.height > 64 ? videoDimensions.height : null) || containerRef.current?.clientHeight || 720}
               className="absolute inset-0 w-full h-full pointer-events-none"
+              style={{ width: '100%', height: '100%' }}
             />
           )}
 
