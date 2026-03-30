@@ -998,48 +998,72 @@ class CameraAnalyticsEngine:
     
     # Frame dimensions - will be detected from stream
     width, height = 1280, 720  # Default, will be updated
-    
+
+    # YouTube live için en iyi kalite: önce 1080p dene, 720p fallback
+    # "best" = tek parça stream (video+audio combined, DASH değil)
+    # YouTube live için combined stream max ~720p-1080p
+    YTDLP_FORMAT = 'best[height<=1080]/best[height<=720]/best'
+
     # First, get video dimensions using yt-dlp
     try:
       print("[INFO] Detecting stream resolution...")
       from .sources import _get_ytdlp_executable
-      info_cmd = [_get_ytdlp_executable(), '--print', 'width', '--print', 'height', '-f', 'best[height<=720]/best[height<=1080]/best', url]
-      info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=15)
+      info_cmd = [
+        _get_ytdlp_executable(),
+        '--force-ipv4',
+        '--print', 'width',
+        '--print', 'height',
+        '-f', YTDLP_FORMAT,
+        '--no-warnings',
+        url
+      ]
+      info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=20)
       if info_result.returncode == 0:
         lines = info_result.stdout.strip().split('\n')
         if len(lines) >= 2:
           try:
-            width = int(lines[0])
-            height = int(lines[1])
-            print(f"[INFO] Stream resolution: {width}x{height}")
+            w_str, h_str = lines[0].strip(), lines[1].strip()
+            if w_str.isdigit() and h_str.isdigit():
+              width = int(w_str)
+              height = int(h_str)
+              print(f"[INFO] Stream resolution: {width}x{height}")
+            else:
+              print(f"[WARN] Unexpected resolution values: '{w_str}' x '{h_str}', using default")
           except ValueError:
             print(f"[WARN] Could not parse dimensions, using default {width}x{height}")
+      else:
+        print(f"[WARN] yt-dlp info failed (code {info_result.returncode}), using default {width}x{height}")
     except Exception as e:
       print(f"[WARN] Could not detect resolution: {e}, using default {width}x{height}")
-    
+
     frame_size = width * height * 3  # BGR format
-    
+
     from .sources import _get_ytdlp_executable
     ytdlp_cmd = [
       _get_ytdlp_executable(),
-      '-f', 'best[height<=720]/best[height<=1080]/best',
+      '--force-ipv4',
+      '-f', YTDLP_FORMAT,
       '-o', '-',
       '--quiet',
       '--no-warnings',
       url
     ]
-    
+
     # FFmpeg command: decode video to raw BGR frames
+    # NOT: -s flag çıkarıldı, bunun yerine scale filtresi kullanılıyor
+    # Bu şekilde ffmpeg kaynak çözünürlüğünü korur ve kalite kaybı olmaz
     ffmpeg_cmd = [
       'ffmpeg',
-      '-i', 'pipe:0',           # Read from stdin
-      '-f', 'rawvideo',          # Output raw video
-      '-pix_fmt', 'bgr24',       # OpenCV compatible pixel format
-      '-s', f'{width}x{height}', # Output size
-      '-r', '30',                # Output at 30 FPS
-      '-an',                     # No audio
-      '-loglevel', 'error',      # Minimal logging
-      'pipe:1'                   # Write to stdout
+      '-fflags', 'nobuffer',     # Latency azaltma
+      '-flags', 'low_delay',     # Düşük gecikme modu
+      '-i', 'pipe:0',            # Stdin'den oku
+      '-vf', f'scale={width}:{height}:flags=lanczos',  # Lanczos ile yüksek kaliteli ölçekleme
+      '-f', 'rawvideo',          # Ham video çıkışı
+      '-pix_fmt', 'bgr24',       # OpenCV formatı
+      '-r', '30',                # 30 FPS çıkış
+      '-an',                     # Ses yok
+      '-loglevel', 'error',      # Minimal log
+      'pipe:1'                   # Stdout'a yaz
     ]
     
     ytdlp_proc = None
