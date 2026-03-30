@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import warnings
 from collections import defaultdict, deque
@@ -360,10 +361,12 @@ class CameraAnalyticsEngine:
     # Frame skipping for face analysis (async processing)
     # RTX 5070 "Balanced Profile": higher intervals reduce GPU contention between
     # YOLO tracking and demographics, resulting in better overall FPS.
-    if isinstance(source, str) and source.startswith(('http', 'rtsp', 'rtmp')):
-      self.face_detection_interval = 15  # Network streams: reduced load for higher FPS
+    # Use face_detection_interval from config, or override with env var FACE_DETECTION_INTERVAL
+    face_interval_override = os.environ.get("FACE_DETECTION_INTERVAL")
+    if face_interval_override:
+      self.face_detection_interval = int(face_interval_override)
     else:
-      self.face_detection_interval = 5   # Local cameras: responsive demographics
+      self.face_detection_interval = config.face_detection_interval
 
     self.frame_count = 0
     self.demographics_executor = ThreadPoolExecutor(
@@ -521,17 +524,23 @@ class CameraAnalyticsEngine:
     """
     print(f"[INFO] Validating video source: {self.source}")
 
-    # For camera indices, use platform-specific backend
     if isinstance(self.source, int):
       from .sources import _get_camera_backend
+      import platform as _plat
       cap = cv2.VideoCapture(self.source, _get_camera_backend())
 
-      # CRITICAL: For iPhone/Continuity Camera (index 1), force 30 FPS
-      # iPhone cameras often report 5 FPS but can actually do 30 FPS
-      if self.source == 1:
-        print(f"[INFO] Detected secondary camera (likely iPhone), forcing 30 FPS")
+      if self.source >= 1:
+        print(f"[INFO] Detected secondary camera (likely iPhone/iVCam), configuring 1080p")
+        # MJPG codec: 1080p için zorunlu, tüm platformlarda
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         cap.set(cv2.CAP_PROP_FPS, 30.0)
-        # Also set resolution for better quality
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"[INFO] Camera resolution set: {actual_w}x{actual_h}")
+      elif _plat.system() == "Windows":
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     else:
@@ -639,8 +648,9 @@ class CameraAnalyticsEngine:
         if not ret:
             return None
 
-    # Encode as JPEG
-    _, buffer = cv2.imencode('.jpg', frame)
+    # Encode as JPEG — kalite 92 (yüksek kalite, makul dosya boyutu)
+    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 92]
+    _, buffer = cv2.imencode('.jpg', frame, encode_params)
     jpg_as_text = base64.b64encode(buffer).decode('utf-8')
     return f"data:image/jpeg;base64,{jpg_as_text}"
 
@@ -658,13 +668,27 @@ class CameraAnalyticsEngine:
       self._run_continuous()
 
   def _run_continuous(self) -> None:
-    """Run continuous tracking with explicit camera cleanup"""
-    # Note: Validation is now done in __init__
-    
-    # For webcams (integer source), use YOLO's built-in streaming
-    # For all other sources (URLs, files), use custom capture for proper frame rate control
+    """
+    Run continuous tracking with explicit camera cleanup.
+    Tüm platformlarda (Windows, macOS, Linux) async 3-thread pipeline kullanır.
+    Producer-Consumer modeli: frame capture YOLO inference'ı beklemez.
+    """
+    import platform as _plat
+    from .sources import _get_camera_backend
+
     if isinstance(self.source, int):
-      self._run_with_yolo_stream()
+      # Tüm platformlar için async pipeline — Windows ve macOS/Linux
+      backend = _get_camera_backend()
+      cap = cv2.VideoCapture(self.source, backend)
+      cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+      cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+      cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+      cap.set(cv2.CAP_PROP_FPS, 30)
+      cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+      actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+      actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+      print(f"[INFO] Webcam ({_plat.system()}): {actual_w}x{actual_h} MJPG, async 3-thread pipeline")
+      self._run_async_pipeline(cap)
     else:
       self._run_with_custom_capture()
 
@@ -790,7 +814,7 @@ class CameraAnalyticsEngine:
             persist=True,
             verbose=False,
             classes=[0],
-            tracker="camera_analytics/bytetrack.yaml",
+            tracker="camera_analytics/botsort.yaml",
             imgsz=self.inference_params["imgsz"],
             device=self.device,
             conf=self.conf,
@@ -917,7 +941,7 @@ class CameraAnalyticsEngine:
           persist=True,
           verbose=False,
           classes=[0],
-          tracker="camera_analytics/bytetrack.yaml",
+          tracker="camera_analytics/botsort.yaml",
           imgsz=self.inference_params['imgsz'],
           device=self.device,
           conf=self.conf,
@@ -979,7 +1003,7 @@ class CameraAnalyticsEngine:
     try:
       print("[INFO] Detecting stream resolution...")
       from .sources import _get_ytdlp_executable
-      info_cmd = [_get_ytdlp_executable(), '--print', 'width', '--print', 'height', '-f', 'best[height<=480]/best[height<=720]/best', url]
+      info_cmd = [_get_ytdlp_executable(), '--print', 'width', '--print', 'height', '-f', 'best[height<=720]/best[height<=1080]/best', url]
       info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=15)
       if info_result.returncode == 0:
         lines = info_result.stdout.strip().split('\n')
@@ -995,12 +1019,11 @@ class CameraAnalyticsEngine:
     
     frame_size = width * height * 3  # BGR format
     
-    # yt-dlp command: stream to stdout (480p preferred for lower latency and better processing FPS)
     from .sources import _get_ytdlp_executable
     ytdlp_cmd = [
       _get_ytdlp_executable(),
-      '-f', 'best[height<=480]/best[height<=720]/best',
-      '-o', '-',  # Output to stdout
+      '-f', 'best[height<=720]/best[height<=1080]/best',
+      '-o', '-',
       '--quiet',
       '--no-warnings',
       url
@@ -1046,78 +1069,95 @@ class CameraAnalyticsEngine:
       if ytdlp_proc.stdout:
         ytdlp_proc.stdout.close()
       
-      print("[INFO] yt-dlp pipe mode initialized, waiting for frames...")
-      
+      print("[INFO] yt-dlp pipe mode initialized — async 3-thread pipeline başlatılıyor...")
+
+      import queue as _queue
+
+      raw_frame_q = _queue.Queue(maxsize=3)   # Pipe reader → Inference
+      result_q    = _queue.Queue(maxsize=2)   # Inference → Main thread
+      pipe_stop   = threading.Event()
+
       frame_count = 0
-      consecutive_failures = 0
-      target_interval = 1.0 / 30.0  # 30 FPS target
-      _last_process_time = 0.0
+      _pipe_failures = [0]
 
-      while self.running:
-        frame_start = time.time()
-
-        # Adaptive frame skip: if YOLO took >2x target interval last cycle,
-        # drain one buffered frame to keep the live stream current
-        if _last_process_time > target_interval * 2:
-          drain = ffmpeg_proc.stdout.read(frame_size)
-          if len(drain) == 0:
-            break
-
-        # Read raw frame from FFmpeg stdout
-        raw_frame = ffmpeg_proc.stdout.read(frame_size)
-        
-        if len(raw_frame) != frame_size:
-          consecutive_failures += 1
-          if consecutive_failures > 10:
-            print("[ERROR] Too many frame read failures, stopping...")
-            break
-          if len(raw_frame) == 0:
-            # Stream ended or error
-            print("[INFO] Stream ended")
-            break
-          continue
-        
+      # ── Thread 1: FFmpeg pipe'dan frame oku ─────────────────────────────────
+      def pipe_reader_fn():
         consecutive_failures = 0
+        while not pipe_stop.is_set():
+          raw = ffmpeg_proc.stdout.read(frame_size)
+          if len(raw) != frame_size:
+            if len(raw) == 0:
+              print("[INFO] yt-dlp pipe: stream ended")
+              pipe_stop.set(); break
+            _pipe_failures[0] += 1
+            if _pipe_failures[0] > 20:
+              print("[ERROR] yt-dlp pipe: too many read failures")
+              pipe_stop.set(); break
+            continue
+          _pipe_failures[0] = 0
+          frm = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 3))
+          # Eski frame'i at — her zaman en güncel frame'i tut
+          if raw_frame_q.full():
+            try: raw_frame_q.get_nowait()
+            except _queue.Empty: pass
+          try: raw_frame_q.put_nowait(frm.copy())
+          except _queue.Full: pass
+
+      # ── Thread 2: YOLO inference ─────────────────────────────────────────────
+      def inference_fn():
+        while not pipe_stop.is_set():
+          try:
+            frm = raw_frame_q.get(timeout=1.0)
+          except _queue.Empty:
+            continue
+          try:
+            res = self.model.track(
+              source=frm,
+              persist=True,
+              verbose=False,
+              classes=[0],
+              tracker="camera_analytics/botsort.yaml",
+              imgsz=self.inference_params['imgsz'],
+              device=self.device,
+              conf=self.conf,
+              iou=self.nms_iou,
+              half=self.inference_params.get('half', False),
+              agnostic_nms=self.agnostic_nms,
+            )
+            if res:
+              if result_q.full():
+                try: result_q.get_nowait()
+                except _queue.Empty: pass
+              try: result_q.put_nowait((frm, res))
+              except _queue.Full: pass
+          except Exception as exc:
+            print(f"[WARN] yt-dlp pipe inference error: {exc}")
+
+      pipe_thread = threading.Thread(target=pipe_reader_fn, daemon=True, name="ytdlp-pipe")
+      inf_thread  = threading.Thread(target=inference_fn,  daemon=True, name="ytdlp-infer")
+      pipe_thread.start()
+      inf_thread.start()
+      print("[INFO] yt-dlp pipe async threads started")
+
+      # ── Main thread: sonuçları işle ──────────────────────────────────────────
+      while self.running and not pipe_stop.is_set():
+        try:
+          _frm, results = result_q.get(timeout=1.0)
+        except _queue.Empty:
+          continue
         frame_count += 1
-        
-        # Convert to numpy array
-        frame = np.frombuffer(raw_frame, dtype=np.uint8).reshape((height, width, 3))
-        
-        # Run YOLO tracking on the frame
-        results = self.model.track(
-          source=frame,
-          persist=True,
-          verbose=False,
-          classes=[0],
-          tracker="camera_analytics/bytetrack.yaml",
-          imgsz=self.inference_params['imgsz'],
-          device=self.device,
-          conf=self.conf,
-          iou=self.nms_iou,
-          half=self.inference_params.get('half', False),
-          agnostic_nms=self.agnostic_nms,
-        )
-        
-        # Process results
         for result in results:
           if not self._process_result(result):
-            self.running = False
-            break
-        
+            self.running = False; break
         if not self.running:
           break
-        
-        # Log progress periodically
-        if frame_count % 300 == 0:  # Every 10 seconds at 30fps
+        if frame_count % 300 == 0:
           print(f"[INFO] yt-dlp pipe: processed {frame_count} frames")
-        
-        # Frame rate control
-        processing_time = time.time() - frame_start
-        _last_process_time = processing_time
-        sleep_time = target_interval - processing_time
-        if sleep_time > 0:
-          time.sleep(sleep_time)
-          
+
+      pipe_stop.set()
+      pipe_thread.join(timeout=3.0)
+      inf_thread.join(timeout=3.0)
+
     except Exception as e:
       print(f"[ERROR] yt-dlp pipe error: {e}")
       import traceback
@@ -1166,7 +1206,7 @@ class CameraAnalyticsEngine:
           persist=True,
           verbose=False,
           classes=[0],
-          tracker="camera_analytics/bytetrack.yaml",
+          tracker="camera_analytics/botsort.yaml",
           imgsz=self.inference_params['imgsz'],
           device=self.device,
           conf=self.conf,
@@ -1216,7 +1256,7 @@ class CameraAnalyticsEngine:
       stream=True,
       verbose=False,
       classes=[0],
-      tracker="camera_analytics/bytetrack.yaml",
+      tracker="camera_analytics/botsort.yaml",
       persist=True,
       imgsz=self.inference_params['imgsz'],
       device=self.device,
@@ -1535,7 +1575,8 @@ class CameraAnalyticsEngine:
     if self.age_gender_estimator is None:
       return []
 
-    continuous_refinement = self.config.demo_continuous_refinement
+    cfg = self.config
+    continuous_refinement = cfg.demo_continuous_refinement
 
     try:
       results = []
@@ -1562,53 +1603,51 @@ class CameraAnalyticsEngine:
             if person._demo_update_count % 5 != 0:
               continue
 
-        # Crop person's bbox from frame
         x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
         x1 = int(x1_norm * frame_w)
         y1 = int(y1_norm * frame_h)
         x2 = int(x2_norm * frame_w)
         y2 = int(y2_norm * frame_h)
 
-        # Ensure valid bounds
         x1 = max(0, min(x1, frame_w - 1))
         y1 = max(0, min(y1, frame_h - 1))
         x2 = max(x1 + 1, min(x2, frame_w))
         y2 = max(y1 + 1, min(y2, frame_h))
 
-        # Skip if bbox is too small (likely occlusion or far away)
         bbox_width = x2 - x1
         bbox_height = y2 - y1
-        if bbox_width < 40 or bbox_height < 80:  # Minimum size for face detection
+        if bbox_width < cfg.demo_min_bbox_width or bbox_height < cfg.demo_min_bbox_height:
           continue
 
-        # Expand bbox slightly for better face detection (add 20% padding)
-        padding_x = int(bbox_width * 0.2)
-        padding_y = int(bbox_height * 0.15)
+        # Focus on the upper body/head region for better face detection.
+        # YOLO detects full body, but InsightFace needs the face area.
+        # Take the top 55% of the person bbox (head + shoulders) for demographics.
+        head_y2 = y1 + int(bbox_height * 0.55)
 
-        x1_padded = max(0, x1 - padding_x)
-        y1_padded = max(0, y1 - padding_y)
-        x2_padded = min(frame_w, x2 + padding_x)
-        y2_padded = min(frame_h, y2 + padding_y)
+        # Apply generous padding (20% each side) so InsightFace gets
+        # forehead, chin, ears, and hair context for its 106-point landmark model.
+        head_h = head_y2 - y1
+        pad_x = int(bbox_width * 0.20)
+        pad_y = int(head_h * 0.25)
 
-        # Crop the region
+        x1_padded = max(0, x1 - pad_x)
+        y1_padded = max(0, y1 - pad_y)
+        x2_padded = min(frame_w, x2 + pad_x)
+        y2_padded = min(frame_h, head_y2 + pad_y)
+
         person_crop = frame[y1_padded:y2_padded, x1_padded:x2_padded]
 
-        # Skip if crop is too small after padding
-        if person_crop.shape[0] < 80 or person_crop.shape[1] < 40:
+        if person_crop.shape[0] < cfg.demo_min_crop_height or person_crop.shape[1] < cfg.demo_min_crop_width:
           continue
 
-        # Analyze the CROPPED region
         try:
           age, gender, confidence = self.age_gender_estimator.predict(person_crop)
 
           if age is not None and gender is not None:
-             # Boost confidence for targeted crop analysis (more reliable than full-frame)
-             confidence = min(1.0, confidence * 1.3)
-
+             confidence = min(1.0, confidence * 1.2)
              results.append((track_id, age, gender, confidence))
 
-        except Exception as crop_error:
-          # Silently skip - this is expected for some crops
+        except Exception:
           pass
 
       return results
@@ -2035,21 +2074,4 @@ class CameraAnalyticsEngine:
         start = (int(line.start[0] * frame_w), int(line.start[1] * frame_h))
         end = (int(line.end[0] * frame_w), int(line.end[1] * frame_h))
         cv2.line(frame, start, end, (255, 255, 0), 2)
-        cv2.putText(frame, "Entrance", (start[0], start[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-
-      for zone in self.zone_definitions.values():
-        polygon = [(int(x * frame_w), int(y * frame_h)) for x, y in zone.polygon]
-        pts = np.array(polygon, np.int32).reshape((-1, 1, 2))
-        cv2.polylines(frame, [pts], True, (255, 0, 0), 2)
-        label = zone.name or zone.id
-        cv2.putText(
-          frame,
-          label,
-          (polygon[0][0], polygon[0][1] - 5),
-          cv2.FONT_HERSHEY_SIMPLEX,
-          0.5,
-          (255, 0, 0),
-          1,
-        )
-
-    return frame
+        cv2.putText(frame, "Entrance", (start[0], start[1] - 5), cv

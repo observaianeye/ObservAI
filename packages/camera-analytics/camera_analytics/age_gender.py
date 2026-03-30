@@ -199,20 +199,20 @@ class MiVOLOEstimator(AgeGenderEstimator):
 
 class InsightFaceEstimator(AgeGenderEstimator):
     """
-    Optimized InsightFace wrapper.
-    Attempts to use CoreML/MPS if available via onnxruntime providers.
+    Optimized InsightFace wrapper using buffalo_l for highest accuracy.
+    buffalo_l provides significantly better age/gender prediction than buffalo_s,
+    especially for profile faces and low-resolution crops.
     """
-    def __init__(self, model_name: str = "buffalo_s", providers: list = None):
+    MIN_FACE_INPUT_SIZE = 320
+
+    def __init__(self, model_name: str = "buffalo_l", providers: list = None):
         self.model_name = model_name
-        # Default providers: platform-aware order to avoid silent fallback to CPU
         if providers is None:
             import platform as _platform
             _system = _platform.system()
             if _system == "Darwin":
-                # macOS: CoreML first for Apple Silicon acceleration
                 self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
             else:
-                # Windows / Linux: CUDA first for NVIDIA GPU acceleration
                 self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         else:
             self.providers = providers
@@ -223,33 +223,74 @@ class InsightFaceEstimator(AgeGenderEstimator):
             logger.error("InsightFace library not found.")
             return
 
-        logger.info(f"Initializing InsightFace with providers: {self.providers}")
+        logger.info(f"Initializing InsightFace ({self.model_name}) with providers: {self.providers}")
         try:
             self.app = FaceAnalysis(name=self.model_name, providers=self.providers)
             self.app.prepare(ctx_id=ctx_id, det_size=det_size)
-            logger.info("InsightFace initialized successfully.")
+            logger.info(f"InsightFace ({self.model_name}) initialized successfully.")
         except Exception as e:
-            logger.error(f"Failed to initialize InsightFace: {e}")
-            # Fallback to CPU if specific providers fail
+            logger.error(f"Failed to initialize InsightFace ({self.model_name}): {e}")
+            if self.model_name == "buffalo_l":
+                logger.warning("buffalo_l failed, trying buffalo_s as fallback...")
+                try:
+                    self.model_name = "buffalo_s"
+                    self.app = FaceAnalysis(name="buffalo_s", providers=self.providers)
+                    self.app.prepare(ctx_id=ctx_id, det_size=det_size)
+                    logger.info("InsightFace (buffalo_s fallback) initialized successfully.")
+                    return
+                except Exception:
+                    pass
             if "CPUExecutionProvider" not in self.providers:
                 logger.warning("Falling back to CPUExecutionProvider...")
                 self.providers = ["CPUExecutionProvider"]
                 self.app = FaceAnalysis(name=self.model_name, providers=self.providers)
                 self.app.prepare(ctx_id=ctx_id, det_size=det_size)
 
+    def _upscale_if_needed(self, img: np.ndarray) -> np.ndarray:
+        """Upscale small crops so InsightFace's detector can find faces reliably."""
+        h, w = img.shape[:2]
+        min_dim = min(h, w)
+        if min_dim < self.MIN_FACE_INPUT_SIZE:
+            scale = self.MIN_FACE_INPUT_SIZE / min_dim
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+        return img
+
+    def _enhance_contrast(self, img: np.ndarray) -> np.ndarray:
+        """
+        CLAHE (Contrast Limited Adaptive Histogram Equalization) ile kontrast iyileştir.
+        Düşük ışık ve düşük kaliteli video kaynaklarında yüz tespitini iyileştirir.
+        Özellikle iPhone/YouTube gibi kaynaklar için kritik.
+        """
+        try:
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+            l_ch, a_ch, b_ch = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            l_enhanced = clahe.apply(l_ch)
+            enhanced = cv2.merge([l_enhanced, a_ch, b_ch])
+            return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+        except Exception:
+            return img  # Hata durumunda orijinal görüntüyü döndür
+
     def predict(self, face_img: np.ndarray) -> Tuple[Optional[float], Optional[str], float]:
         if self.app is None:
             return None, None, 0.0
 
         try:
-            faces = self.app.get(face_img)
+            processed = self._upscale_if_needed(face_img)
+            processed = self._enhance_contrast(processed)
+            faces = self.app.get(processed)
             if not faces:
                 return None, None, 0.0
 
             face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-            
-            age = float(face.age) if face.age is not None else None
+
             confidence = float(face.det_score) if hasattr(face, 'det_score') else 0.0
+            if confidence < 0.30:
+                return None, None, 0.0
+
+            age = float(face.age) if face.age is not None else None
 
             gender = None
             if hasattr(face, "gender") and face.gender is not None:
@@ -264,7 +305,7 @@ class InsightFaceEstimator(AgeGenderEstimator):
 
         except Exception as e:
             return None, None, 0.0
-            
+
     def detect_and_predict(self, full_frame: np.ndarray) -> Any:
          return self.app.get(full_frame)
 
@@ -282,25 +323,4 @@ class EstimatorFactory:
             return InsightFaceEstimator()
 
         if model_type == "mivolo":
-            logger.info("Factory: Creating MiVOLO Estimator...")
-            return MiVOLOEstimator()
-
-        # "auto" mode: try MiVOLO first (better accuracy), fall back to InsightFace
-        try:
-            import importlib
-            importlib.import_module("mivolo.model.mi_volo")
-            mivolo_model_path = os.path.join(PARENT_DIR, "models", "mivolo_model.pth")
-            if os.path.exists(mivolo_model_path):
-                logger.info("Factory: MiVOLO available — creating MiVOLO Estimator...")
-                return MiVOLOEstimator()
-            else:
-                logger.info("Factory: MiVOLO module found but model weights missing — falling back to InsightFace")
-        except ImportError:
-            logger.info("Factory: MiVOLO not installed — falling back to InsightFace")
-
-        if insightface is not None:
-            logger.info("Factory: Creating InsightFace Estimator (auto-fallback)...")
-            return InsightFaceEstimator()
-
-        logger.warning("Factory: No demographics estimator available (install InsightFace or MiVOLO)")
-        return MiVOLOEstimator()
+            logger.info("Factory: Creating MiVOLO Estimator

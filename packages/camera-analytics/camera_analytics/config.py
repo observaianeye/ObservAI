@@ -54,6 +54,16 @@ class AnalyticsConfig:
   demo_temporal_decay: float = 0.95     # Decay factor for older gender votes (per sample)
   demo_continuous_refinement: bool = True  # Keep refining demographics even after initial classification
 
+  # Minimum person bounding-box sizes for demographics processing
+  demo_min_bbox_width: int = 40   # px – below this, skip face analysis
+  demo_min_bbox_height: int = 80  # px – below this, skip face analysis
+  # Minimum crop sizes after padding
+  demo_min_crop_height: int = 80
+  demo_min_crop_width: int = 40
+
+  # Performance: Face detection frequency (every N frames)
+  face_detection_interval: int = 10  # CPU: 15-20, GPU: 5-10
+
 
 def _load_normalized_point(raw: Sequence[float]) -> NormalizedPoint:
   if len(raw) != 2:
@@ -118,10 +128,17 @@ def load_config(path: Path) -> AnalyticsConfig:
     max_detections=int(data.get("max_detections", 100)),
     # Task 2.2.1: Demographic smoothing params
     demo_age_ema_alpha=float(data.get("demo_age_ema_alpha", 0.3)),
-    demo_min_confidence=float(data.get("demo_min_confidence", 0.25)),
+    demo_min_confidence=float(data.get("demo_min_confidence", 0.20)),
     demo_gender_consensus=float(data.get("demo_gender_consensus", 0.65)),
     demo_max_age_history=int(data.get("demo_max_age_history", 30)),
     demo_max_gender_history=int(data.get("demo_max_gender_history", 30)),
     demo_temporal_decay=float(data.get("demo_temporal_decay", 0.95)),
     demo_continuous_refinement=bool(data.get("demo_continuous_refinement", True)),
+    # Demographic bounding-box and crop size thresholds
+    demo_min_bbox_width=int(data.get("demo_min_bbox_width", 40)),
+    demo_min_bbox_height=int(data.get("demo_min_bbox_height", 80)),
+    demo_min_crop_height=int(data.get("demo_min_crop_height", 80)),
+    demo_min_crop_width=int(data.get("demo_min_crop_width", 40)),
+    # Performance: Face detection frequency
+    face_detection_interval=int(data.get("face_detection_interval", 10)),
   )
