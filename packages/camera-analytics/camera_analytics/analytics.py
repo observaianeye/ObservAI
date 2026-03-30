@@ -2098,4 +2098,21 @@ class CameraAnalyticsEngine:
         start = (int(line.start[0] * frame_w), int(line.start[1] * frame_h))
         end = (int(line.end[0] * frame_w), int(line.end[1] * frame_h))
         cv2.line(frame, start, end, (255, 255, 0), 2)
-        cv2.putText(frame, "Entrance", (start[0], start[1] - 5), cv
+        cv2.putText(frame, "Entrance", (start[0], start[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+
+      for zone in self.zone_definitions.values():
+        polygon = [(int(x * frame_w), int(y * frame_h)) for x, y in zone.polygon]
+        pts = np.array(polygon, np.int32).reshape((-1, 1, 2))
+        cv2.polylines(frame, [pts], True, (255, 0, 0), 2)
+        label = zone.name or zone.id
+        cv2.putText(
+          frame,
+          label,
+          (polygon[0][0], polygon[0][1] - 5),
+          cv2.FONT_HERSHEY_SIMPLEX,
+          0.5,
+          (255, 0, 0),
+          1,
+        )
+
+    return frame
