@@ -93,21 +93,19 @@ class WebcamSource(VideoSource):
         system = platform.system()
         backend = _get_camera_backend()
 
+        # Special handling for index >= 1 - verify camera availability
+        # On macOS this handles iPhone/Continuity Camera, on other platforms it validates the camera
         if requested_index >= 1:
             print(f"[INFO] Requested camera index: {requested_index}")
             print(f"[INFO] Verifying camera availability on {system}...")
-
+            
+            # ATTEMPT 1: Try requested index immediately
             cap = cv2.VideoCapture(requested_index, backend)
-            # iPhone / harici kamera: 1080p için MJPG codec gerekli
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-            cap.set(cv2.CAP_PROP_FPS, 30)
             if cap.isOpened():
                 ret, frame = cap.read()
                 cap.release()
                 if ret and frame is not None:
-                    print(f"[INFO] Camera at index {requested_index} is working")
+                    print(f"[INFO] ✓ Camera at index {requested_index} is working")
                     return requested_index
 
             # ATTEMPT 2: Robust Retry Loop (Continuity Camera can take time to wake up)
@@ -385,22 +383,23 @@ class VideoLinkSource(VideoSource):
             if self.source_fps:
                 print(f"   📊 Source FPS: {self.source_fps}")
 
+        # Try multiple format strategies for better compatibility
         format_strategies = []
         if self.is_live:
-            # Live stream: 1080p'yi önce dene, 720p fallback
+            # Live stream format strategies (prefer 720p combined stream)
             format_strategies = [
-                'best[height<=1080]/best[height<=720]/best',
-                'best[height<=720]/best',
-                '95/94/93',
-                'worst'
+                'best[height<=720]/best',   # 720p combined: best quality that's reliably pipeable
+                'best[height<=1080]/best',  # 1080p fallback
+                '95/94/93',                # Specific HLS itags
+                'worst'                    # Last resort
             ]
         else:
-            # VOD: 1080p MP4 tercih et
+            # Regular video format strategies
             format_strategies = [
-                'best[ext=mp4][height<=1080]',
-                'best[ext=mp4][height<=720]',
-                'best[ext=mp4]',
-                '18/22',
+                'best[ext=mp4][height<=1080]',  # 1080p MP4: best quality
+                'best[ext=mp4][height<=720]',   # 720p MP4 fallback
+                'best[ext=mp4]',                # Any MP4 fallback
+                '18/22',                        # Legacy safe MP4
                 'best'
             ]
 
@@ -595,4 +594,3 @@ def detect_source_type(source: Union[str, int]) -> str:
     if isinstance(video_source, VideoLinkSource): return SourceType.HTTP  # Unified video link
     if isinstance(video_source, ScreenCaptureSource): return SourceType.SCREEN_CAPTURE
     return SourceType.FILE
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
