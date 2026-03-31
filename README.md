@@ -7,8 +7,8 @@ ObservAI, gerçek zamanlı kamera görüntülerinden ziyaretçi analitiği, demo
 ## 🎉 2025 Modernizasyon Tamamlandı
 
 Platform, en son teknolojiler ve en iyi uygulamalarla tamamen yenilendi:
-- ✅ **YOLOv12n** - 2025 SOTA insan tespiti
-- ✅ **Gemini 3.0 Flash** - Doğal dil ile analitik sorgulama
+- ✅ **YOLO11** (yolo11s.pt, yolo11n.mlpackage) - Gerçek zamanlı insan tespiti
+- ✅ **Gemini 2.5 Flash** - Doğal dil ile analitik sorgulama (fallback: gemini-2.0-flash-001)
 - ✅ **Apache Kafka** - Yatay ölçeklenebilirlik
 - ✅ **Rol Tabanlı Erişim** - Kurumsal güvenlik
 - ✅ **Gizlilik Modu** - GDPR uyumlu yüz bulanıklaştırma
@@ -38,16 +38,16 @@ ObservAI, yapay zeka destekli kamera analitikleri ile işletmelerin ziyaretçi d
 
 1. **Frontend (React + TypeScript)** - Kullanıcı arayüzü ve dashboard
 2. **Backend (Node.js + Express + Prisma)** - REST API ve veritabanı yönetimi
-3. **Camera Analytics (Python + YOLOv12n)** - Görüntü işleme ve AI motoru
+3. **Camera Analytics (Python + YOLO11)** - Görüntü işleme ve AI motoru
 
 ### Neden ObservAI?
 
 - 🎯 **Gerçek Zamanlı** - Anlık metrikler ve canlı görüntü
-- 🧠 **Akıllı** - YOLOv12n + InsightFace ile hassas tespit
-- 🔒 **Güvenli** - Gizlilik modu ve anonim takip
+- 🧠 **Akıllı** - YOLO11 + InsightFace ile hassas tespit
+- 🔒 **Güvenli** - JWT tabanlı auth, gizlilik modu ve anonim takip
 - 📊 **Kurumsal** - Rol tabanlı erişim, raporlama, export
-- ⚡ **Hızlı** - >30 FPS, <5ms latency, hardware optimization
-- 📈 **Ölçeklenebilir** - Apache Kafka ile yatay ölçekleme
+- ⚡ **Hızlı** - Donanıma bağlı: CPU'da 10-25 FPS, GPU'da >30 FPS
+- 📈 **Ölçeklenebilir** - İsteğe bağlı Apache Kafka desteği ile yatay ölçekleme
 
 ---
 
@@ -56,9 +56,8 @@ ObservAI, yapay zeka destekli kamera analitikleri ile işletmelerin ziyaretçi d
 ### 🚀 Çekirdek Özellikler (Production Ready)
 
 #### 1. Kimlik Doğrulama ve Kullanıcı Yönetimi
-- Supabase ile güvenli kimlik doğrulama
-- JWT token tabanlı oturum yönetimi
-- **YENİ:** Rol tabanlı erişim kontrolü (RBAC)
+- JWT token tabanlı kimlik doğrulama ve oturum yönetimi
+- Rol tabanlı erişim kontrolü (RBAC)
   - **ADMIN** - Tam yetki (tüm işlemler)
   - **MANAGER** - Kamera ve bölge yönetimi
   - **ANALYST** - Sadece okuma yetkisi
@@ -66,7 +65,7 @@ ObservAI, yapay zeka destekli kamera analitikleri ile işletmelerin ziyaretçi d
 
 #### 2. Gerçek Zamanlı Kamera Analitikleri
 - **Canlı Video Akışı**: WebSocket üzerinden gerçek zamanlı
-- **İnsan Tespiti**: YOLOv12n ile %95+ doğruluk
+- **İnsan Tespiti**: YOLO11 ile hassas insan tespiti (doğruluk donanıma bağlı)
 - **Demografik Analiz**:
   - Yaş tahmini (7 kategori: 0-17, 18-24, 25-34, 35-44, 45-54, 55-64, 65+)
   - Cinsiyet dağılımı (erkek/kadın/belirsiz)
@@ -95,12 +94,13 @@ ObservAI, yapay zeka destekli kamera analitikleri ile işletmelerin ziyaretçi d
 
 #### 🤖 Faz 1: Bilgisayar Görüsü Pipeline Yükseltmesi
 
-**1.1: YOLOv12n Model Entegrasyonu** ✅
-- YOLOv8'den YOLOv12n'e yükseltme
-- 6.4M parametre (hafif ve hızlı)
-- >30 FPS gerçek zamanlı işleme
-- <5ms inference latency
-- SOTA (2025) insan tespiti doğruluğu
+**1.1: YOLO11 Model Entegrasyonu** ✅
+- YOLO11 (yolo11s.pt, yolo11n.mlpackage) modelleri kullanılıyor
+- Hafif ve hızlı insan tespiti
+- Donanıma bağlı performans:
+  - GPU'da >30 FPS, <5ms latency
+  - CPU'da 10-25 FPS
+- Gerçek zamanlı insan tespiti
 
 **1.2: Donanım Özelleştirmesi** ✅
 - **Apple Silicon (MPS)**: Metal Performance Shaders ile ~3x hızlanma
@@ -133,9 +133,9 @@ ObservAI, yapay zeka destekli kamera analitikleri ile işletmelerin ziyaretçi d
 
 #### 🧠 Faz 3: Gelişmiş Zeka ve Raporlama
 
-**3.1: LLM Q&A (Gemini 3.0 Flash)** ✅
-- Doğal dilde analitik sorgulama
-- 2M token context window
+**3.1: LLM Q&A (Gemini 2.5 Flash)** ✅
+- Doğal dilde analitik sorgulama (gemini-2.5-flash, fallback: gemini-2.0-flash-001)
+- Geniş context window ile analiz
 - Son 24 saat veri analizi
 - Akıllı içgörüler ve öneriler
 - API Endpoint: `POST /api/ai/chat`
@@ -173,17 +173,16 @@ ObservAI, yapay zeka destekli kamera analitikleri ile işletmelerin ziyaretçi d
 
 #### 🏗️ Faz 4: Mimari ve Ölçeklenebilirlik
 
-**4.1: Apache Kafka Entegrasyonu** ✅
+**4.1: Apache Kafka Entegrasyonu (İsteğe Bağlı)** ✅
 - **Python Producer**: Confluent Kafka
 - **Node.js Consumer**: KafkaJS
 - **3 Topic**:
   - `observai.analytics` - Gerçek zamanlı metrikler
   - `observai.detections` - Tespit olayları
   - `observai.insights` - Bölge içgörüleri
-- Yatay ölçekleme desteği
-- Message buffering
-- Consumer group load balancing
-- Varsayılan: Kapalı (KAFKA_ENABLED=false)
+- Yatay ölçekleme desteği (Kafka etkinleştirildiğinde)
+- Message buffering ve consumer group load balancing
+- Varsayılan: Devre dışı (KAFKA_ENABLED=false). Etkinleştirmek için .env dosyasında ayarlanmalıdır.
 
 **4.2: Frontend Fallback Görünümü** ✅
 - Bağlantı durumu takibi
@@ -214,22 +213,21 @@ ObservAI, yapay zeka destekli kamera analitikleri ile işletmelerin ziyaretçi d
 - **ECharts** - Gelişmiş görselleştirme
 - **React Router** - Client-side routing
 - **Socket.io-client** - WebSocket bağlantısı
-- **Supabase** - Authentication ve database
 
 ### Backend API
 - **Node.js 18+** - JavaScript runtime
 - **Express.js** - Web framework
 - **TypeScript** - Type safety
 - **Prisma** - Next-gen ORM
-- **PostgreSQL** - Relational database
+- **SQLite (geliştirme) / PostgreSQL (üretim)** - Database (geliştirmede `prisma/dev.db`, üretimde PostgreSQL önerilir)
 - **JWT** - Token authentication
 - **KafkaJS** - Kafka client (opsiyonel)
 - **PDFKit** - PDF generation
-- **@google/generative-ai** - Gemini 3.0 integration
+- **@google/generative-ai** - Gemini 2.5 Flash integration
 
 ### Camera Analytics (Python)
 - **Python 3.9+** - Core language
-- **YOLOv12n** - 2025 SOTA insan tespiti
+- **YOLO11** (yolo11s.pt, yolo11n.mlpackage) - Gerçek zamanlı insan tespiti
 - **InsightFace** - Yaş/cinsiyet analizi
 - **OpenCV** - Görüntü işleme
 - **PyTorch** - Deep learning framework
@@ -237,8 +235,8 @@ ObservAI, yapay zeka destekli kamera analitikleri ile işletmelerin ziyaretçi d
 - **NumPy** - Numerical computing
 - **Confluent Kafka** - Kafka producer (opsiyonel)
 - **Hardware Acceleration**:
-  - MPS (Apple Silicon)
-  - CUDA (NVIDIA)
+  - MPS (Apple Silicon) - ~3x hızlanma
+  - CUDA (NVIDIA) - ~5x hızlanma
   - CPU fallback
 
 ---
@@ -288,7 +286,7 @@ ObservAI/
 ├── packages/
 │   └── camera-analytics/          # Python görüntü işleme
 │       ├── camera_analytics/
-│       │   ├── analytics.py       # Ana engine (YOLOv12n)
+│       │   ├── analytics.py       # Ana engine (YOLO11)
 │       │   ├── run_with_websocket.py  # WebSocket server
 │       │   ├── demographics.py    # Yaş/cinsiyet
 │       │   ├── tracker.py         # Object tracking
@@ -324,7 +322,7 @@ ObservAI/
 #### Sistem Gereksinimleri
 - **Node.js** 18 veya üstü
 - **Python** 3.9 veya üstü
-- **PostgreSQL** 15 veya üstü
+- **PostgreSQL** 15 veya üstü (üretim için önerilir; geliştirmede SQLite otomatik kullanılır)
 - **pnpm** (NPM package manager)
 - **Git**
 
@@ -380,14 +378,9 @@ cd frontend
 pnpm install
 ```
 
-**Ortam Değişkenleri:**
+**Ortam Değişkenleri (Opsiyonel):**
 
-`frontend/.env` dosyası oluşturun:
-
-```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-```
+Frontend geliştirmesi sırasında opsiyonel ortam değişkenleri yapılandırabilirsiniz. Örnek `frontend/.env` dosyası:
 
 ### 3. Python Camera Analytics Kurulumu
 
@@ -423,7 +416,7 @@ pip install -e .
 
 **Not:** Windows kullanıcıları için detaylı kurulum: [WINDOWS_SETUP.md](WINDOWS_SETUP.md)
 
-İlk çalıştırmada **YOLOv12n** ve **InsightFace** modelleri otomatik indirilecektir (~200 MB).
+İlk çalıştırmada **YOLO11** ve **InsightFace** modelleri otomatik indirilecektir (~200 MB).
 
 ### 4. Backend API Kurulumu
 
@@ -431,12 +424,9 @@ pip install -e .
 cd ../../backend
 pnpm install
 
-# Veritabanı oluştur
-createdb observai
-
-# .env dosyası oluştur
+# Geliştirme (SQLite otomatik kullanılır):
+# .env dosyası oluştur (opsiyonel)
 cat > .env << EOF
-DATABASE_URL="postgresql://localhost:5432/observai?schema=public"
 JWT_SECRET="your-secret-key-change-in-production"
 PORT=3001
 NODE_ENV=development
@@ -453,8 +443,17 @@ EOF
 # Prisma client generate
 npx prisma generate
 
-# Migration'ları çalıştır (DB kullanıyorsanız)
+# Migration'ları çalıştır (geliştirmede otomatik SQLite oluşturulur)
 npx prisma migrate dev
+```
+
+**Üretim için PostgreSQL Kurulumu:**
+```bash
+# PostgreSQL veritabanı oluştur
+createdb observai
+
+# .env dosyasında
+DATABASE_URL="postgresql://user:password@localhost:5432/observai?schema=public"
 ```
 
 ### 5. İlk Çalıştırma Testi
@@ -574,7 +573,7 @@ python -m camera_analytics.run_with_websocket \
 
 ## 🆕 Yeni Özellikler (2025)
 
-### 1. Doğal Dil ile Analitik Sorgulama (Gemini 3.0)
+### 1. Doğal Dil ile Analitik Sorgulama (Gemini 2.5 Flash)
 
 ```bash
 # API çağrısı
@@ -634,9 +633,11 @@ curl "http://localhost:3001/api/analytics/compare?period1Start=2025-12-04T00:00:
 }
 ```
 
-### 4. Apache Kafka Entegrasyonu
+### 4. Apache Kafka Entegrasyonu (İsteğe Bağlı)
 
 **Kafka'yı Aktifleştirme:**
+
+Kafka opsiyonel bir bileşendir. Yatay ölçekleme için etkinleştirmek istiyorsanız:
 
 ```bash
 # .env dosyasında
@@ -810,9 +811,11 @@ python -c "import insightface; insightface.model_zoo.get_model('buffalo_l')"
 - GPU Kullanımı: %40-50
 
 **CPU Only (Intel i7):**
-- FPS: 12-15
+- FPS: 10-15
 - Latency: ~15ms
 - CPU Kullanımı: %80-90
+
+**Not:** Gerçek performans video kaynağı, model seçimi, donanım ve donanım hızlandırması (MPS/CUDA) kullanıp kullanmadığına bağlıdır.
 
 ### Optimizasyon İpuçları
 

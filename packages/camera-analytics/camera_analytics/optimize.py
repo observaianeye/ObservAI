@@ -171,12 +171,11 @@ class HardwareOptimizer:
             "speed": 320,
         }
 
-        # NVIDIA CUDA settings
         if hw["cuda_available"]:
-            default_size = 640 if performance_mode == "quality" else 480
+            default_size = 640
             params.update(
                 {
-                    "half": True,  # FP16 for faster inference
+                    "half": True,
                     "imgsz": override_imgsz or default_size,
                 }
             )

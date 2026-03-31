@@ -159,6 +159,21 @@ KAFKA_BROKERS=localhost:9092
 GEMINI_API_KEY=your-key  # LLM Q&A için
 ```
 
+### Gemini API Key Kurulumu
+
+`GEMINI_API_KEY` ortam değişkeni backend uygulamasının Gemini LLM modellerini kullanması için gereklidir:
+
+1. **API Key Oluştur:** https://aistudio.google.com/app/apikey adresinden yeni bir API key oluştur
+2. **`.env` Dosyası Oluştur:** `backend/` dizininde `.env` dosyası oluştur
+3. **Key Ekle:** Aşağıdaki satırı `.env` dosyasına ekle:
+   ```env
+   GEMINI_API_KEY=your-api-key-buraya-gels
+   ```
+4. **Kontrol Et:** `debug_gemini.py` scriptini çalıştırarak bağlantıyı test et:
+   ```bash
+   python debug_gemini.py
+   ```
+
 ## API Endpoints
 
 | Endpoint | Method | Auth | Açıklama |

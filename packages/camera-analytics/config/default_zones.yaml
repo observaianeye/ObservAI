@@ -31,8 +31,8 @@ nms_iou_threshold: 0.45
 
 # YOLO input size: smaller = faster inference, lower accuracy
 # Options: 320 (speed), 416 (balanced), 480 (quality), 640 (max quality)
-# Leave commented to auto-detect from hardware
-# yolo_input_size: 480
+# ivCam ile 720p+ için 640 tavsiye edilir
+yolo_input_size: 640
 
 # Class-agnostic NMS: faster for single-class (person) detection
 agnostic_nms: true
@@ -66,3 +66,14 @@ demo_temporal_decay: 0.95
 # Continuous refinement: keep improving demographics even after initial classification
 # Set to false for legacy behavior (stop after first good classification)
 demo_continuous_refinement: true
+
+# Performance: Face detection frequency (her kaç frame'de bir)
+# ivCam için 5 tavsiye edilir (daha sık doğru demografik tahmin)
+face_detection_interval: 5   # CPU: 5-10, GPU: 3-5
+
+# Performance: Demografi minimum bbox boyutları (pixels)
+# ivCam kalitesi arttığı için daha küçük kişileri de işliyoruz
+demo_min_bbox_width: 30   # 40 → 30 (daha uzak kişiler)
+demo_min_bbox_height: 60  # 80 → 60 (daha küçük bbox'lar)
+demo_min_crop_height: 60  # 80 → 60
+demo_min_crop_width: 30   # 40 → 30

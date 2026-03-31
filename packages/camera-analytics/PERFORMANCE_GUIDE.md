@@ -230,3 +230,33 @@ For issues or questions:
 - v1.1: Added frame skipping for face detection
 - v1.2: Implemented temporal smoothing for demographics
 - v1.3: Added FPS monitoring and color-coded performance indicator (current)
+
+## Yapılandırılabilir Parametreler (Yeni)
+
+### Demografi Minimum Boyut Eşikleri
+Config dosyasında veya `.env`'de ayarlanabilir:
+
+| Parametre | Varsayılan | Açıklama |
+|-----------|------------|----------|
+| `demo_min_bbox_width` | 40px | Kişi bbox minimum genişliği |
+| `demo_min_bbox_height` | 80px | Kişi bbox minimum yüksekliği |
+| `demo_min_crop_height` | 80px | Crop sonrası minimum yükseklik |
+| `demo_min_crop_width` | 40px | Crop sonrası minimum genişlik |
+
+Daha küçük değer = daha uzak/küçük kişileri de işler ama accuracy düşer.
+Daha büyük değer = daha yakın/büyük kişileri işler, daha yüksek accuracy.
+
+### FPS vs Accuracy Dengesi (Tavsiye)
+
+| Donanım | `face_detection_interval` | `yolo_input_size` | Beklenen FPS |
+|---------|--------------------------|-------------------|--------------|
+| RTX 3060+ | 5 | 640 | 25-35 |
+| GTX 1060 / CPU + | 10 | 640 | 15-25 |
+| Orta CPU | 15 | 416 | 10-18 |
+| Düşük CPU | 20-30 | 320 | 6-12 |
+
+### Ortam Değişkeni ile Hızlı Ayar
+`backend/.env` veya proje kök `.env` dosyasına ekle:
+```
+FACE_DETECTION_INTERVAL=15
+```

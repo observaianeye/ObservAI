@@ -463,23 +463,33 @@ Recommendations:`;
         const result = await model.generateContent(prompt);
         const text = result.response.text();
 
+        console.log(`[Gemini] model: ${modelName}, status: success`);
+
         const jsonMatch = text.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           if (Array.isArray(parsed)) return parsed.map(String).slice(0, 5);
         }
         return text.split('\n').filter(l => l.trim().length > 10).slice(0, 5);
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
         const isQuotaOrMissing =
-          err?.message?.includes('quota') || err?.message?.includes('429') ||
-          err?.message?.includes('404') || err?.message?.includes('RESOURCE_EXHAUSTED');
-        if (!isQuotaOrMissing) throw err;
-        console.log(`[InsightEngine] ${modelName} unavailable, trying next...`);
+          errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('429') ||
+          errMsg.toLowerCase().includes('404') || errMsg.toLowerCase().includes('resource_exhausted');
+
+        if (isQuotaOrMissing) {
+          console.log(`[Gemini] model: ${modelName}, status: quota_exhausted`);
+        } else {
+          console.error(`[Gemini] model: ${modelName}, status: error, error: ${errMsg}`);
+          throw err;
+        }
       }
     }
+    console.log('[Gemini] All models exhausted, returning demo recommendations');
     return getDemoRecommendations(totalVisitors, avgOccupancy, demographics);
   } catch (error) {
-    console.error('[InsightEngine] Error generating AI recommendations:', error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error('[Gemini] error generating recommendations:', errMsg);
     return getDemoRecommendations();
   }
 }

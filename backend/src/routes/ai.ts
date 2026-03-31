@@ -25,6 +25,78 @@ const ChatRequestSchema = z.object({
  *
  * Accepts user questions and returns AI-generated responses based on real-time analytics data
  */
+// Error type guards and categorization
+type GeminiErrorCode = 'NO_KEY' | 'QUOTA_EXCEEDED' | 'MODEL_NOT_FOUND' | 'AUTH_ERROR' | 'UPSTREAM_ERROR' | 'UNKNOWN';
+
+interface ErrorResponse {
+  error: string;
+  errorCode: GeminiErrorCode;
+  timestamp: string;
+}
+
+function categorizeGeminiError(error: unknown): { code: GeminiErrorCode; message: string; statusCode: number } {
+  if (!(error instanceof Error)) {
+    return {
+      code: 'UNKNOWN',
+      message: 'Bilinmeyen hata oluştu. Lütfen daha sonra tekrar deneyin.',
+      statusCode: 500,
+    };
+  }
+
+  const msg = error.message.toLowerCase();
+
+  // NO_KEY: API key tanımlı değil
+  if (msg.includes('api_key') && msg.includes('undefined')) {
+    return {
+      code: 'NO_KEY',
+      message: 'Gemini API key tanımlı değil. backend/.env dosyasına GEMINI_API_KEY ekleyin.',
+      statusCode: 503,
+    };
+  }
+
+  // QUOTA_EXCEEDED: Kota limiti aşıldı
+  if (msg.includes('quota') || msg.includes('429') || msg.includes('resource_exhausted')) {
+    return {
+      code: 'QUOTA_EXCEEDED',
+      message: 'API kota limiti aşıldı. Lütfen bekleyin veya planı yükseltin.',
+      statusCode: 429,
+    };
+  }
+
+  // MODEL_NOT_FOUND: Model bulunamadı
+  if (msg.includes('404') || msg.includes('model') || msg.includes('not found')) {
+    return {
+      code: 'MODEL_NOT_FOUND',
+      message: 'Model bulunamadı. Desteklenen model listesi: gemini-2.5-flash, gemini-2.0-flash-001',
+      statusCode: 502,
+    };
+  }
+
+  // AUTH_ERROR: Geçersiz API key veya yetki sorunu
+  if (msg.includes('403') || msg.includes('permission') || msg.includes('unauthorized') || msg.includes('invalid') && msg.includes('key')) {
+    return {
+      code: 'AUTH_ERROR',
+      message: 'API key geçersiz veya yetkisiz. key\'i kontrol edin.',
+      statusCode: 401,
+    };
+  }
+
+  // UPSTREAM_ERROR: Diğer network hataları
+  if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('timeout')) {
+    return {
+      code: 'UPSTREAM_ERROR',
+      message: 'Upstream AI servis hatası. Lütfen daha sonra tekrar deneyin.',
+      statusCode: 502,
+    };
+  }
+
+  return {
+    code: 'UNKNOWN',
+    message: 'Bilinmeyen AI servisi hatası.',
+    statusCode: 500,
+  };
+}
+
 router.post('/chat', async (req: Request, res: Response) => {
   try {
     const { message, cameraId } = ChatRequestSchema.parse(req.body);
@@ -38,11 +110,13 @@ router.post('/chat', async (req: Request, res: Response) => {
     // API key'i her request'te oku (dotenv.config() sonra çalıştığı için)
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
     if (!GEMINI_API_KEY) {
-      return res.json({
-        message: 'Gemini API key bulunamadı. Lütfen backend/.env dosyasına GEMINI_API_KEY ekleyin.',
-        timestamp: new Date().toISOString(),
-        model: 'demo-mode'
-      });
+      const timestamp = new Date().toISOString();
+      console.error('[AI] NO_KEY error at', timestamp);
+      return res.status(503).json({
+        error: 'Gemini API key tanımlı değil. backend/.env dosyasına GEMINI_API_KEY ekleyin.',
+        errorCode: 'NO_KEY',
+        timestamp,
+      } as ErrorResponse);
     }
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
@@ -63,8 +137,9 @@ router.post('/chat', async (req: Request, res: Response) => {
         model: modelName
       });
       return;
-    } catch (primaryErr: any) {
-      if (primaryErr?.message?.includes('quota') || primaryErr?.message?.includes('429') || primaryErr?.message?.includes('404') || primaryErr?.message?.includes('RESOURCE_EXHAUSTED')) {
+    } catch (primaryErr: unknown) {
+      const primaryErrMsg = primaryErr instanceof Error ? primaryErr.message.toLowerCase() : '';
+      if (primaryErrMsg.includes('quota') || primaryErrMsg.includes('429') || primaryErrMsg.includes('404') || primaryErrMsg.includes('resource_exhausted')) {
         console.log(`[AI] ${modelName} unavailable, falling back to gemini-2.0-flash-001`);
         modelName = 'gemini-2.0-flash-001';
       } else {
@@ -88,33 +163,43 @@ router.post('/chat', async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation error', details: error.errors });
     }
-    console.error('AI Chat Error:', error);
 
-    // Demo mode fallback: quota aşıldığında veya model bulunamadığında
-    if (error instanceof Error && (error.message.includes('404') || error.message.includes('quota') || error.message.includes('429') || error.message.includes('403') || error.message.includes('API_KEY') || error.message.includes('PERMISSION'))) {
-      console.log('[AI] Gemini API hatası:', error.message);
-      return res.json({
-        message: 'Gemini API hatası (debug): ' + error.message,
-        timestamp: new Date().toISOString(),
-        model: 'demo-mode'
-      });
-    }
+    const timestamp = new Date().toISOString();
+    const { code, message, statusCode } = categorizeGeminiError(error);
 
-    res.status(500).json({
-      error: 'Failed to process chat request',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error(`[AI] ${code} error at ${timestamp}:`, error instanceof Error ? error.message : String(error));
+
+    // Kategorize ve uygun response döndür
+    return res.status(statusCode).json({
+      error: message,
+      errorCode: code,
+      timestamp,
+    } as ErrorResponse);
   }
 });
 
 /**
  * GET /api/ai/debug — Gemini API key ve model durumunu test eder
  */
+interface DebugResponse {
+  status: 'OK' | 'NO_KEY' | 'ERROR' | 'ALL_QUOTA_EXHAUSTED';
+  model?: string;
+  message?: string;
+  keyPrefix: string;
+}
+
 router.get('/debug', async (req: Request, res: Response) => {
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) {
-    return res.json({ status: 'NO_KEY', message: 'GEMINI_API_KEY tanımlı değil' });
+    return res.json({
+      status: 'NO_KEY',
+      message: 'GEMINI_API_KEY tanımlı değil',
+      keyPrefix: '[not-set]'
+    } as DebugResponse);
   }
+
+  const keyPrefix = key.slice(0, 8) + '...';
+
   // Test sırası — Chrome ile test edildi (2026-03-15)
   const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite'];
   for (const m of candidates) {
@@ -122,14 +207,31 @@ router.get('/debug', async (req: Request, res: Response) => {
       const genAI = new GoogleGenerativeAI(key);
       const model = genAI.getGenerativeModel({ model: m });
       const result = await model.generateContent('Say "OK" only.');
-      return res.json({ status: 'OK', model: m, response: result.response.text(), keyPrefix: key.slice(0, 8) + '...' });
-    } catch (err: any) {
-      if (!err?.message?.includes('quota') && !err?.message?.includes('429') && !err?.message?.includes('404') && !err?.message?.includes('RESOURCE_EXHAUSTED')) {
-        return res.json({ status: 'ERROR', model: m, error: err?.message, keyPrefix: key.slice(0, 8) + '...' });
+      return res.json({
+        status: 'OK',
+        model: m,
+        message: result.response.text(),
+        keyPrefix
+      } as DebugResponse);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message.toLowerCase() : '';
+      if (!errMsg.includes('quota') && !errMsg.includes('429') && !errMsg.includes('404') && !errMsg.includes('resource_exhausted')) {
+        const errDetail = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`[AI Debug] ${m} error:`, errDetail);
+        return res.json({
+          status: 'ERROR',
+          model: m,
+          message: errDetail,
+          keyPrefix
+        } as DebugResponse);
       }
     }
   }
-  return res.json({ status: 'ALL_QUOTA_EXHAUSTED', tried: candidates, keyPrefix: key.slice(0, 8) + '...' });
+  return res.json({
+    status: 'ALL_QUOTA_EXHAUSTED',
+    message: `All candidates exhausted: ${candidates.join(', ')}`,
+    keyPrefix
+  } as DebugResponse);
 });
 
 /**
