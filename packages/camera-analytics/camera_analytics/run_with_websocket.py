@@ -120,7 +120,20 @@ class CameraAnalyticsWithWebSocket:
             
             # Load YOLO in thread executor (CPU/GPU bound)
             def _load_yolo():
+                from pathlib import Path
+                from .optimize import HardwareOptimizer
                 model = YOLO(self.model_path)
+
+                # Run hardware optimization (TensorRT on NVIDIA, CoreML on Apple Silicon).
+                # This is done during preload so subsequent starts use the cached engine.
+                try:
+                    optimized_path = HardwareOptimizer.optimize_model(model, self.model_path)
+                    if optimized_path != self.model_path and Path(optimized_path).exists():
+                        print(f"✓ Reloading TensorRT/optimized model: {optimized_path}")
+                        model = YOLO(optimized_path)
+                except Exception as e:
+                    print(f"[WARN] Hardware optimization during preload failed: {e}")
+
                 # Warmup with a dummy forward pass (reduces first-inference latency)
                 try:
                     import numpy as np
@@ -130,7 +143,7 @@ class CameraAnalyticsWithWebSocket:
                 except Exception:
                     pass
                 return model
-            
+
             self._preloaded_yolo = await loop.run_in_executor(None, _load_yolo)
             print(f"✓ YOLO model preloaded: {self.model_path}")
             

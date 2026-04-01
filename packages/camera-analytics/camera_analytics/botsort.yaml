@@ -1,13 +1,12 @@
 tracker_type: botsort
-track_high_thresh: 0.4
+track_high_thresh: 0.50
 track_low_thresh: 0.1
-new_track_thresh: 0.5
-track_buffer: 450
-match_thresh: 0.70
+new_track_thresh: 0.55
+track_buffer: 60
+match_thresh: 0.75
 fuse_score: True
 # BoT-SORT specific
-gmc_method: sparseOptFlow
+gmc_method: none
 proximity_thresh: 0.5
-appearance_thresh: 0.20
-with_reid: True
-model: auto
+appearance_thresh: 0.25
+with_reid: False

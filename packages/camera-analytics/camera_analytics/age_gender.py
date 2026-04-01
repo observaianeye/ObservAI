@@ -286,24 +286,46 @@ class InsightFaceEstimator(AgeGenderEstimator):
 
             face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
 
-            confidence = float(face.det_score) if hasattr(face, 'det_score') else 0.0
-            if confidence < 0.30:
+            det_score = float(face.det_score) if hasattr(face, 'det_score') else 0.0
+            if det_score < 0.15:
                 return None, None, 0.0
 
             age = float(face.age) if face.age is not None else None
 
+            # --- Gender decoding ---
+            # InsightFace's genderage model makes a binary decision (1=Male, 0=Female).
+            # det_score is the FACE DETECTION confidence, NOT the gender prediction confidence.
+            # Using det_score as gender confidence causes the temporal-voting consensus to
+            # behave erratically (low det_score = low vote weight → gender never reaches 65%
+            # consensus threshold → stuck at "unknown").
+            # Fix: use a fixed, high gender confidence (0.85) because the model's binary
+            # decision IS the gender confidence. Only det_score is used to gate acceptance.
+            GENDER_CONFIDENCE = 0.85
+
             gender = None
             if hasattr(face, "gender") and face.gender is not None:
-                gender = "male" if int(face.gender) == 1 else "female"
+                # InsightFace stores gender as float 1.0 (male) or 0.0 (female).
+                # Round to nearest int to handle edge cases like 0.9999.
+                gender = "male" if round(float(face.gender)) == 1 else "female"
             elif hasattr(face, "sex"):
                 if isinstance(face.sex, str):
                     gender = "male" if face.sex.upper() == 'M' else "female"
                 else:
                     gender = "male" if float(face.sex) > 0.5 else "female"
 
+            # Scale gender confidence slightly by det_score so very weak detections
+            # contribute less, but never drop below 0.6 for accepted detections.
+            confidence = max(0.60, GENDER_CONFIDENCE * min(1.0, det_score / 0.80))
+
+            logger.debug(
+                f"InsightFace predict: age={age:.1f if age else 'N/A'}, "
+                f"gender={gender}, det_score={det_score:.3f}, gender_conf={confidence:.3f}"
+            )
+
             return age, gender, confidence
 
         except Exception as e:
+            logger.debug(f"InsightFace predict exception: {e}")
             return None, None, 0.0
 
     def detect_and_predict(self, full_frame: np.ndarray) -> Any:

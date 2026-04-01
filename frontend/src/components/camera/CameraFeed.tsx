@@ -1153,10 +1153,20 @@ export default function CameraFeed() {
         </div>
       )}
 
-      {/* Video Feed - Container maintains proper aspect ratio */}
-      <div 
-        className="relative bg-gray-900" 
-        style={{ aspectRatio: (videoDimensions.width > 0 && videoDimensions.height > 0) ? `${videoDimensions.width}/${videoDimensions.height}` : '16/9' }}
+      {/* Video Feed - Container maintains proper aspect ratio, capped for portrait sources (e.g. iPhone) */}
+      <div
+        className="relative bg-gray-900"
+        style={(() => {
+          if (videoDimensions.width > 0 && videoDimensions.height > 0) {
+            const isPortrait = videoDimensions.height > videoDimensions.width;
+            if (isPortrait) {
+              // Portrait camera (e.g. iPhone 1080×1920): cap to landscape box, video letterboxes inside
+              return { aspectRatio: '16/9', maxHeight: '70vh' };
+            }
+            return { aspectRatio: `${videoDimensions.width}/${videoDimensions.height}` };
+          }
+          return { aspectRatio: '16/9' };
+        })()}
       >
         <div className="absolute inset-0">
           {dataMode === 'demo' ? (

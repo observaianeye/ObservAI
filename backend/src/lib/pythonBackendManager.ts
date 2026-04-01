@@ -96,17 +96,42 @@ class PythonBackendManager {
     }
     try {
       const pid = this.process.pid;
-      if (pid) {
-        if (process.platform === 'win32') {
-          // taskkill kills the process tree on Windows
-          spawn('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore' });
-        } else {
-          this.process.kill('SIGTERM');
-        }
-      }
+      const proc = this.process;
+
+      // Null out references BEFORE killing so exit handler doesn't double-clear
       this.process = null;
       this.config = null;
       this.startedAt = null;
+
+      if (pid) {
+        if (process.platform === 'win32') {
+          // taskkill /f /t kills the entire process tree on Windows
+          // We AWAIT the kill so port 5001 is released before we try to start again
+          await new Promise<void>((resolve) => {
+            const killer = spawn('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore' });
+            killer.on('close', () => resolve());
+            killer.on('error', () => resolve());
+            // Also release on process exit just in case
+            proc.once('exit', () => resolve());
+            // Fallback timeout: if nothing fires in 4 s, give up waiting
+            setTimeout(resolve, 4000);
+          });
+        } else {
+          proc.kill('SIGTERM');
+          // Wait up to 4 s for graceful exit, then SIGKILL
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => {
+              try { proc.kill('SIGKILL'); } catch { /* already dead */ }
+              resolve();
+            }, 4000);
+            proc.once('exit', () => { clearTimeout(timeout); resolve(); });
+          });
+        }
+      }
+
+      // Extra safety: give the OS a moment to release the port binding
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       return true;
     } catch (error) {
       console.error('[PythonManager] Failed to stop:', error);

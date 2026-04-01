@@ -47,19 +47,19 @@ class AnalyticsConfig:
 
   # Task 2.2.1: Demographic Prediction Improvement parameters
   demo_age_ema_alpha: float = 0.3       # EMA smoothing factor for age (0=slow adapt, 1=instant)
-  demo_min_confidence: float = 0.25     # Minimum confidence to accept a demographic prediction
-  demo_gender_consensus: float = 0.65   # Gender consensus threshold (fraction of weighted votes)
+  demo_min_confidence: float = 0.15     # Minimum confidence to accept a demographic prediction
+  demo_gender_consensus: float = 0.52   # Gender consensus threshold (fraction of weighted votes)
   demo_max_age_history: int = 30        # Max age samples for temporal smoothing
   demo_max_gender_history: int = 30     # Max gender samples for temporal smoothing
   demo_temporal_decay: float = 0.95     # Decay factor for older gender votes (per sample)
   demo_continuous_refinement: bool = True  # Keep refining demographics even after initial classification
 
   # Minimum person bounding-box sizes for demographics processing
-  demo_min_bbox_width: int = 40   # px – below this, skip face analysis
-  demo_min_bbox_height: int = 80  # px – below this, skip face analysis
+  demo_min_bbox_width: int = 30   # px – below this, skip face analysis
+  demo_min_bbox_height: int = 50  # px – below this, skip face analysis
   # Minimum crop sizes after padding
-  demo_min_crop_height: int = 80
-  demo_min_crop_width: int = 40
+  demo_min_crop_height: int = 40
+  demo_min_crop_width: int = 20
 
   # Performance: Face detection frequency (every N frames)
   face_detection_interval: int = 10  # CPU: 15-20, GPU: 5-10
@@ -128,17 +128,17 @@ def load_config(path: Path) -> AnalyticsConfig:
     max_detections=int(data.get("max_detections", 100)),
     # Task 2.2.1: Demographic smoothing params
     demo_age_ema_alpha=float(data.get("demo_age_ema_alpha", 0.3)),
-    demo_min_confidence=float(data.get("demo_min_confidence", 0.20)),
-    demo_gender_consensus=float(data.get("demo_gender_consensus", 0.65)),
+    demo_min_confidence=float(data.get("demo_min_confidence", 0.15)),
+    demo_gender_consensus=float(data.get("demo_gender_consensus", 0.52)),
     demo_max_age_history=int(data.get("demo_max_age_history", 30)),
     demo_max_gender_history=int(data.get("demo_max_gender_history", 30)),
     demo_temporal_decay=float(data.get("demo_temporal_decay", 0.95)),
     demo_continuous_refinement=bool(data.get("demo_continuous_refinement", True)),
     # Demographic bounding-box and crop size thresholds
-    demo_min_bbox_width=int(data.get("demo_min_bbox_width", 40)),
-    demo_min_bbox_height=int(data.get("demo_min_bbox_height", 80)),
-    demo_min_crop_height=int(data.get("demo_min_crop_height", 80)),
-    demo_min_crop_width=int(data.get("demo_min_crop_width", 40)),
+    demo_min_bbox_width=int(data.get("demo_min_bbox_width", 30)),
+    demo_min_bbox_height=int(data.get("demo_min_bbox_height", 50)),
+    demo_min_crop_height=int(data.get("demo_min_crop_height", 40)),
+    demo_min_crop_width=int(data.get("demo_min_crop_width", 20)),
     # Performance: Face detection frequency
     face_detection_interval=int(data.get("face_detection_interval", 10)),
   )

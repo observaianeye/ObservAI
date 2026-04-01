@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import time
 import warnings
@@ -10,6 +11,14 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
+
+# ── Debug logging ────────────────────────────────────────────────────────────
+# Set env var OBSERVAI_DEBUG=1 to enable verbose per-frame / per-person logs.
+# Example (Windows CMD):  set OBSERVAI_DEBUG=1
+# Example (PowerShell):   $env:OBSERVAI_DEBUG="1"
+_DEBUG = os.environ.get("OBSERVAI_DEBUG", "0") == "1"
+_log = logging.getLogger(__name__)
+# ─────────────────────────────────────────────────────────────────────────────
 
 import cv2
 import numpy as np
@@ -701,12 +710,17 @@ class CameraAnalyticsEngine:
     source_type = "LIVE stream" if self.is_live_source else "video"
     print(f"[INFO] Using custom capture loop for {source_type} (proper frame rate)")
     
-    # For YouTube live streams with original URL, use yt-dlp pipe mode
-    # This bypasses OpenCV's HLS buffering issues
+    # For YouTube live streams: use OpenCV directly with the already-resolved HLS URL.
+    # The HLS URL in self.source was extracted by yt-dlp and validated successfully.
+    # yt-dlp pipe mode was removed because it caused burst-and-freeze behaviour:
+    #   - yt-dlp re-runs for resolution detection (~20 s extra startup)
+    #   - 100 MB pipe buffer introduces huge latency
+    #   - HLS segments arrive in 2-6 s bursts → video freezes between segments
+    # OpenCV's FFmpeg backend handles the HLS manifest natively and keeps a smooth
+    # internal ring-buffer so frames arrive at a steady rate.
     if self.is_live_source and self.original_url:
-      print("[INFO] YouTube live stream detected - using yt-dlp pipe mode for smooth playback")
-      self._run_live_with_ytdlp_pipe()
-      return
+      print("[INFO] YouTube live stream detected - using OpenCV HLS (smooth, low-latency)")
+      # Fall through to the OpenCV capture path below — self.source already holds the HLS URL
     
     # Create VideoCapture with FFMPEG backend for network streams
     if isinstance(self.source, str) and self.source.startswith('http'):
@@ -1430,10 +1444,15 @@ class CameraAnalyticsEngine:
   def _update_tracks(self, result, frame_w: int, frame_h: int, now: float) -> None:
     active_ids = set()
     if result.boxes.id is None:
+      if _DEBUG:
+        _log.debug("[TRACK] No detections this frame")
       return
 
     boxes = result.boxes.xyxy.cpu().numpy()
     track_ids = result.boxes.id.int().cpu().numpy()
+
+    if _DEBUG:
+      _log.debug(f"[TRACK] Active IDs this frame: {list(track_ids)} (total tracks: {len(self.tracks)})")
 
     for track_id, box in zip(track_ids, boxes):
       x1, y1, x2, y2 = box.tolist()
@@ -1444,6 +1463,8 @@ class CameraAnalyticsEngine:
 
       person = self.tracks.get(int(track_id))
       if not person:
+        if _DEBUG:
+          _log.debug(f"[TRACK] NEW track ID={track_id} at bbox ({x1:.0f},{y1:.0f},{x2:.0f},{y2:.0f})")
         person = TrackedPerson(
           track_id=int(track_id),
           first_seen=now,
@@ -1577,7 +1598,13 @@ class CameraAnalyticsEngine:
       person = self.tracks[track_id]
       if track_id in active_ids:
         continue
-      if now - person.last_seen > ttl:
+      age_since_seen = now - person.last_seen
+      if age_since_seen > ttl:
+        if _DEBUG:
+          _log.debug(
+            f"[TRACK] DROP stale track_id={track_id} "
+            f"(unseen for {age_since_seen:.1f}s, gender={person.gender}, age={person.age})"
+          )
         if person.counted_in and not person.counted_out:
           self.people_out += 1
         self._finalize_active_zones(person, now)
@@ -1670,9 +1697,21 @@ class CameraAnalyticsEngine:
           if age is not None and gender is not None:
              confidence = min(1.0, confidence * 1.2)
              results.append((track_id, age, gender, confidence))
+             if _DEBUG:
+               _log.debug(
+                 f"[DEMO] track_id={track_id} → age={age:.1f}, gender={gender}, "
+                 f"conf={confidence:.3f}, crop={person_crop.shape}"
+               )
+          else:
+            if _DEBUG:
+              _log.debug(
+                f"[DEMO] track_id={track_id} → no face detected in crop "
+                f"(age={age}, gender={gender}, conf={confidence:.3f})"
+              )
 
-        except Exception:
-          pass
+        except Exception as exc:
+          if _DEBUG:
+            _log.debug(f"[DEMO] track_id={track_id} predict exception: {exc}")
 
       return results
     except Exception as e:
@@ -1704,6 +1743,7 @@ class CameraAnalyticsEngine:
                 track_id, age, gender, conf = item
                 if track_id in self.tracks:
                   person = self.tracks[track_id]
+                  prev_gender = person.gender
                   if age is not None:
                     person.update_age(age, confidence=conf,
                                       ema_alpha=age_ema_alpha,
@@ -1713,6 +1753,13 @@ class CameraAnalyticsEngine:
                                          consensus_threshold=gender_consensus,
                                          temporal_decay=temporal_decay,
                                          min_confidence=min_conf)
+                  if _DEBUG and prev_gender != person.gender:
+                    _log.debug(
+                      f"[DEMO] track_id={track_id} gender changed: "
+                      f"{prev_gender} → {person.gender} "
+                      f"(stability={person.gender_stability:.2f}, "
+                      f"history_len={len(person.gender_history)})"
+                    )
             elif len(item) == 3: # Legacy fallback
                 track_id, age, gender = item
                 if track_id in self.tracks:
@@ -1730,12 +1777,16 @@ class CameraAnalyticsEngine:
     if self.frame_count % self.face_detection_interval == 0:
       if self.pending_demographics_future is None:
         frame_h, frame_w = frame.shape[:2]
-        self.pending_demographics_future = self.demographics_executor.submit(
-          self._process_demographics_async,
-          frame.copy(),
-          frame_w,
-          frame_h
-        )
+        try:
+          self.pending_demographics_future = self.demographics_executor.submit(
+            self._process_demographics_async,
+            frame.copy(),
+            frame_w,
+            frame_h
+          )
+        except RuntimeError:
+          # Executor was shut down during stop() — race condition, silently ignore
+          pass
 
   def _build_metrics(self) -> CameraMetrics:
     # Decay heatmap over time

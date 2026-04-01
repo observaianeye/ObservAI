@@ -86,23 +86,40 @@ class HardwareOptimizer:
             Optimized model or model path
         """
         hw = HardwareOptimizer.detect_hardware()
-        base_name = Path(model_path).stem
+        # Use full path (with directory) so engine file is found/created next to the .pt
+        base_name = str(Path(model_path).with_suffix(""))
 
         # NVIDIA TensorRT optimization
         if hw["cuda_available"] and not hw["system"] == "Darwin":
             if target_format == "tensorrt" or target_format is None:
                 try:
-                    engine_path = f"{base_name}_tensorrt.engine"
+                    # Ultralytics model.export(format="engine") creates "{stem}.engine"
+                    # in the same directory as the source .pt file.
+                    # IMPORTANT: do NOT add a "_tensorrt" suffix — that was a bug causing
+                    # the path check to always fail and TensorRT to be re-exported every
+                    # startup, then silently skipped because the actual file had a different name.
+                    engine_path = f"{base_name}.engine"
                     if not Path(engine_path).exists():
-                        print(f"[OPTIMIZE] Exporting to TensorRT: {engine_path}")
-                        model.export(format="engine", half=True)  # FP16 for RTX
+                        print(f"[OPTIMIZE] Exporting to TensorRT (FP16): {engine_path}")
+                        print(f"[OPTIMIZE] This may take 1-3 minutes on first run...")
+                        exported = model.export(
+                            format="engine",
+                            half=True,       # FP16 for RTX — ~2× faster than FP32
+                            device=0,        # GPU 0
+                            simplify=True,   # ONNX simplification before TRT build
+                            workspace=4,     # 4 GB workspace for RTX 5070
+                        )
+                        # model.export returns the path to the created engine
+                        actual_engine = str(exported) if exported else engine_path
+                        if Path(actual_engine).exists():
+                            engine_path = actual_engine
                         print(f"[OPTIMIZE] ✅ TensorRT engine created: {engine_path}")
                     else:
-                        print(f"[OPTIMIZE] ✅ Using cached TensorRT: {engine_path}")
+                        print(f"[OPTIMIZE] ✅ Using cached TensorRT engine: {engine_path}")
                     return engine_path
                 except Exception as e:
                     print(f"[OPTIMIZE] ⚠️ TensorRT export failed: {e}")
-                    print("[OPTIMIZE] Falling back to CUDA")
+                    print("[OPTIMIZE] Falling back to CUDA PyTorch model")
 
         # Apple Silicon CoreML optimization
         if hw["mps_available"] and hw["system"] == "Darwin":
