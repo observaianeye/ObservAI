@@ -300,19 +300,8 @@ class InsightFaceEstimator(AgeGenderEstimator):
             age = float(face.age) if face.age is not None else None
 
             # --- Gender decoding ---
-            # InsightFace's genderage model makes a binary decision (1=Male, 0=Female).
-            # det_score is the FACE DETECTION confidence, NOT the gender prediction confidence.
-            # Using det_score as gender confidence causes the temporal-voting consensus to
-            # behave erratically (low det_score = low vote weight → gender never reaches 65%
-            # consensus threshold → stuck at "unknown").
-            # Fix: use a fixed, high gender confidence (0.85) because the model's binary
-            # decision IS the gender confidence. Only det_score is used to gate acceptance.
-            GENDER_CONFIDENCE = 0.85
-
             gender = None
             if hasattr(face, "gender") and face.gender is not None:
-                # InsightFace stores gender as float 1.0 (male) or 0.0 (female).
-                # Round to nearest int to handle edge cases like 0.9999.
                 gender = "male" if round(float(face.gender)) == 1 else "female"
             elif hasattr(face, "sex"):
                 if isinstance(face.sex, str):
@@ -320,9 +309,21 @@ class InsightFaceEstimator(AgeGenderEstimator):
                 else:
                     gender = "male" if float(face.sex) > 0.5 else "female"
 
-            # Scale gender confidence slightly by det_score so very weak detections
-            # contribute less, but never drop below 0.6 for accepted detections.
-            confidence = max(0.60, GENDER_CONFIDENCE * min(1.0, det_score / 0.80))
+            # Quality-based confidence: large frontal faces = high weight,
+            # small/side faces = lower weight (but still contribute to voting)
+            face_w = face.bbox[2] - face.bbox[0]
+            face_h = face.bbox[3] - face.bbox[1]
+            face_area = face_w * face_h
+            img_area = processed.shape[0] * processed.shape[1]
+            size_factor = min(1.0, max(0.3, (face_area / max(1, img_area)) / 0.01))
+
+            pose_factor = 0.8
+            if hasattr(face, 'pose') and face.pose is not None:
+                yaw = abs(float(face.pose[1]))
+                pose_factor = max(0.4, 1.0 - yaw / 120.0)
+
+            confidence = 0.85 * min(1.0, det_score / 0.5) * size_factor * pose_factor
+            confidence = max(0.15, min(0.95, confidence))
 
             logger.debug(
                 f"InsightFace predict: age={age:.1f if age else 'N/A'}, "

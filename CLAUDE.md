@@ -1,112 +1,147 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+ObservAI - Cafe/restoran icin gercek zamanli kamera analitik platformu. Ziyaretci sayimi, demografi (yas/cinsiyet), bolge takibi. Dil: Turkce.
 
-## Project Overview
+## Servisler
 
-ObservAI is a real-time camera analytics platform for visitor analytics, demographics (age/gender), and smart zone tracking. Documentation and comments are primarily in Turkish.
+| Servis | Port | Teknoloji |
+|--------|------|-----------|
+| Frontend | 5173 | React 18 + Vite + TypeScript |
+| Backend API | 3001 | Express + Prisma + TypeScript |
+| Python Analytics | 5001 | YOLO11L + InsightFace + WebSocket |
 
-Three services run together:
-- **Frontend** (React 18 + Vite + TypeScript) — port 5173
-- **Node Backend** (Express + Prisma + TypeScript) — port 3001
-- **Python Analytics** (YOLO11 + InsightFace + WebSocket) — port 5001
+## Baslatma / Durdurma (Windows)
 
-## Development Commands
-
-### Frontend (from `frontend/`)
 ```bash
-pnpm install          # Install dependencies
-pnpm dev              # Dev server on :5173
-pnpm build            # Production build
-pnpm lint             # ESLint
-pnpm typecheck        # tsc --noEmit (run after every frontend edit)
+start-all.bat          # Tum servisleri baslat (frontend + backend + camera-ai + prisma)
+stop-all.bat           # Tum servisleri durdur
+start-backend.bat      # Sadece camera analytics backend
+start-frontend.bat     # Sadece frontend dev server
 ```
 
-### Backend (from `backend/`)
+## Gelistirme Komutlari
+
 ```bash
-npm install            # Install dependencies
-npm run dev            # Dev server with tsx watch on :3001
-npm run build          # TypeScript compilation
-npm run db:generate    # Regenerate Prisma client
-npm run db:migrate     # Run pending migrations
-npm run db:studio      # Open Prisma Studio GUI
-npm run db:seed        # Seed the database
-npm run db:reset       # Reset database (destructive)
+# Frontend (frontend/)
+pnpm install && pnpm dev        # :5173
+pnpm build && pnpm typecheck    # Build + tip kontrolu
+
+# Backend (backend/)
+npm install && npm run dev      # :3001
+npm run db:generate             # Prisma client olustur
+npm run db:migrate              # Migration calistir
+npm run db:studio               # Prisma Studio GUI
+
+# Python Analytics (packages/camera-analytics/)
+pip install -e ".[demographics]"
+python -m camera_analytics.run_with_websocket --model yolo11l.pt
 ```
 
-### Python Analytics (from `packages/camera-analytics/`)
-```bash
-pip install -e ".[demographics]"    # Install with demographics support
-python -m camera_analytics.run_with_websocket   # Start WebSocket server on :5001
+## Mimari
+
+### Veri Akisi
+Kamera/YouTube → YOLO11L kisi tespiti → InsightFace yas/cinsiyet → BoT-SORT takip → Bolge gecis tespiti → WebSocket → Frontend dashboard + SQLite
+
+### 3-Thread Async Pipeline
+```
+Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) → result_q(10) → Main Thread (render + emit)
 ```
 
-### Full System
-```bash
-# From project root (Windows)
-./start-all.bat        # Start all three services
-./stop-all.bat         # Graceful shutdown
+### Frontend Onemli Dosyalar
+- `components/camera/CameraFeed.tsx` — Ana canli video (~1400 satir), MJPEG + WebSocket
+- `components/camera/ZoneCanvas.tsx` — Bolge cizim (normalize koordinat)
+- `services/cameraBackendService.ts` — WebSocket client, health polling
+- `contexts/AuthContext.tsx` — JWT auth; `DataModeContext.tsx` — Demo/Live
 
-# Unix
-./start-all.sh
-./stop-all.sh
-```
-
-## Architecture
-
-### Data Flow
-Camera source → Python YOLO11 detection → Demographics analysis (InsightFace/MiVOLO) → Zone crossing detection → WebSocket broadcast → Frontend dashboard + Node backend persistence (SQLite dev / PostgreSQL prod)
-
-### Frontend Key Files
-- `components/camera/CameraFeed.tsx` — Main live video component (~1400 lines), handles MJPEG + WebSocket fallback
-- `components/camera/ZoneCanvas.tsx` — Interactive zone drawing with normalized coordinates
-- `services/cameraBackendService.ts` — WebSocket client to Python backend, health polling
-- `services/analyticsDataService.ts` — Data transformation and state management
-- `contexts/AuthContext.tsx` — JWT auth state; `DataModeContext.tsx` — Demo/Live toggle
-
-### Connection State Machine
-```
-DISCONNECTED → CONNECTING → WAITING_FOR_BACKEND → CONNECTED → STREAMING → FAILED
-```
-Exponential backoff: `Math.min(30000, Math.pow(2, attempt) * 1000)`, MJPEG max 8 retries, WebSocket health poll every 3s.
-
-### Backend Key Files
-- `src/index.ts` — Express server entry point
-- `src/routes/` — REST endpoints: auth, analytics, cameras, zones, ai (Gemini), export (PDF/CSV), python-backend (proxy)
+### Backend Onemli Dosyalar
+- `src/index.ts` — Express giris noktasi
+- `src/routes/` — REST: auth, analytics, cameras, zones, ai (Gemini), export, python-backend (proxy)
+- `src/lib/pythonBackendManager.ts` — Python process yonetimi (model: yolo11l.pt)
 - `src/middleware/roleCheck.ts` — RBAC (ADMIN, MANAGER, ANALYST, VIEWER)
-- `src/services/insightEngine.ts` — AI insight generation
-- `prisma/schema.prisma` — Database schema (SQLite in dev via `file:./dev.db`)
+- `prisma/schema.prisma` — DB semasi (SQLite dev: `file:./dev.db`)
 
-### Python Analytics Key Files
-- `camera_analytics/run_with_websocket.py` — Bootstrap, event handlers (start/stop stream, zones, snapshots)
-- `camera_analytics/analytics.py` — Core engine (~2100 lines): TrackedPerson, temporal smoothing (EMA + median), zone management, heatmaps, privacy blur
-- `camera_analytics/config.py` — AnalyticsConfig dataclass, YAML loading, 40+ parameters
-- `camera_analytics/age_gender.py` — InsightFace + MiVOLO model loading
-- `camera_analytics/sources.py` — Video source handling (webcam, YouTube/yt-dlp, RTSP, files)
-- `camera_analytics/optimize.py` — Hardware auto-detection (TensorRT for NVIDIA, CoreML for Apple Silicon, CPU fallback)
+### Python Analytics Onemli Dosyalar
+- `analytics.py` — Ana motor (~2200 satir): TrackedPerson, temporal smoothing, zone, heatmap, privacy blur
+- `run_with_websocket.py` — Bootstrap, WebSocket event handler, model preload
+- `config.py` — AnalyticsConfig dataclass, YAML yukleme, 40+ parametre
+- `age_gender.py` — InsightFace buffalo_l wrapper (CUDA EP)
+- `sources.py` — Video kaynak: webcam, YouTube/yt-dlp, RTSP, dosya
+- `optimize.py` — Donanim tespiti (CUDA FP16 / CPU fallback)
+- `metrics.py` — CameraMetrics dataclass, JSON serialization (numpy-safe)
+- `overlay_viz.py` — Gorsel overlay rendering
+- `websocket_server.py` — aiohttp + socketio server, /health, /mjpeg
 
-## Environment Setup
+### Konfigürasyon
+- `config/default_zones.yaml` — Tum YOLO ve demografi parametreleri
+- `camera_analytics/botsort.yaml` — BoT-SORT tracker ayarlari (with_reid: True)
 
-Copy `.env.example` files in root, `backend/`, and `frontend/`. Key variables:
-- `GEMINI_API_KEY` — Required for AI Q&A features
-- `DATABASE_URL` — Prisma connection (default: SQLite `file:./dev.db`)
-- `VITE_BACKEND_URL=http://localhost:5001` — Python analytics URL for frontend
-- `VITE_API_URL=http://localhost:3001` — Node backend URL for frontend
-- `KAFKA_ENABLED=false` — Optional Kafka support (disabled by default)
+## Ortam Degiskenleri
 
-## Code Conventions
+`.env.example` dosyalarini kopyala (root, backend/, frontend/).
+- `GEMINI_API_KEY` — AI Q&A icin
+- `DATABASE_URL` — Prisma (default: SQLite)
+- `VITE_BACKEND_URL=http://localhost:5001` — Python analytics
+- `VITE_API_URL=http://localhost:3001` — Node backend
 
-- **TypeScript strict mode** — no `any` types, use proper typing
-- **Python** — all async/await; do not add synchronous functions to the analytics engine
-- **State management** — React Context API (no Redux/Zustand)
-- **Styling** — TailwindCSS 3.4
-- **Package manager** — pnpm for frontend/root, npm for backend, pip/setuptools for Python
+## Donanim
 
-## AI-to-AI Handoff System
+- **GPU**: NVIDIA RTX 5070 (12GB VRAM, CUDA)
+- **Model**: yolo11l.pt (50MB, FP16 inference)
+- **InsightFace**: buffalo_l (CUDA EP, genderage + detection + recognition)
+- **TensorRT**: Kurulu degil — PyTorch CUDA + ONNX Runtime CUDA kullaniliyor
 
-This project uses an automated AI development workflow:
-1. `HANDOFF.md` — Context from previous AI session (read this for ongoing task context)
-2. `auto_dev_progress.json` — Task status tracking (pending/in_progress/completed/failed)
-3. `ai_handoff.py` — Generates handoff documentation
-4. `observai_auto_dev.py` — Scheduled automated task runner
+## Onemli Teknik Detaylar
 
-When completing development tasks: update `auto_dev_progress.json` status and `completed_at`, then run `python ai_handoff.py` to refresh the handoff document.
+### Demografi Pipeline
+1. InsightFace full-frame face detection (her `face_detection_interval` frame'de)
+2. Yuz → YOLO kisi bbox eslestirme (proportional tolerance)
+3. Eslesmeyenler icin crop-based fallback (max 3 crop)
+4. Quality-based confidence: face_size * pose_factor * det_score
+5. Temporal smoothing: Age=EMA+weighted_median, Gender=decay-weighted voting
+6. Demographics persistence cache: track drop → save → re-entry restore
+
+### Konfigürasyon Parametreleri (default_zones.yaml)
+```yaml
+yolo_input_size: 640          # YOLO giris boyutu
+face_detection_interval: 3    # Her N frame'de InsightFace calistir
+demo_age_ema_alpha: 0.25      # Yas EMA smoothing (yuksek=hizli yakinlasma)
+demo_min_confidence: 0.30     # Min yuz tespit guven esigi
+demo_gender_consensus: 0.60   # Cinsiyet oylama esigi
+demo_temporal_decay: 0.90     # Eski oylar icin azalma carpani
+confidence_threshold: 0.5     # YOLO kisi tespit esigi
+```
+
+### JSON Serialization
+Numpy float32/int64 degerleri `json.dump()` ile uyumsuz. `metrics.py` icinde `_to_native()` ve `analytics.py` icinde `_NumpyEncoder` ile cozuldu.
+
+### ONNX Runtime Thread Safety
+InsightFace ONNX session'lari olusturuldugu thread'de kullanilmali. Inference thread'inde `prepare()` ile yeniden baslatiyor.
+
+## Kod Kurallari
+
+- **TypeScript**: strict mode, `any` yok
+- **Python**: async/await, analytics engine'e sync fonksiyon ekleme
+- **State**: React Context API (Redux/Zustand yok)
+- **Styling**: TailwindCSS 3.4
+- **Paket**: pnpm (frontend), npm (backend), pip (Python)
+
+## Proje Yapisi
+
+```
+ObservAI/
+├── frontend/              # React + Vite + TypeScript
+├── backend/               # Express + Prisma + TypeScript
+├── packages/
+│   └── camera-analytics/  # Python YOLO + InsightFace
+│       ├── camera_analytics/  # Ana Python modulu
+│       ├── config/            # default_zones.yaml
+│       ├── yolo11l.pt         # YOLO model (tek model)
+│       └── venv/              # Python sanal ortam
+├── scripts/               # health_check.py
+├── logs/                  # Calisma zamani loglari
+├── start-all.bat          # Tum servisleri baslat
+├── stop-all.bat           # Tum servisleri durdur
+├── start-backend.bat      # Sadece Python backend
+├── start-frontend.bat     # Sadece frontend
+└── CLAUDE.md              # Bu dosya
+```

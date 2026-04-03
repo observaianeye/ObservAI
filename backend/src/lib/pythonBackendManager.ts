@@ -31,6 +31,22 @@ class PythonBackendManager {
     }
 
     try {
+      // Check if Python backend is already running externally (e.g. start-all.bat)
+      const wsPort = config.wsPort || 5001;
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2000);
+        const resp = await fetch(`http://localhost:${wsPort}/health`, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (resp.ok) {
+          console.log(`[PythonManager] Python backend already running on port ${wsPort} (external process)`);
+          this.config = config;
+          this.startedAt = new Date().toISOString();
+          return true;
+        }
+      } catch {
+        // Not running, proceed to spawn
+      }
       // Resolve paths
       const projectRoot = path.resolve(__dirname, '../../..');
       const cwd = path.join(projectRoot, 'packages', 'camera-analytics');
@@ -45,7 +61,7 @@ class PythonBackendManager {
         '--source', String(config.source),
         '--ws-port', String(config.wsPort || 5001),
         '--ws-host', config.wsHost || '0.0.0.0',
-        '--model', 'yolo11s.pt',
+        '--model', 'yolo11l.pt',
       ];
 
       console.log(`[PythonManager] Starting: ${venvPython} ${args.join(' ')}`);

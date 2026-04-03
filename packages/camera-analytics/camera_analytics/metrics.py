@@ -4,6 +4,19 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
 
+import numpy as np
+
+
+def _to_native(val):
+  """Convert numpy types to native Python types for JSON serialization."""
+  if isinstance(val, (np.integer,)):
+    return int(val)
+  if isinstance(val, (np.floating,)):
+    return float(val)
+  if isinstance(val, np.ndarray):
+    return val.tolist()
+  return val
+
 
 def default_age_buckets() -> Dict[str, int]:
   return {
@@ -134,19 +147,19 @@ class CameraMetrics:
         }
         for table in self.tables
       ],
-      "heatmap": self.heatmap,
+      "heatmap": _to_native(self.heatmap) if hasattr(self.heatmap, 'tolist') else self.heatmap,
       "activePeople": [
         {
-          "id": person.id,
-          "age": person.age,
+          "id": int(person.id),
+          "age": _to_native(person.age),
           "ageBucket": person.age_bucket,
           "gender": person.gender,
-          "dwellSeconds": round(person.dwell_seconds, 1),
+          "dwellSeconds": round(float(person.dwell_seconds), 1),
         }
         for person in self.active_people
       ],
-      "fps": round(self.fps, 1),
-      "avgDwellTime": round(self.avg_dwell_time, 1),
-      "captureFps": round(self.capture_fps, 1),
-      "inferenceFps": round(self.inference_fps, 1),
+      "fps": round(float(self.fps), 1),
+      "avgDwellTime": round(float(self.avg_dwell_time), 1),
+      "captureFps": round(float(self.capture_fps), 1),
+      "inferenceFps": round(float(self.inference_fps), 1),
     }

@@ -22,7 +22,7 @@ class CameraAnalyticsWithWebSocket:
         self,
         config_path: Path,
         source: str | int,
-        model_path: str = "yolo11m.pt",
+        model_path: str = "yolo11l.pt",
         display: bool = False,
         ws_host: str = "0.0.0.0",
         ws_port: int = 5000,
@@ -137,9 +137,10 @@ class CameraAnalyticsWithWebSocket:
                 # Warmup with a dummy forward pass (reduces first-inference latency)
                 try:
                     import numpy as np
-                    dummy = np.zeros((1, 3, 640, 640), dtype=np.uint8)
-                    _ = model.predict(dummy, verbose=False, imgsz=640)
-                    print("✓ YOLO model warmed up (640p)")
+                    warmup_size = self.config.yolo_input_size or 640
+                    dummy = np.zeros((1, 3, warmup_size, warmup_size), dtype=np.uint8)
+                    _ = model.predict(dummy, verbose=False, imgsz=warmup_size)
+                    print(f"✓ YOLO model warmed up ({warmup_size}p)")
                 except Exception:
                     pass
                 return model
@@ -218,10 +219,10 @@ class CameraAnalyticsWithWebSocket:
                 preloaded_yolo=self._preloaded_yolo,
                 preloaded_estimator=self._preloaded_estimator,
             )
-            await self.ws_server.update_status("source_connected", model_loaded=True, source_connected=True)
+            await self.ws_server.update_status("source_connected", model_loaded=True, source_connected=True, streaming=True)
         except Exception as e:
             print(f"❌ Failed to initialize analytics engine: {e}")
-            await self.ws_server.update_status("error", error=str(e))
+            await self.ws_server.update_status("error", error=str(e), streaming=False)
             self.engine = None
             raise e
 
@@ -394,8 +395,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        default="yolo11m.pt",
-        help="YOLO model checkpoint (default: yolo11m.pt)",
+        default="yolo11l.pt",
+        help="YOLO model checkpoint (default: yolo11l.pt)",
     )
     parser.add_argument(
         "--display",
