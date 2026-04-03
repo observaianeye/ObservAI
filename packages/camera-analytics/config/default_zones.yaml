@@ -32,7 +32,7 @@ nms_iou_threshold: 0.45
 # YOLO input size: smaller = faster inference, lower accuracy
 # Options: 320 (speed), 416 (balanced), 480 (quality), 640 (max quality)
 # ivCam ile 720p+ için 640 tavsiye edilir
-yolo_input_size: 960
+yolo_input_size: 640
 
 # Class-agnostic NMS: faster for single-class (person) detection
 agnostic_nms: true
@@ -49,11 +49,11 @@ demo_age_ema_alpha: 0.3
 
 # Minimum model confidence to accept a demographic prediction
 # Lower = more predictions accepted (noisier). Range: 0.1-0.5. Default: 0.25
-demo_min_confidence: 0.25
+demo_min_confidence: 0.15
 
 # Gender consensus threshold: fraction of weighted votes needed to assign gender
 # Lower = faster assignment but more misclassifications. Range: 0.55-0.85. Default: 0.65
-demo_gender_consensus: 0.65
+demo_gender_consensus: 0.60
 
 # Max history samples for temporal smoothing (age and gender)
 demo_max_age_history: 30
@@ -69,7 +69,7 @@ demo_continuous_refinement: true
 
 # Performance: Face detection frequency (her kaç frame'de bir)
 # ivCam için 5 tavsiye edilir (daha sık doğru demografik tahmin)
-face_detection_interval: 2   # RTX 5070: every 2 frames for fast demographics
+face_detection_interval: 3   # RTX 5070: every 3 frames
 
 # Performance: Demografi minimum bbox boyutları (pixels)
 # ivCam kalitesi arttığı için daha küçük kişileri de işliyoruz

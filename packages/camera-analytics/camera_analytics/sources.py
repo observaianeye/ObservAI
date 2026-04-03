@@ -394,12 +394,14 @@ class VideoLinkSource(VideoSource):
                 'worst'                    # Last resort
             ]
         else:
-            # Regular video format strategies
+            # Regular video: prefer DASH video-only for higher quality
+            # (OpenCV doesn't need audio, so video-only streams work fine)
             format_strategies = [
-                'best[ext=mp4][height<=1080]',  # 1080p MP4: best quality
-                'best[ext=mp4][height<=720]',   # 720p MP4 fallback
-                'best[ext=mp4]',                # Any MP4 fallback
-                '18/22',                        # Legacy safe MP4
+                'bestvideo[ext=mp4][height<=1080]',  # 1080p DASH video-only
+                'bestvideo[ext=mp4][height<=720]',   # 720p DASH video-only
+                '22',                                 # 720p combined MP4
+                'best[ext=mp4][height<=720]',         # 720p combined fallback
+                'best[ext=mp4]',                      # Any combined MP4
                 'best'
             ]
 

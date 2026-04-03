@@ -137,9 +137,9 @@ class CameraAnalyticsWithWebSocket:
                 # Warmup with a dummy forward pass (reduces first-inference latency)
                 try:
                     import numpy as np
-                    dummy = np.zeros((1, 3, 960, 960), dtype=np.uint8)
-                    _ = model.predict(dummy, verbose=False, imgsz=960)
-                    print("✓ YOLO model warmed up (960p)")
+                    dummy = np.zeros((1, 3, 640, 640), dtype=np.uint8)
+                    _ = model.predict(dummy, verbose=False, imgsz=640)
+                    print("✓ YOLO model warmed up (640p)")
                 except Exception:
                     pass
                 return model

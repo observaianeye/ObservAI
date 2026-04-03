@@ -659,7 +659,7 @@ class CameraAnalyticsEngine:
             return None
 
     # Encode as JPEG — kalite 92 (yüksek kalite, makul dosya boyutu)
-    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 92]
+    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 95]
     _, buffer = cv2.imencode('.jpg', frame, encode_params)
     jpg_as_text = base64.b64encode(buffer).decode('utf-8')
     return f"data:image/jpeg;base64,{jpg_as_text}"
@@ -761,12 +761,11 @@ class CameraAnalyticsEngine:
     frame_interval = 1.0 / source_fps
     print(f"[INFO] {source_type} opened: {source_fps:.1f} FPS, frame interval: {frame_interval*1000:.1f}ms")
     
-    if self.is_live_source:
-      # For non-YouTube live streams (RTSP, RTMP, HLS), use threaded reader
-      self._run_live_with_threaded_reader(cap, source_fps)
-    else:
-      # For regular videos, use frame-by-frame with timing control
-      self._run_video_with_timing(cap, frame_interval)
+    # Always use 3-thread async pipeline for ALL sources (live AND recorded).
+    # This ensures demographics (InsightFace) run on the inference thread
+    # with proper CUDA session management for both live and recorded video.
+    print(f"[INFO] Using 3-thread async pipeline (capture / inference / main)")
+    self._run_async_pipeline(cap)
 
 
   def _run_async_pipeline(self, cap) -> None:
@@ -803,12 +802,16 @@ class CameraAnalyticsEngine:
         if not ret or frame is None:
           time.sleep(0.005)
           continue
-        # Eski frame'i at, yeniyi koy (her zaman en güncel frame)
-        if raw_frame_q.full():
+        # Buffer frames for smooth playback — block briefly if queue full
+        # instead of dropping frames which causes visible stuttering
+        try:
+          raw_frame_q.put(frame, timeout=0.1)
+        except _queue.Full:
+          # Only drop oldest if truly stuck (backpressure from inference)
           try: raw_frame_q.get_nowait()
           except _queue.Empty: pass
-        try: raw_frame_q.put_nowait(frame)
-        except _queue.Full: pass
+          try: raw_frame_q.put_nowait(frame)
+          except _queue.Full: pass
         # FPS say
         _cap_cnt[0] += 1
         now = time.time()
@@ -914,7 +917,10 @@ class CameraAnalyticsEngine:
                     if hasattr(best_face, 'gender') and best_face.gender is not None:
                       gender = "male" if round(float(best_face.gender)) == 1 else "female"
                     if gender is not None:
-                      conf = max(0.60, 0.85 * min(1.0, float(best_face.det_score) / 0.80))
+                      ds = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.3
+                      # Scale confidence by det_score — low quality faces get lower weight
+                      # in temporal voting, so wrong predictions don't cement quickly
+                      conf = 0.85 * min(1.0, ds / 0.60)
                       demo_results[tid] = (float(best_face.age), gender, conf)
                       matched_tids.add(tid)
 
@@ -964,12 +970,12 @@ class CameraAnalyticsEngine:
           if now - _inf_t[0] >= 1.0:
             self.inference_fps = _inf_cnt[0] / (now - _inf_t[0])
             _inf_cnt[0] = 0; _inf_t[0] = now
-          # Live stream FPS limiter: prevent fast-forward during HLS bursts
-          if self.is_live_source:
-            elapsed = time.time() - inf_start
-            min_interval = 0.025  # ~40fps cap
-            if elapsed < min_interval:
-              time.sleep(min_interval - elapsed)
+          # FPS limiter: match source FPS for smooth playback (live AND recorded)
+          elapsed = time.time() - inf_start
+          target_fps = self.source_fps if self.source_fps and self.source_fps > 0 else 30.0
+          min_interval = 1.0 / target_fps
+          if elapsed < min_interval:
+            time.sleep(min_interval - elapsed)
         except Exception as e:
           print(f"[WARN] Inference thread error: {e}")
           time.sleep(0.01)

@@ -128,7 +128,7 @@ class AnalyticsWebSocketServer:
 
                     if frame is not None:
                         # Encode frame to JPEG — kalite 92 (yüksek kalite, hâlâ gerçek zamanlı)
-                        _, jpeg_buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+                        _, jpeg_buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
                         jpeg_bytes = jpeg_buffer.tobytes()
 
                         # Write MJPEG frame
