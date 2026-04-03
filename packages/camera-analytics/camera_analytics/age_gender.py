@@ -122,10 +122,6 @@ class MiVOLOEstimator(AgeGenderEstimator):
         if self.predictor is None:
             return None, None, 0.0
             
-    def predict(self, face_img: np.ndarray) -> Tuple[Optional[float], Optional[str], float]:
-        if self.predictor is None:
-            return None, None, 0.0
-            
         try:
             from mivolo.data.misc import prepare_classification_images
             
@@ -203,7 +199,7 @@ class InsightFaceEstimator(AgeGenderEstimator):
     buffalo_l provides significantly better age/gender prediction than buffalo_s,
     especially for profile faces and low-resolution crops.
     """
-    MIN_FACE_INPUT_SIZE = 320
+    MIN_FACE_INPUT_SIZE = 160
 
     def __init__(self, model_name: str = "buffalo_l", providers: list = None):
         self.model_name = model_name
@@ -228,6 +224,17 @@ class InsightFaceEstimator(AgeGenderEstimator):
             self.app = FaceAnalysis(name=self.model_name, providers=self.providers)
             self.app.prepare(ctx_id=ctx_id, det_size=det_size)
             logger.info(f"InsightFace ({self.model_name}) initialized successfully.")
+            # Log loaded model names safely (models dict has string keys)
+            try:
+                if self.app and hasattr(self.app, 'models'):
+                    model_names = list(self.app.models.keys()) if isinstance(self.app.models, dict) else [str(m) for m in self.app.models]
+                    print(f"[INFO] InsightFace loaded models: {model_names}")
+                    # Check for genderage model availability
+                    has_genderage = any('genderage' in str(name) for name in model_names)
+                    if not has_genderage:
+                        print(f"[WARN] 'genderage' model NOT found in InsightFace! Age/gender will NOT work.")
+            except Exception as e:
+                print(f"[INFO] InsightFace models loaded (could not enumerate: {e})")
         except Exception as e:
             logger.error(f"Failed to initialize InsightFace ({self.model_name}): {e}")
             if self.model_name == "buffalo_l":
@@ -363,7 +370,9 @@ class EstimatorFactory:
 
         if insightface is not None:
             logger.info("Factory: Creating InsightFace Estimator (auto-fallback)...")
-            return InsightFaceEstimator()
+            estimator = InsightFaceEstimator()
+            print(f"[INFO] Factory selected: {type(estimator).__name__}")
+            return estimator
 
         logger.warning("Factory: No demographics estimator available (install InsightFace or MiVOLO)")
         return MiVOLOEstimator()

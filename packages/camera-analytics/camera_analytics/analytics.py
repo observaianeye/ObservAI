@@ -273,7 +273,7 @@ class CameraAnalyticsEngine:
     config: AnalyticsConfig,
     source: str | int,
     output_path: Path,
-    model_path: str = "yolo11n.pt",
+    model_path: str = "yolo11m.pt",
     sample_interval: float = 1.0,
     display: bool = False,
     show_zones: bool = False,
@@ -382,6 +382,7 @@ class CameraAnalyticsEngine:
       max_workers=1, thread_name_prefix="demographics"
     )
     self.pending_demographics_future = None
+    self._latest_demo_results = {}
     print(f"[INFO] Demographics processing: Async mode (every {self.face_detection_interval} frames)")
 
     # Resolve source using Factory
@@ -561,9 +562,9 @@ class CameraAnalyticsEngine:
 
       # For network streams (live), set buffer size and other options
       if self.is_live_source:
-        # Reduce buffer size for lower latency on live streams
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        print(f"[INFO] Set buffer size to 1 for live stream")
+        # Larger buffer for HLS streams — segments arrive in 2-6s bursts
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 30)
+        print(f"[INFO] Set buffer size to 30 for live stream")
 
     if not cap.isOpened():
       error_msg = f"Failed to open video source: {self.source}"
@@ -693,7 +694,7 @@ class CameraAnalyticsEngine:
       cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
       cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
       cap.set(cv2.CAP_PROP_FPS, 30)
-      cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+      cap.set(cv2.CAP_PROP_BUFFERSIZE, 30)
       actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
       actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
       print(f"[INFO] Webcam ({_plat.system()}): {actual_w}x{actual_h} MJPG, async 3-thread pipeline")
@@ -728,8 +729,8 @@ class CameraAnalyticsEngine:
     else:
       cap = cv2.VideoCapture(self.source)
     
-    # Set buffer size to minimum for lower latency (critical for smooth playback)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    # Larger buffer for HLS burst tolerance (segments arrive in 2-6s bursts)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 30)
 
     # For HTTP streams (YouTube), set additional OpenCV properties for smoother playback
     if isinstance(self.source, str) and self.source.startswith('http'):
@@ -785,8 +786,8 @@ class CameraAnalyticsEngine:
     import threading
     import queue as _queue
 
-    raw_frame_q = _queue.Queue(maxsize=3)   # Capture → Inference
-    result_q    = _queue.Queue(maxsize=2)   # Inference → Main
+    raw_frame_q = _queue.Queue(maxsize=30)  # Capture → Inference (large for HLS bursts)
+    result_q    = _queue.Queue(maxsize=10)  # Inference → Main
     stop_event  = threading.Event()
 
     # FPS sayaçları (her thread için ayrı)
@@ -815,14 +816,23 @@ class CameraAnalyticsEngine:
           self.capture_fps = _cap_cnt[0] / (now - _cap_t[0])
           _cap_cnt[0] = 0; _cap_t[0] = now
 
-    # ── Thread 2: YOLO Inference ─────────────────────────────────────────────
+    # ── Thread 2: YOLO Inference + InsightFace Demographics ────────────────
+    # InsightFace MUST run on the same thread as initialization due to
+    # ONNX Runtime CUDA session thread-safety constraints.
+    # We lazy-initialize InsightFace here on first use.
+    _insightface_initialized = [False]
+    _demo_frame_counter = [0]
+    _recently_processed = [set()]  # Track IDs already processed this cycle
+
     def inference_fn():
       while not stop_event.is_set():
         try:
           frame = raw_frame_q.get(timeout=1.0)
         except _queue.Empty:
           continue
+        inf_start = time.time()
         try:
+          # YOLO inference
           results = self.model.track(
             source=frame,
             persist=True,
@@ -836,11 +846,117 @@ class CameraAnalyticsEngine:
             half=self.inference_params.get("half", False),
             agnostic_nms=self.agnostic_nms,
           )
+
+          # InsightFace: lazy-init on this thread for CUDA compatibility
+          if not _insightface_initialized[0] and self.age_gender_estimator is not None:
+            try:
+              print("[INFO] Re-initializing InsightFace on inference thread for CUDA compatibility...", flush=True)
+              self.age_gender_estimator.prepare(ctx_id=0, det_size=(640, 640))
+              _insightface_initialized[0] = True
+              print("[INFO] InsightFace ready on inference thread", flush=True)
+            except Exception as e:
+              print(f"[WARN] InsightFace re-init failed: {e}", flush=True)
+
+          # HYBRID demographics: full-frame detection + crop-based fallback
+          # Step 1: Full-frame finds large/close faces reliably
+          # Step 2: Match to YOLO persons with proportional tolerance
+          # Step 3: Crop-based fallback for unmatched persons
+          demo_results = {}  # {track_id: (age, gender, conf)}
+          _demo_frame_counter[0] += 1
+          if (_insightface_initialized[0] and
+              _demo_frame_counter[0] % self.face_detection_interval == 0 and
+              results and results[0].boxes is not None and
+              results[0].boxes.id is not None):
+            try:
+              boxes = results[0].boxes
+              ids = boxes.id.cpu().numpy().astype(int)
+              xyxys = boxes.xyxy.cpu().numpy()
+              fh, fw = frame.shape[:2]
+              matched_tids = set()
+
+              # Step 1: Full-frame face detection
+              full_faces = self.age_gender_estimator.detect_and_predict(frame)
+              n_full = len(full_faces) if full_faces else 0
+
+              # Step 2: Match full-frame faces to YOLO persons
+              if full_faces:
+                for i in range(len(ids)):
+                  tid = int(ids[i])
+                  x1, y1, x2, y2 = xyxys[i]
+                  pw, ph = x2 - x1, y2 - y1
+                  best_face = None
+                  best_overlap = 0.0
+                  # Proportional tolerance: 30% of person dimensions
+                  tol_x = max(30, pw * 0.3)
+                  tol_y = max(30, ph * 0.3)
+                  head_y2 = y1 + ph * 0.75
+
+                  for face in full_faces:
+                    fx1, fy1, fx2, fy2 = face.bbox
+                    fcx = (fx1 + fx2) / 2
+                    fcy = (fy1 + fy2) / 2
+                    det_score = float(face.det_score) if hasattr(face, 'det_score') else 0.0
+                    if det_score < self.config.demo_min_confidence:
+                      continue
+                    if (x1 - tol_x <= fcx <= x2 + tol_x and
+                        y1 - tol_y <= fcy <= head_y2 + tol_y):
+                      overlap_x = max(0, min(fx2, x2) - max(fx1, x1))
+                      overlap_y = max(0, min(fy2, y2) - max(fy1, y1))
+                      overlap_area = overlap_x * overlap_y
+                      face_area = max(1, (fx2 - fx1) * (fy2 - fy1))
+                      ratio = overlap_area / face_area
+                      if ratio > best_overlap:
+                        best_overlap = ratio
+                        best_face = face
+
+                  if best_face is not None and hasattr(best_face, 'age') and best_face.age is not None:
+                    gender = None
+                    if hasattr(best_face, 'gender') and best_face.gender is not None:
+                      gender = "male" if round(float(best_face.gender)) == 1 else "female"
+                    if gender is not None:
+                      conf = max(0.60, 0.85 * min(1.0, float(best_face.det_score) / 0.80))
+                      demo_results[tid] = (float(best_face.age), gender, conf)
+                      matched_tids.add(tid)
+
+              # Step 3: Crop-based fallback for unmatched persons
+              crop_count = 0
+              for i in range(len(ids)):
+                if crop_count >= 5:
+                  break
+                tid = int(ids[i])
+                if tid in matched_tids or tid in _recently_processed[0]:
+                  continue
+                x1, y1, x2, y2 = xyxys[i]
+                ph, pw = y2 - y1, x2 - x1
+                if ph < self.config.demo_min_bbox_height or pw < self.config.demo_min_bbox_width:
+                  continue
+                head_y2 = y1 + ph * 0.55
+                pad_x, pad_y = pw * 0.2, ph * 0.1
+                cx1 = max(0, int(x1 - pad_x))
+                cy1 = max(0, int(y1 - pad_y))
+                cx2 = min(fw, int(x2 + pad_x))
+                cy2 = min(fh, int(head_y2 + pad_y))
+                crop = frame[cy1:cy2, cx1:cx2]
+                if crop.size == 0 or crop.shape[0] < 20 or crop.shape[1] < 20:
+                  continue
+                age, gender, conf = self.age_gender_estimator.predict(crop)
+                if age is not None and gender is not None:
+                  demo_results[tid] = (age, gender, conf)
+                  _recently_processed[0].add(tid)
+                  crop_count += 1
+
+              print(f"[DEMO] Hybrid: {n_full} full-frame, {len(matched_tids)} matched, {crop_count} crop fallback, {len(demo_results)} total", flush=True)
+            except Exception as e:
+              print(f"[WARN] Demographics error: {e}", flush=True)
+          # Clear recently processed cache every 30 cycles for continuous refinement
+          if _demo_frame_counter[0] % 30 == 0:
+            _recently_processed[0].clear()
+
           if results:
             if result_q.full():
               try: result_q.get_nowait()
               except _queue.Empty: pass
-            try: result_q.put_nowait((frame, results))
+            try: result_q.put_nowait((frame, results, demo_results))
             except _queue.Full: pass
           # FPS say
           _inf_cnt[0] += 1
@@ -848,6 +964,12 @@ class CameraAnalyticsEngine:
           if now - _inf_t[0] >= 1.0:
             self.inference_fps = _inf_cnt[0] / (now - _inf_t[0])
             _inf_cnt[0] = 0; _inf_t[0] = now
+          # Live stream FPS limiter: prevent fast-forward during HLS bursts
+          if self.is_live_source:
+            elapsed = time.time() - inf_start
+            min_interval = 0.025  # ~40fps cap
+            if elapsed < min_interval:
+              time.sleep(min_interval - elapsed)
         except Exception as e:
           print(f"[WARN] Inference thread error: {e}")
           time.sleep(0.01)
@@ -863,7 +985,14 @@ class CameraAnalyticsEngine:
     try:
       while self.running:
         try:
-          _frame, results = result_q.get(timeout=1.0)
+          item = result_q.get(timeout=1.0)
+          if len(item) == 3:
+            _frame, results, demo_results = item
+          else:
+            _frame, results = item
+            demo_results = {}
+          # Store crop-based demographics for _update_demographics
+          self._latest_demo_results = demo_results
         except _queue.Empty:
           continue
         for result in results:
@@ -1610,18 +1739,96 @@ class CameraAnalyticsEngine:
         self._finalize_active_zones(person, now)
         self.tracks.pop(track_id, None)
 
+  def _match_faces_to_tracks(self, faces, frame_w: int, frame_h: int) -> List[tuple]:
+    """Match InsightFace results to YOLO tracked persons by bbox overlap."""
+    cfg = self.config
+    continuous_refinement = cfg.demo_continuous_refinement
+    results = []
+    tracks_snapshot = list(self.tracks.items())
+
+    if not tracks_snapshot or not faces:
+      return []
+
+    if self.frame_count < 300:
+      print(f"[DEMO] Full-frame: {len(faces)} yuz, {len(tracks_snapshot)} kisi tracked")
+
+    for track_id, person in tracks_snapshot:
+      if not continuous_refinement:
+        has_age = person.age is not None and len(person.age_history) >= 3
+        has_gender = person.gender != "unknown" and len(person.gender_history) >= 5
+        if has_age and has_gender:
+          continue
+      else:
+        if (person.age_stability > 0.85 and person.gender_stability > 0.85
+            and person._demo_update_count >= 10):
+          if person._demo_update_count % 5 != 0:
+            continue
+
+      x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
+      px1 = x1_norm * frame_w
+      py1 = y1_norm * frame_h
+      px2 = x2_norm * frame_w
+      py2 = y2_norm * frame_h
+
+      best_face = None
+      best_overlap = 0.0
+
+      for face in faces:
+        fx1, fy1, fx2, fy2 = face.bbox
+        det_score = float(face.det_score) if hasattr(face, 'det_score') else 0.0
+        if det_score < cfg.demo_min_confidence:
+          continue
+
+        face_cx = (fx1 + fx2) / 2
+        face_cy = (fy1 + fy2) / 2
+        person_w = px2 - px1
+        person_h = py2 - py1
+        tol_x = max(30, person_w * 0.3)
+        tol_y = max(30, person_h * 0.3)
+        person_head_y2 = py1 + person_h * 0.75
+
+        if (px1 - tol_x <= face_cx <= px2 + tol_x and
+            py1 - tol_y <= face_cy <= person_head_y2 + tol_y):
+          overlap_x = max(0, min(fx2, px2) - max(fx1, px1))
+          overlap_y = max(0, min(fy2, py2) - max(fy1, py1))
+          overlap_area = overlap_x * overlap_y
+          face_area = max(1, (fx2 - fx1) * (fy2 - fy1))
+          overlap_ratio = overlap_area / face_area
+          if overlap_ratio > best_overlap:
+            best_overlap = overlap_ratio
+            best_face = face
+
+      if best_face is not None:
+        age = float(best_face.age) if hasattr(best_face, 'age') and best_face.age is not None else None
+        det_score = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.0
+        gender = None
+        GENDER_CONFIDENCE = 0.85
+        if hasattr(best_face, "gender") and best_face.gender is not None:
+          gender = "male" if round(float(best_face.gender)) == 1 else "female"
+        elif hasattr(best_face, "sex"):
+          if isinstance(best_face.sex, str):
+            gender = "male" if best_face.sex.upper() == 'M' else "female"
+          else:
+            gender = "male" if float(best_face.sex) > 0.5 else "female"
+
+        if age is not None and gender is not None:
+          confidence = max(0.60, GENDER_CONFIDENCE * min(1.0, det_score / 0.80))
+          results.append((track_id, age, gender, confidence))
+
+    if self.frame_count < 300:
+      print(f"[DEMO] Eslestirme: {len(results)}/{len(tracks_snapshot)} kisi icin yas/cinsiyet bulundu")
+
+    return results
+
   def _process_demographics_async(self, frame: np.ndarray, frame_w: int, frame_h: int) -> List[tuple]:
     """
-    Task 2.2.1: Enhanced targeted face analysis with continuous refinement.
+    Full-frame face detection approach:
+    1. Run InsightFace on the FULL frame to detect all faces with age/gender.
+    2. Match detected faces to YOLO-tracked persons by bbox overlap.
+    3. Return (track_id, age, gender, confidence) for matched pairs.
 
-    Strategy:
-    1. Rely on YOLOv11 for detection (already happened).
-    2. Crop each tracked person's face/body region.
-    3. Send crop to MiVOLO/InsightFace for classification ONLY.
-    4. Continue refining demographics over time (temporal smoothing)
-       instead of stopping after initial classification.
-
-    Returns list of (track_id, age, gender, confidence) tuples.
+    This is much more reliable than crop-based detection because InsightFace's
+    face detector works best on full-resolution images, not tiny crops.
     """
     if self.age_gender_estimator is None:
       return []
@@ -1631,89 +1838,94 @@ class CameraAnalyticsEngine:
 
     try:
       results = []
-
-      # Create snapshot of tracks to avoid "dictionary changed size during iteration"
       tracks_snapshot = list(self.tracks.items())
+      if not tracks_snapshot:
+        return []
 
+      # Step 1: Run InsightFace on the full frame to find ALL faces
+      faces = self.age_gender_estimator.detect_and_predict(frame)
+      if not faces:
+        if self.frame_count < 300:
+          print(f"[DEMO] Full-frame: {len(tracks_snapshot)} kisi tracked, InsightFace 0 yuz buldu (frame={frame_w}x{frame_h})")
+        return []
+
+      if self.frame_count < 300:
+        print(f"[DEMO] Full-frame: {len(faces)} yuz bulundu, {len(tracks_snapshot)} kisi tracked")
+
+      # Step 2: Match faces to tracked persons by bbox overlap
       for track_id, person in tracks_snapshot:
-        # Task 2.2.1: Continuous refinement mode
-        # In continuous mode, keep refining even after initial classification
-        # but reduce processing frequency for stable tracks
+        # Skip stable tracks unless in continuous refinement mode
         if not continuous_refinement:
-          # Legacy mode: skip if already has good demographics
           has_age = person.age is not None and len(person.age_history) >= 3
           has_gender = person.gender != "unknown" and len(person.gender_history) >= 5
           if has_age and has_gender:
             continue
         else:
-          # Continuous mode: skip only if demographics are highly stable
-          # High stability + many samples = low value in re-processing
           if (person.age_stability > 0.85 and person.gender_stability > 0.85
               and person._demo_update_count >= 10):
-            # Still process occasionally (every ~5th opportunity) for drift detection
             if person._demo_update_count % 5 != 0:
               continue
 
+        # Convert person bbox from normalized to pixel coordinates
         x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
-        x1 = int(x1_norm * frame_w)
-        y1 = int(y1_norm * frame_h)
-        x2 = int(x2_norm * frame_w)
-        y2 = int(y2_norm * frame_h)
+        px1 = x1_norm * frame_w
+        py1 = y1_norm * frame_h
+        px2 = x2_norm * frame_w
+        py2 = y2_norm * frame_h
 
-        x1 = max(0, min(x1, frame_w - 1))
-        y1 = max(0, min(y1, frame_h - 1))
-        x2 = max(x1 + 1, min(x2, frame_w))
-        y2 = max(y1 + 1, min(y2, frame_h))
+        # Find the best matching face for this person
+        best_face = None
+        best_overlap = 0.0
 
-        bbox_width = x2 - x1
-        bbox_height = y2 - y1
-        if bbox_width < cfg.demo_min_bbox_width or bbox_height < cfg.demo_min_bbox_height:
-          continue
+        for face in faces:
+          fx1, fy1, fx2, fy2 = face.bbox
+          det_score = float(face.det_score) if hasattr(face, 'det_score') else 0.0
+          if det_score < cfg.demo_min_confidence:
+            continue
 
-        # Focus on the upper body/head region for better face detection.
-        # YOLO detects full body, but InsightFace needs the face area.
-        # Take the top 55% of the person bbox (head + shoulders) for demographics.
-        head_y2 = y1 + int(bbox_height * 0.55)
+          # Check if face center is within the person's upper body region
+          face_cx = (fx1 + fx2) / 2
+          face_cy = (fy1 + fy2) / 2
 
-        # Apply generous padding (20% each side) so InsightFace gets
-        # forehead, chin, ears, and hair context for its 106-point landmark model.
-        head_h = head_y2 - y1
-        pad_x = int(bbox_width * 0.20)
-        pad_y = int(head_h * 0.25)
+          # Face should be inside person bbox (with some margin)
+          person_head_y2 = py1 + (py2 - py1) * 0.6  # Upper 60% of person
+          if (px1 - 10 <= face_cx <= px2 + 10 and
+              py1 - 10 <= face_cy <= person_head_y2 + 10):
+            # Calculate overlap score (face area within person bbox)
+            overlap_x = max(0, min(fx2, px2) - max(fx1, px1))
+            overlap_y = max(0, min(fy2, py2) - max(fy1, py1))
+            overlap_area = overlap_x * overlap_y
+            face_area = max(1, (fx2 - fx1) * (fy2 - fy1))
+            overlap_ratio = overlap_area / face_area
 
-        x1_padded = max(0, x1 - pad_x)
-        y1_padded = max(0, y1 - pad_y)
-        x2_padded = min(frame_w, x2 + pad_x)
-        y2_padded = min(frame_h, head_y2 + pad_y)
+            if overlap_ratio > best_overlap:
+              best_overlap = overlap_ratio
+              best_face = face
 
-        person_crop = frame[y1_padded:y2_padded, x1_padded:x2_padded]
+        if best_face is not None:
+          age = float(best_face.age) if hasattr(best_face, 'age') and best_face.age is not None else None
+          det_score = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.0
 
-        if person_crop.shape[0] < cfg.demo_min_crop_height or person_crop.shape[1] < cfg.demo_min_crop_width:
-          continue
-
-        try:
-          age, gender, confidence = self.age_gender_estimator.predict(person_crop)
+          gender = None
+          GENDER_CONFIDENCE = 0.85
+          if hasattr(best_face, "gender") and best_face.gender is not None:
+            gender = "male" if round(float(best_face.gender)) == 1 else "female"
+          elif hasattr(best_face, "sex"):
+            if isinstance(best_face.sex, str):
+              gender = "male" if best_face.sex.upper() == 'M' else "female"
+            else:
+              gender = "male" if float(best_face.sex) > 0.5 else "female"
 
           if age is not None and gender is not None:
-             confidence = min(1.0, confidence * 1.2)
-             results.append((track_id, age, gender, confidence))
-             if _DEBUG:
-               _log.debug(
-                 f"[DEMO] track_id={track_id} → age={age:.1f}, gender={gender}, "
-                 f"conf={confidence:.3f}, crop={person_crop.shape}"
-               )
-          else:
-            if _DEBUG:
-              _log.debug(
-                f"[DEMO] track_id={track_id} → no face detected in crop "
-                f"(age={age}, gender={gender}, conf={confidence:.3f})"
-              )
+            confidence = max(0.60, GENDER_CONFIDENCE * min(1.0, det_score / 0.80))
+            results.append((track_id, age, gender, confidence))
 
-        except Exception as exc:
-          if _DEBUG:
-            _log.debug(f"[DEMO] track_id={track_id} predict exception: {exc}")
-
+      if self.frame_count < 300:
+        print(f"[DEMO] Eslestirme: {len(results)}/{len(tracks_snapshot)} kisi icin yas/cinsiyet bulundu")
+      elif len(results) > 0:
+        print(f"[DEMO] Demographics: {len(results)} sonuc")
       return results
+
     except Exception as e:
       print(f"[WARN] Demographics processing error: {e}")
       import traceback
@@ -1721,72 +1933,40 @@ class CameraAnalyticsEngine:
       return []
 
   def _update_demographics(self, frame: np.ndarray) -> None:
-    # ... existing start ...
     if self.age_gender_estimator is None:
       return
 
-    # Task 2.2.1: Config-driven demographic smoothing parameters
+    # Use crop-based demographics from inference thread (dict: track_id -> (age, gender, conf))
+    demo_results = getattr(self, '_latest_demo_results', {})
+    if not demo_results:
+      return
+
+    # Clear so we don't reprocess
+    self._latest_demo_results = {}
+
     cfg = self.config
     age_ema_alpha = cfg.demo_age_ema_alpha
     min_conf = cfg.demo_min_confidence
     gender_consensus = cfg.demo_gender_consensus
     temporal_decay = cfg.demo_temporal_decay
 
-    # Check if previous async task completed
-    if self.pending_demographics_future is not None:
-      if self.pending_demographics_future.done():
-        try:
-          results = self.pending_demographics_future.result(timeout=0)
-          # Apply demographics to tracks with Task 2.2.1 smoothing params
-          for item in results:
-            if len(item) == 4:
-                track_id, age, gender, conf = item
-                if track_id in self.tracks:
-                  person = self.tracks[track_id]
-                  prev_gender = person.gender
-                  if age is not None:
-                    person.update_age(age, confidence=conf,
-                                      ema_alpha=age_ema_alpha,
-                                      min_confidence=min_conf)
-                  if gender is not None:
-                    person.update_gender(gender, confidence=conf,
-                                         consensus_threshold=gender_consensus,
-                                         temporal_decay=temporal_decay,
-                                         min_confidence=min_conf)
-                  if _DEBUG and prev_gender != person.gender:
-                    _log.debug(
-                      f"[DEMO] track_id={track_id} gender changed: "
-                      f"{prev_gender} → {person.gender} "
-                      f"(stability={person.gender_stability:.2f}, "
-                      f"history_len={len(person.gender_history)})"
-                    )
-            elif len(item) == 3: # Legacy fallback
-                track_id, age, gender = item
-                if track_id in self.tracks:
-                  person = self.tracks[track_id]
-                  person.update_age(age)
-                  person.update_gender(gender)
+    matched = 0
+    for track_id, (age, gender, conf) in demo_results.items():
+      if track_id in self.tracks:
+        person = self.tracks[track_id]
+        matched += 1
+        if age is not None:
+          person.update_age(age, confidence=conf,
+                            ema_alpha=age_ema_alpha,
+                            min_confidence=min_conf)
+        if gender is not None:
+          person.update_gender(gender, confidence=conf,
+                               consensus_threshold=gender_consensus,
+                               temporal_decay=temporal_decay,
+                               min_confidence=min_conf)
 
-        except Exception as e:
-          print(f"[WARN] Demographics result error: {e}")
-        finally:
-          self.pending_demographics_future = None
-    
-    # ... existing schedule logic ...
-    self.frame_count += 1
-    if self.frame_count % self.face_detection_interval == 0:
-      if self.pending_demographics_future is None:
-        frame_h, frame_w = frame.shape[:2]
-        try:
-          self.pending_demographics_future = self.demographics_executor.submit(
-            self._process_demographics_async,
-            frame.copy(),
-            frame_w,
-            frame_h
-          )
-        except RuntimeError:
-          # Executor was shut down during stop() — race condition, silently ignore
-          pass
+    if self.frame_count < 500:
+      print(f"[DEMO] Applied: {len(demo_results)} detected, {matched} applied to tracks", flush=True)
 
   def _build_metrics(self) -> CameraMetrics:
     # Decay heatmap over time

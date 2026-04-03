@@ -10,3 +10,4 @@ gmc_method: none
 proximity_thresh: 0.5
 appearance_thresh: 0.25
 with_reid: False
+model: auto

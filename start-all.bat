@@ -145,7 +145,7 @@ if errorlevel 1 (
     echo       %GREEN%GPU CUDA available and ready.%NC%
 )
 
-start "ObservAI Camera AI" /min cmd /c ""%VENV_PYTHON%" -m camera_analytics.run_with_websocket --source 0 --model yolo11s.pt > "%SCRIPT_DIR%logs\camera-ai.log" 2>&1"
+start "ObservAI Camera AI" /min cmd /c ""%VENV_PYTHON%" -u -m camera_analytics.run_with_websocket --source 0 --model yolo11m.pt > "%SCRIPT_DIR%logs\camera-ai.log" 2>&1"
 timeout /t 2 /nobreak >nul
 echo       %BLUE%→ Camera AI running on ws://0.0.0.0:5001%NC%
 

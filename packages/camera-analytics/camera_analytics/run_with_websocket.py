@@ -22,7 +22,7 @@ class CameraAnalyticsWithWebSocket:
         self,
         config_path: Path,
         source: str | int,
-        model_path: str = "yolo11s.pt",
+        model_path: str = "yolo11m.pt",
         display: bool = False,
         ws_host: str = "0.0.0.0",
         ws_port: int = 5000,
@@ -137,9 +137,9 @@ class CameraAnalyticsWithWebSocket:
                 # Warmup with a dummy forward pass (reduces first-inference latency)
                 try:
                     import numpy as np
-                    dummy = np.zeros((1, 3, 640, 640), dtype=np.uint8)
-                    _ = model.predict(dummy, verbose=False, imgsz=640)
-                    print("✓ YOLO model warmed up (640p)")
+                    dummy = np.zeros((1, 3, 960, 960), dtype=np.uint8)
+                    _ = model.predict(dummy, verbose=False, imgsz=960)
+                    print("✓ YOLO model warmed up (960p)")
                 except Exception:
                     pass
                 return model
@@ -394,8 +394,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        default="yolo11s.pt",
-        help="YOLO model checkpoint (default: yolo11s.pt)",
+        default="yolo11m.pt",
+        help="YOLO model checkpoint (default: yolo11m.pt)",
     )
     parser.add_argument(
         "--display",

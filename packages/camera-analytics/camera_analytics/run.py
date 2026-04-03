@@ -35,8 +35,8 @@ def parse_args() -> argparse.Namespace:
   parser.add_argument(
     "--model",
     type=str,
-    default="yolo11s.pt",
-    help="YOLO model checkpoint (default: yolo11s.pt)",
+    default="yolo11m.pt",
+    help="YOLO model checkpoint (default: yolo11m.pt)",
   )
   parser.add_argument(
     "--interval",

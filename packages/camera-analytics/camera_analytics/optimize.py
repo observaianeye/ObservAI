@@ -189,7 +189,7 @@ class HardwareOptimizer:
         }
 
         if hw["cuda_available"]:
-            default_size = 640
+            default_size = 960
             params.update(
                 {
                     "half": True,
