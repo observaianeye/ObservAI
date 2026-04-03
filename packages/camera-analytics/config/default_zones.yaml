@@ -69,11 +69,11 @@ demo_continuous_refinement: true
 
 # Performance: Face detection frequency (her kaç frame'de bir)
 # ivCam için 5 tavsiye edilir (daha sık doğru demografik tahmin)
-face_detection_interval: 3   # RTX 5070: every 3 frames
+face_detection_interval: 2   # RTX 5070: every 2 frames for maximum accuracy
 
 # Performance: Demografi minimum bbox boyutları (pixels)
 # ivCam kalitesi arttığı için daha küçük kişileri de işliyoruz
-demo_min_bbox_width: 30   # 40 → 30 (daha uzak kişiler)
-demo_min_bbox_height: 50  # 80 → 50 (daha küçük bbox'lar)
-demo_min_crop_height: 40  # 80 → 40
-demo_min_crop_width: 30   # 40 → 30
+demo_min_bbox_width: 25
+demo_min_bbox_height: 40
+demo_min_crop_height: 30
+demo_min_crop_width: 20

@@ -825,7 +825,6 @@ class CameraAnalyticsEngine:
     # We lazy-initialize InsightFace here on first use.
     _insightface_initialized = [False]
     _demo_frame_counter = [0]
-    _recently_processed = [set()]  # Track IDs already processed this cycle
 
     def inference_fn():
       while not stop_event.is_set():
@@ -924,20 +923,23 @@ class CameraAnalyticsEngine:
                       demo_results[tid] = (float(best_face.age), gender, conf)
                       matched_tids.add(tid)
 
-              # Step 3: Crop-based fallback for unmatched persons
+              # Step 3: Crop-based fallback for ALL unmatched persons
+              # Try head crops for persons not matched by full-frame detection.
+              # This catches people facing away, at angles, or at distance.
               crop_count = 0
               for i in range(len(ids)):
-                if crop_count >= 5:
+                if crop_count >= 10:
                   break
                 tid = int(ids[i])
-                if tid in matched_tids or tid in _recently_processed[0]:
+                if tid in matched_tids:
                   continue
                 x1, y1, x2, y2 = xyxys[i]
                 ph, pw = y2 - y1, x2 - x1
                 if ph < self.config.demo_min_bbox_height or pw < self.config.demo_min_bbox_width:
                   continue
-                head_y2 = y1 + ph * 0.55
-                pad_x, pad_y = pw * 0.2, ph * 0.1
+                # Crop upper 60% of person bbox (head + shoulders) with generous padding
+                head_y2 = y1 + ph * 0.60
+                pad_x, pad_y = pw * 0.25, ph * 0.15
                 cx1 = max(0, int(x1 - pad_x))
                 cy1 = max(0, int(y1 - pad_y))
                 cx2 = min(fw, int(x2 + pad_x))
@@ -948,15 +950,11 @@ class CameraAnalyticsEngine:
                 age, gender, conf = self.age_gender_estimator.predict(crop)
                 if age is not None and gender is not None:
                   demo_results[tid] = (age, gender, conf)
-                  _recently_processed[0].add(tid)
                   crop_count += 1
 
-              print(f"[DEMO] Hybrid: {n_full} full-frame, {len(matched_tids)} matched, {crop_count} crop fallback, {len(demo_results)} total", flush=True)
+              print(f"[DEMO] Hybrid: {n_full} full-frame, {len(matched_tids)} matched, {crop_count} crop, {len(demo_results)} total", flush=True)
             except Exception as e:
               print(f"[WARN] Demographics error: {e}", flush=True)
-          # Clear recently processed cache every 30 cycles for continuous refinement
-          if _demo_frame_counter[0] % 30 == 0:
-            _recently_processed[0].clear()
 
           if results:
             if result_q.full():

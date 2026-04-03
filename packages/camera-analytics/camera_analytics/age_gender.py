@@ -199,7 +199,7 @@ class InsightFaceEstimator(AgeGenderEstimator):
     buffalo_l provides significantly better age/gender prediction than buffalo_s,
     especially for profile faces and low-resolution crops.
     """
-    MIN_FACE_INPUT_SIZE = 160
+    MIN_FACE_INPUT_SIZE = 256
 
     def __init__(self, model_name: str = "buffalo_l", providers: list = None):
         self.model_name = model_name
