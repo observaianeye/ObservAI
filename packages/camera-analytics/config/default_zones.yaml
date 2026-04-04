@@ -77,3 +77,15 @@ demo_min_bbox_width: 25
 demo_min_bbox_height: 40
 demo_min_crop_height: 30
 demo_min_crop_width: 20
+
+# Queue analytics
+queue_alert_threshold: 5
+queue_wait_time_window: 300
+
+# Zone entry/exit debounce (frame count)
+zone_enter_debounce_frames: 3
+zone_exit_debounce_frames: 5
+
+# Bbox smoothing EMA alpha range
+bbox_smoothing_alpha_min: 0.3
+bbox_smoothing_alpha_max: 0.9

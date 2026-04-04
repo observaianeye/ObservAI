@@ -1,17 +1,17 @@
-import { Database, Radio } from 'lucide-react';
+import { Database, Radio, Lock } from 'lucide-react';
 import { useDataMode } from '../contexts/DataModeContext';
 
 export default function DataModeToggle() {
-  const { dataMode, setDataMode } = useDataMode();
+  const { dataMode, setDataMode, isModeLocked } = useDataMode();
 
   return (
-    <div className="inline-flex items-center bg-white border border-gray-300 rounded-lg overflow-hidden shadow-sm">
+    <div className="inline-flex items-center bg-[#0f1117]/80 border border-white/10 rounded-lg overflow-hidden shadow-sm relative">
       <button
         onClick={() => setDataMode('demo')}
         className={`px-4 py-2 text-sm font-medium transition-all flex items-center space-x-2 ${
           dataMode === 'demo'
             ? 'bg-purple-600 text-white'
-            : 'bg-white text-gray-700 hover:bg-gray-50'
+            : 'bg-transparent text-gray-300 hover:bg-white/5'
         }`}
       >
         <Database className="w-4 h-4" />
@@ -19,13 +19,17 @@ export default function DataModeToggle() {
       </button>
       <button
         onClick={() => setDataMode('live')}
+        disabled={isModeLocked}
+        title={isModeLocked ? 'Upgrade to access live data' : undefined}
         className={`px-4 py-2 text-sm font-medium transition-all flex items-center space-x-2 ${
           dataMode === 'live'
             ? 'bg-green-600 text-white'
-            : 'bg-white text-gray-700 hover:bg-gray-50'
+            : isModeLocked
+              ? 'bg-transparent text-gray-500 cursor-not-allowed'
+              : 'bg-transparent text-gray-300 hover:bg-white/5'
         }`}
       >
-        <Radio className="w-4 h-4" />
+        {isModeLocked ? <Lock className="w-4 h-4" /> : <Radio className="w-4 h-4" />}
         <span>Live</span>
         {dataMode === 'live' && (
           <span className="relative flex h-2 w-2">

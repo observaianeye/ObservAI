@@ -3,8 +3,10 @@ import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import { Activity, Lock, Mail, User, ArrowRight, Loader2, Building } from 'lucide-react';
 import ParticleBackground from '../components/visuals/ParticleBackground';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function RegisterPage() {
+  const { checkAuth } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -19,7 +21,6 @@ export default function RegisterPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    console.log("yarak");
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -33,7 +34,6 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      console.log("register istek atildi");
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: {
@@ -48,11 +48,11 @@ export default function RegisterPage() {
       });
 
       if (response.ok) {
-        // Registration successful
-        navigate('/login');
+        // Registration successful - auto login since backend creates session
+        await checkAuth();
+        navigate('/dashboard');
       } else {
         const data = await response.json();
-        console.log("emrenin burası");
         setError(data.error || 'Registration failed');
       }
     } catch (err) {
@@ -85,8 +85,8 @@ export default function RegisterPage() {
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600/20 mb-4">
               <Activity className="w-6 h-6 text-blue-400" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2">Register</h2>
-            <p className="text-gray-400 text-sm">Join the next generation of retail analytics.</p>
+            <h2 className="text-2xl font-bold text-white mb-2">Start Your Free Trial</h2>
+            <p className="text-gray-400 text-sm">14 days free. No credit card required.</p>
           </div>
 
           <form onSubmit={handleRegister} className="space-y-5">
@@ -100,7 +100,7 @@ export default function RegisterPage() {
                   value={formData.name}
                   onChange={handleChange}
                   className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                  placeholder="John Doe"
+                  placeholder="Ahmet Yilmaz"
                   required
                 />
               </div>
@@ -116,7 +116,7 @@ export default function RegisterPage() {
                   value={formData.email}
                   onChange={handleChange}
                   className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                  placeholder="john@company.com"
+                  placeholder="isim@kafeniz.com"
                   required
                 />
               </div>
@@ -132,7 +132,7 @@ export default function RegisterPage() {
                   value={formData.company}
                   onChange={handleChange}
                   className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                  placeholder="Acme Corp"
+                  placeholder="Cafe Istanbul"
                   required
                 />
               </div>
@@ -179,7 +179,7 @@ export default function RegisterPage() {
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
                 <>
-                  Submit Request
+                  Start Free Trial
                   <ArrowRight className="w-5 h-5" />
                 </>
               )}

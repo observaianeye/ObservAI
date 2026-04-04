@@ -1,6 +1,7 @@
-import { Settings, User, ChevronDown, LogOut, Menu } from 'lucide-react';
+import { Settings, User, ChevronDown, LogOut, Menu, Plus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useDashboardFilter, DEFAULT_DATE_RANGES } from '../../contexts/DashboardFilterContext';
 import { useState, useRef, useEffect } from 'react';
 import NotificationCenter from '../NotificationCenter';
 import DataModeToggle from '../DataModeToggle';
@@ -14,6 +15,7 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
   const navigate = useNavigate();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { branches, selectedBranch, setSelectedBranch, dateRange, setDateRange } = useDashboardFilter();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -31,6 +33,28 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
     navigate('/login');
   };
 
+  const handleBranchChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    if (value === '__add__') {
+      navigate('/dashboard/settings');
+      return;
+    }
+    const branch = branches.find(b => b.id === value);
+    if (branch) setSelectedBranch(branch);
+  };
+
+  const handleDateRangeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const days = parseInt(e.target.value);
+    if (isNaN(days)) return;
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    const match = DEFAULT_DATE_RANGES.find(r => r.days === days);
+    setDateRange({ start, end, label: match?.label || `Last ${days} days` });
+  };
+
+  const currentDays = Math.round((dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24));
+
   return (
     <header className="h-16 bg-[#0a0b10]/95 backdrop-blur-xl border-b border-white/10 fixed top-0 right-0 left-0 lg:left-64 z-20">
       <div className="h-full px-4 lg:px-6 flex items-center justify-between">
@@ -42,17 +66,34 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
             <Menu className="w-6 h-6" />
           </button>
 
-          <select className="px-2 lg:px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-xs lg:text-sm font-medium text-gray-300 hover:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all backdrop-blur-sm">
-            <option className="bg-[#0a0b10] text-gray-300">Ankara Downtown</option>
-            <option className="bg-[#0a0b10] text-gray-300">Istanbul Central</option>
-            <option className="bg-[#0a0b10] text-gray-300">Izmir Marina</option>
+          {/* Branch selector - dynamic */}
+          <select
+            value={selectedBranch?.id || ''}
+            onChange={handleBranchChange}
+            className="px-2 lg:px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-xs lg:text-sm font-medium text-gray-300 hover:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all backdrop-blur-sm"
+          >
+            {branches.length === 0 && (
+              <option value="" className="bg-[#0a0b10] text-gray-500">No branches</option>
+            )}
+            {branches.map(b => (
+              <option key={b.id} value={b.id} className="bg-[#0a0b10] text-gray-300">
+                {b.name} — {b.city}
+              </option>
+            ))}
+            <option value="__add__" className="bg-[#0a0b10] text-blue-400">+ Add Branch</option>
           </select>
 
-          <select className="hidden sm:block px-2 lg:px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-xs lg:text-sm font-medium text-gray-300 hover:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all backdrop-blur-sm">
-            <option className="bg-[#0a0b10] text-gray-300">Last 30 days</option>
-            <option className="bg-[#0a0b10] text-gray-300">Last 7 days</option>
-            <option className="bg-[#0a0b10] text-gray-300">Last 90 days</option>
-            <option className="bg-[#0a0b10] text-gray-300">Custom range</option>
+          {/* Date range selector - functional */}
+          <select
+            value={currentDays}
+            onChange={handleDateRangeChange}
+            className="hidden sm:block px-2 lg:px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-xs lg:text-sm font-medium text-gray-300 hover:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all backdrop-blur-sm"
+          >
+            {DEFAULT_DATE_RANGES.map(r => (
+              <option key={r.days} value={r.days} className="bg-[#0a0b10] text-gray-300">
+                {r.label}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -61,7 +102,10 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
 
           <NotificationCenter />
 
-          <button className="hidden md:flex p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50">
+          <button
+            onClick={() => navigate('/dashboard/settings')}
+            className="hidden md:flex p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+          >
             <Settings className="w-5 h-5" />
           </button>
 

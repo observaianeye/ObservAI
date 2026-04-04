@@ -64,6 +64,18 @@ class AnalyticsConfig:
   # Performance: Face detection frequency (every N frames)
   face_detection_interval: int = 3   # Every N frames: 3 balances accuracy with FPS
 
+  # Queue analytics
+  queue_alert_threshold: int = 5
+  queue_wait_time_window: int = 300
+
+  # Zone entry/exit debounce (frame count)
+  zone_enter_debounce_frames: int = 3
+  zone_exit_debounce_frames: int = 5
+
+  # Bbox smoothing EMA alpha range
+  bbox_smoothing_alpha_min: float = 0.3
+  bbox_smoothing_alpha_max: float = 0.9
+
 
 def _load_normalized_point(raw: Sequence[float]) -> NormalizedPoint:
   if len(raw) != 2:
@@ -141,4 +153,13 @@ def load_config(path: Path) -> AnalyticsConfig:
     demo_min_crop_width=int(data.get("demo_min_crop_width", 20)),
     # Performance: Face detection frequency
     face_detection_interval=int(data.get("face_detection_interval", 3)),
+    # Queue analytics
+    queue_alert_threshold=int(data.get("queue_alert_threshold", 5)),
+    queue_wait_time_window=int(data.get("queue_wait_time_window", 300)),
+    # Zone entry/exit debounce
+    zone_enter_debounce_frames=int(data.get("zone_enter_debounce_frames", 3)),
+    zone_exit_debounce_frames=int(data.get("zone_exit_debounce_frames", 5)),
+    # Bbox smoothing
+    bbox_smoothing_alpha_min=float(data.get("bbox_smoothing_alpha_min", 0.3)),
+    bbox_smoothing_alpha_max=float(data.get("bbox_smoothing_alpha_max", 0.9)),
   )

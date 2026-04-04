@@ -52,7 +52,7 @@ export default function LandingPage() {
                     </h1>
 
                     <p className="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-                        Real-time customer analytics from your camera feeds. Visitor counts, demographics, and insights—all in one dashboard.
+                        Real-time customer analytics for cafes and restaurants. Track visitor flow, demographics, and peak hours from your existing cameras.
                     </p>
 
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -60,13 +60,13 @@ export default function LandingPage() {
                             to="/register"
                             className="group relative px-8 py-4 bg-white text-black rounded-full font-semibold text-lg transition-all hover:scale-105"
                         >
-                            Start Free Trial
+                            Start 14-Day Free Trial
                             <ArrowRight className="inline-block ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
                             <div className="absolute inset-0 rounded-full bg-white blur-lg opacity-30 group-hover:opacity-50 transition-opacity -z-10" />
                         </Link>
 
                         <Link
-                            to="/login"
+                            to="/demo"
                             className="px-8 py-4 bg-white/5 border border-white/10 rounded-full font-semibold text-lg hover:bg-white/10 transition-all backdrop-blur-sm"
                         >
                             View Demo Dashboard

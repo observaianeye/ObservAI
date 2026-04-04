@@ -11,9 +11,12 @@ interface Message {
 }
 
 const quickActions = [
-  'What is the current visitor count?',
-  'Show me demographics breakdown',
-  'What are the peak hours today?'
+  { label: 'Current visitor count', command: 'What is the current visitor count?' },
+  { label: 'Peak hours today', command: 'What are the peak hours today and what should I prepare for?' },
+  { label: 'Demographics summary', command: 'Give me a demographics breakdown of today\'s visitors' },
+  { label: 'Weather impact', command: 'How is today\'s weather affecting visitor traffic?' },
+  { label: 'Queue status', command: 'What is the current queue status and average wait time?' },
+  { label: 'Why fewer visitors?', command: 'Why might there be fewer visitors than usual today?' },
 ];
 
 export default function GlobalChatbot() {
@@ -25,12 +28,14 @@ export default function GlobalChatbot() {
     return saved ? JSON.parse(saved) : [];
   });
   const [input, setInput] = useState('');
+  const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isDashboard = location.pathname.startsWith('/dashboard');
   const shouldShow = isAuthenticated && isDashboard;
 
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
   useEffect(() => {
     sessionStorage.setItem('chatMessages', JSON.stringify(messages.slice(-20)));
@@ -45,90 +50,70 @@ export default function GlobalChatbot() {
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        setIsOpen(false);
-      }
+      if (e.key === 'Escape' && isOpen) setIsOpen(false);
     };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
+  const sendMessage = async (messageText: string) => {
+    if (!messageText.trim() || isSending) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       type: 'user',
-      content: input,
+      content: messageText,
       timestamp: new Date()
     };
 
     setMessages(prev => [...prev, userMessage]);
-    const currentInput = input;
     setInput('');
+    setIsSending(true);
 
-    // Add loading message
-    const loadingMessage: Message = {
-      id: `${Date.now()}-loading`,
+    const loadingId = `${Date.now()}-loading`;
+    setMessages(prev => [...prev, {
+      id: loadingId,
       type: 'assistant',
       content: 'Thinking...',
       timestamp: new Date()
-    };
-    setMessages(prev => [...prev, loadingMessage]);
+    }]);
 
     try {
-      // Call backend AI API
-      const response = await fetch('http://localhost:3001/api/ai/chat', {
+      const response = await fetch(`${API_URL}/api/ai/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: currentInput
-        })
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ message: messageText })
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to get AI response');
-      }
 
       const data = await response.json();
 
-      // Remove loading message and add actual response
       setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== loadingMessage.id);
-        const assistantMessage: Message = {
+        const filtered = prev.filter(m => m.id !== loadingId);
+        return [...filtered, {
           id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: data.message,
+          type: 'assistant' as const,
+          content: response.ok ? data.message : (data.error || 'AI service unavailable. Check if Ollama is running.'),
           timestamp: new Date()
-        };
-        return [...filtered, assistantMessage];
+        }];
       });
     } catch (error) {
-      console.error('AI Chat Error:', error);
-      // Remove loading message and add error response
       setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== loadingMessage.id);
-        const errorMessage: Message = {
+        const filtered = prev.filter(m => m.id !== loadingId);
+        return [...filtered, {
           id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: 'Sorry, I encountered an error processing your request. Please try again.',
+          type: 'assistant' as const,
+          content: 'Connection error. Make sure the backend is running.',
           timestamp: new Date()
-        };
-        return [...filtered, errorMessage];
+        }];
       });
+    } finally {
+      setIsSending(false);
     }
   };
 
-  const handleQuickAction = (action: string) => {
-    setInput(action);
-    setTimeout(() => handleSend(), 100);
-  };
-
-  const handleClick = () => {
-    setIsOpen(!isOpen);
-  };
+  const handleSend = () => sendMessage(input);
+  const handleQuickAction = (command: string) => sendMessage(command);
 
   if (!shouldShow) return null;
 
@@ -136,7 +121,7 @@ export default function GlobalChatbot() {
     <>
       {!isOpen && (
         <button
-          onClick={handleClick}
+          onClick={() => setIsOpen(true)}
           className="fixed bottom-4 right-4 z-50 w-14 h-14 bg-gradient-to-br from-purple-600 to-blue-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all flex items-center justify-center cursor-pointer"
           aria-label="AI Assistant"
         >
@@ -153,44 +138,46 @@ export default function GlobalChatbot() {
           <div
             role="dialog"
             aria-label="AI Chatbot"
-            className="fixed bottom-4 right-4 w-full sm:w-96 h-[600px] max-h-[calc(100vh-2rem)] bg-white rounded-xl shadow-2xl z-50 flex flex-col border border-gray-200"
+            className="fixed bottom-4 right-4 w-full sm:w-96 h-[600px] max-h-[calc(100vh-2rem)] bg-[#0d0e14]/95 backdrop-blur-xl rounded-xl shadow-2xl z-50 flex flex-col border border-white/10"
           >
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-white/10 bg-gradient-to-r from-purple-900/30 to-blue-900/30">
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-blue-600 rounded-full flex items-center justify-center">
                   <Sparkles className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-semibold text-gray-900">ObservAI Assistant</h2>
-                  <p className="text-xs text-gray-600">Always here to help</p>
+                  <h2 className="text-sm font-semibold text-white">ObservAI Assistant</h2>
+                  <p className="text-xs text-gray-400">AI-powered insights</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                className="p-1 text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors"
                 aria-label="Close chat"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Sparkles className="w-8 h-8 text-purple-600" />
+                <div className="text-center py-6">
+                  <div className="w-14 h-14 bg-gradient-to-br from-purple-600/20 to-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-purple-500/30">
+                    <Sparkles className="w-7 h-7 text-purple-400" />
                   </div>
-                  <p className="text-sm font-medium text-gray-900 mb-2">Hi! I'm your AI assistant</p>
-                  <p className="text-xs text-gray-600 mb-4">Ask me anything about your data</p>
+                  <p className="text-sm font-medium text-white mb-1">AI Assistant</p>
+                  <p className="text-xs text-gray-400 mb-4">Ask about your cafe analytics</p>
 
                   <div className="space-y-2">
                     {quickActions.map((action, index) => (
                       <button
                         key={index}
-                        onClick={() => handleQuickAction(action)}
-                        className="w-full px-3 py-2 bg-gray-50 text-gray-900 text-xs font-medium rounded-lg hover:bg-gray-100 transition-colors text-left"
+                        onClick={() => handleQuickAction(action.command)}
+                        className="w-full px-3 py-2 bg-white/5 text-gray-300 text-xs font-medium rounded-lg hover:bg-white/10 transition-colors text-left border border-white/5"
                       >
-                        {action}
+                        {action.label}
                       </button>
                     ))}
                   </div>
@@ -204,10 +191,10 @@ export default function GlobalChatbot() {
                     <div
                       className={`max-w-[80%] rounded-lg px-4 py-2 ${message.type === 'user'
                         ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-900'
+                        : 'bg-white/10 text-gray-200'
                         }`}
                     >
-                      <p className="text-sm">{message.content}</p>
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     </div>
                   </div>
                 ))
@@ -215,12 +202,10 @@ export default function GlobalChatbot() {
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="p-4 border-t border-gray-200">
+            {/* Input */}
+            <div className="p-4 border-t border-white/10">
               <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSend();
-                }}
+                onSubmit={(e) => { e.preventDefault(); handleSend(); }}
                 className="flex space-x-2"
               >
                 <input
@@ -228,13 +213,13 @@ export default function GlobalChatbot() {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask about today's data…"
-                  className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Ask about your data..."
+                  className="flex-1 px-4 py-2 bg-gray-800/50 border border-white/10 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 <button
                   type="submit"
-                  disabled={!input.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!input.trim() || isSending}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Send message"
                 >
                   <Send className="w-4 h-4" />

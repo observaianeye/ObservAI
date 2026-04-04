@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 type UserRole = 'ADMIN' | 'MANAGER' | 'ANALYST' | 'VIEWER';
+type AccountType = 'TRIAL' | 'PAID' | 'DEMO';
 
 interface User {
   id: string;
@@ -8,13 +9,19 @@ interface User {
   firstName: string | null;
   lastName: string | null;
   role: UserRole;
+  accountType: AccountType;
+  trialExpiresAt: string | null;
 }
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isAuthReady: boolean;
+  isDemoUser: boolean;
+  isTrialUser: boolean;
+  isTrialExpired: boolean;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<boolean>;
+  demoLogin: () => Promise<boolean>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -68,6 +75,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const demoLogin = async (): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/auth/demo-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        const userData = await response.json();
+        setUser(userData);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Demo login failed:', error);
+      return false;
+    }
+  };
+
+  const isDemoUser = user?.accountType === 'DEMO';
+  const isTrialUser = user?.accountType === 'TRIAL';
+  const isTrialExpired = isTrialUser && user?.trialExpiresAt
+    ? new Date(user.trialExpiresAt) < new Date()
+    : false;
+
   const logout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -87,7 +119,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: !!user,
         isAuthReady,
+        isDemoUser,
+        isTrialUser,
+        isTrialExpired,
         login,
+        demoLogin,
         logout,
         checkAuth
       }}

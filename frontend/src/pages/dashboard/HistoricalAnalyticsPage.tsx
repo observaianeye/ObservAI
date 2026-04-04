@@ -256,14 +256,14 @@ function HorizontalBarChart({ data }: { data: { label: string; value: number; co
     <div className="space-y-2">
       {data.map((item, i) => (
         <div key={i} className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 w-12 text-right font-medium">{item.label}</span>
-          <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+          <span className="text-xs text-gray-400 w-12 text-right font-medium">{item.label}</span>
+          <div className="flex-1 bg-white/5 rounded-full h-5 overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{ width: `${(item.value / max) * 100}%`, backgroundColor: item.color }}
             />
           </div>
-          <span className="text-xs text-gray-700 font-semibold w-8">{item.value}%</span>
+          <span className="text-xs text-gray-300 font-semibold w-8">{item.value}%</span>
         </div>
       ))}
     </div>
@@ -288,7 +288,7 @@ function StatCard({
   const isPositive = change && change > 0;
   const isNegative = change && change < 0;
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
+    <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5 hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between mb-3">
         <div className={`p-2 rounded-lg ${color}`}>
           <Icon className="w-5 h-5" />
@@ -296,7 +296,7 @@ function StatCard({
         {change !== undefined && (
           <span
             className={`flex items-center text-xs font-semibold px-2 py-1 rounded-full ${
-              isPositive ? 'text-green-700 bg-green-50' : isNegative ? 'text-red-700 bg-red-50' : 'text-gray-500 bg-gray-50'
+              isPositive ? 'text-green-400 bg-green-500/10' : isNegative ? 'text-red-400 bg-red-500/10' : 'text-gray-400 bg-white/5'
             }`}
           >
             {isPositive ? <ArrowUpRight className="w-3 h-3 mr-0.5" /> : isNegative ? <ArrowDownRight className="w-3 h-3 mr-0.5" /> : null}
@@ -304,8 +304,8 @@ function StatCard({
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-xs text-gray-500 mt-1">{title}</p>
+      <p className="text-2xl font-bold text-white">{value}</p>
+      <p className="text-xs text-gray-400 mt-1">{title}</p>
     </div>
   );
 }
@@ -454,8 +454,8 @@ export default function HistoricalAnalyticsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Historical Analytics</h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <h1 className="text-2xl font-bold text-white">Historical Analytics</h1>
+          <p className="text-sm text-gray-400 mt-1">
             View past camera data, trends, and export reports
           </p>
         </div>
@@ -463,7 +463,7 @@ export default function HistoricalAnalyticsPage() {
           <button
             onClick={loadData}
             disabled={loading}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
             title="Refresh data"
           >
             <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
@@ -481,25 +481,25 @@ export default function HistoricalAnalyticsPage() {
               <ChevronDown className="w-3 h-3" />
             </button>
             {exportDropdown && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl border border-gray-200 shadow-lg z-10 overflow-hidden">
+              <div className="absolute right-0 mt-2 w-48 bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 shadow-lg z-10 overflow-hidden">
                 <button
                   onClick={() => handleExport('csv')}
-                  className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                  className="w-full px-4 py-3 text-left text-sm hover:bg-white/5 flex items-center gap-3 transition-colors"
                 >
-                  <Table className="w-4 h-4 text-green-600" />
+                  <Table className="w-4 h-4 text-green-400" />
                   <div>
-                    <p className="font-medium text-gray-900">CSV Export</p>
-                    <p className="text-xs text-gray-500">Spreadsheet format</p>
+                    <p className="font-medium text-white">CSV Export</p>
+                    <p className="text-xs text-gray-400">Spreadsheet format</p>
                   </div>
                 </button>
                 <button
                   onClick={() => handleExport('pdf')}
-                  className="w-full px-4 py-3 text-left text-sm hover:bg-gray-50 flex items-center gap-3 transition-colors border-t border-gray-100"
+                  className="w-full px-4 py-3 text-left text-sm hover:bg-white/5 flex items-center gap-3 transition-colors border-t border-white/10"
                 >
-                  <FileText className="w-4 h-4 text-red-600" />
+                  <FileText className="w-4 h-4 text-red-400" />
                   <div>
-                    <p className="font-medium text-gray-900">PDF Report</p>
-                    <p className="text-xs text-gray-500">Formatted report</p>
+                    <p className="font-medium text-white">PDF Report</p>
+                    <p className="text-xs text-gray-400">Formatted report</p>
                   </div>
                 </button>
               </div>
@@ -509,11 +509,11 @@ export default function HistoricalAnalyticsPage() {
       </div>
 
       {/* Date Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-4">
         <div className="flex flex-wrap items-end gap-4">
           {/* Quick Presets */}
           <div>
-            <span className="text-xs text-gray-500 block mb-2">Quick Select</span>
+            <span className="text-xs text-gray-400 block mb-2">Quick Select</span>
             <div className="flex gap-1">
               {[
                 { label: '7D', days: 7 },
@@ -524,7 +524,7 @@ export default function HistoricalAnalyticsPage() {
                 <button
                   key={preset.label}
                   onClick={() => setDatePreset(preset.days)}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium text-gray-300 rounded-lg border border-white/10 hover:bg-blue-500/10 hover:border-blue-500/30 hover:text-blue-400 transition-colors"
                 >
                   {preset.label}
                 </button>
@@ -536,13 +536,13 @@ export default function HistoricalAnalyticsPage() {
           <div>
             <div className="flex items-center gap-1.5 mb-1.5">
               <Calendar className="w-3.5 h-3.5 text-gray-400" />
-              <span className="text-xs text-gray-500">Start Date</span>
+              <span className="text-xs text-gray-400">Start Date</span>
             </div>
             <input
               type="date"
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="px-3 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
           </div>
 
@@ -550,13 +550,13 @@ export default function HistoricalAnalyticsPage() {
           <div>
             <div className="flex items-center gap-1.5 mb-1.5">
               <Calendar className="w-3.5 h-3.5 text-gray-400" />
-              <span className="text-xs text-gray-500">End Date</span>
+              <span className="text-xs text-gray-400">End Date</span>
             </div>
             <input
               type="date"
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="px-3 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
           </div>
 
@@ -564,12 +564,12 @@ export default function HistoricalAnalyticsPage() {
           <div>
             <div className="flex items-center gap-1.5 mb-1.5">
               <Filter className="w-3.5 h-3.5 text-gray-400" />
-              <span className="text-xs text-gray-500">Camera</span>
+              <span className="text-xs text-gray-400">Camera</span>
             </div>
             <select
               value={selectedCamera}
               onChange={e => setSelectedCamera(e.target.value)}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="px-3 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               <option value="all">All Cameras</option>
               <option value="cam-1">Main Entrance</option>
@@ -580,8 +580,8 @@ export default function HistoricalAnalyticsPage() {
 
           {/* View Mode Toggle */}
           <div>
-            <span className="text-xs text-gray-500 block mb-1.5">View</span>
-            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            <span className="text-xs text-gray-400 block mb-1.5">View</span>
+            <div className="flex rounded-lg border border-white/10 overflow-hidden">
               {(['daily', 'hourly', 'comparison'] as ViewMode[]).map(mode => (
                 <button
                   key={mode}
@@ -589,7 +589,7 @@ export default function HistoricalAnalyticsPage() {
                   className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
                     viewMode === mode
                       ? 'bg-blue-600 text-white'
-                      : 'bg-white text-gray-600 hover:bg-gray-50'
+                      : 'bg-white/5 text-gray-300 hover:bg-white/10'
                   }`}
                 >
                   {mode}
@@ -604,7 +604,7 @@ export default function HistoricalAnalyticsPage() {
       {loading && (
         <div className="flex items-center justify-center py-8">
           <RefreshCw className="w-6 h-6 animate-spin text-blue-500 mr-3" />
-          <span className="text-sm text-gray-500">Loading analytics data...</span>
+          <span className="text-sm text-gray-400">Loading analytics data...</span>
         </div>
       )}
 
@@ -616,27 +616,27 @@ export default function HistoricalAnalyticsPage() {
             value={summaryStats.totalVisitors.toLocaleString()}
             change={comparisonData?.changes.totalPeopleIn}
             icon={Users}
-            color="bg-blue-50 text-blue-600"
+            color="bg-blue-500/10 text-blue-400"
           />
           <StatCard
             title="Avg Occupancy"
             value={summaryStats.avgOccupancy.toString()}
             change={comparisonData?.changes.avgCurrentCount}
             icon={BarChart3}
-            color="bg-purple-50 text-purple-600"
+            color="bg-purple-500/10 text-purple-400"
           />
           <StatCard
             title="Peak Day"
             value={summaryStats.peakDay.label}
             icon={TrendingUp}
-            color="bg-green-50 text-green-600"
+            color="bg-green-500/10 text-green-400"
           />
           <StatCard
             title="Avg Dwell Time"
             value={`${summaryStats.avgDwell} min`}
             change={comparisonData?.changes.avgWaitTime}
             icon={Clock}
-            color="bg-amber-50 text-amber-600"
+            color="bg-amber-500/10 text-amber-400"
           />
         </div>
       )}
@@ -645,8 +645,8 @@ export default function HistoricalAnalyticsPage() {
       {!loading && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Large Chart */}
-          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">
+          <div className="lg:col-span-2 bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5">
+            <h3 className="text-sm font-semibold text-white mb-4">
               {viewMode === 'daily'
                 ? 'Daily Visitor Trend'
                 : viewMode === 'hourly'
@@ -663,12 +663,12 @@ export default function HistoricalAnalyticsPage() {
                   height={240}
                 />
                 <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <p className="text-xs text-blue-600 font-medium">Visitors</p>
+                  <div className="p-3 bg-blue-500/10 rounded-lg">
+                    <p className="text-xs text-blue-400 font-medium">Visitors</p>
                     <MiniBarChart data={dailyData.map(d => d.visitors)} color="#3b82f6" />
                   </div>
-                  <div className="p-3 bg-purple-50 rounded-lg">
-                    <p className="text-xs text-purple-600 font-medium">Avg Occupancy</p>
+                  <div className="p-3 bg-purple-500/10 rounded-lg">
+                    <p className="text-xs text-purple-400 font-medium">Avg Occupancy</p>
                     <MiniBarChart data={dailyData.map(d => d.avgOccupancy)} color="#8b5cf6" />
                   </div>
                 </div>
@@ -684,21 +684,21 @@ export default function HistoricalAnalyticsPage() {
                   height={240}
                 />
                 <div className="mt-4 grid grid-cols-3 gap-3">
-                  <div className="p-3 bg-green-50 rounded-lg text-center">
-                    <p className="text-xs text-green-600 font-medium mb-1">Peak Hour</p>
-                    <p className="text-lg font-bold text-green-800">
+                  <div className="p-3 bg-green-500/10 rounded-lg text-center">
+                    <p className="text-xs text-green-400 font-medium mb-1">Peak Hour</p>
+                    <p className="text-lg font-bold text-green-300">
                       {hourlyData.reduce((max, d) => (d.visitors > max.visitors ? d : max), hourlyData[0]).label}
                     </p>
                   </div>
-                  <div className="p-3 bg-blue-50 rounded-lg text-center">
-                    <p className="text-xs text-blue-600 font-medium mb-1">Total Entries</p>
-                    <p className="text-lg font-bold text-blue-800">
+                  <div className="p-3 bg-blue-500/10 rounded-lg text-center">
+                    <p className="text-xs text-blue-400 font-medium mb-1">Total Entries</p>
+                    <p className="text-lg font-bold text-blue-300">
                       {hourlyData.reduce((s, d) => s + d.entries, 0)}
                     </p>
                   </div>
-                  <div className="p-3 bg-amber-50 rounded-lg text-center">
-                    <p className="text-xs text-amber-600 font-medium mb-1">Total Exits</p>
-                    <p className="text-lg font-bold text-amber-800">
+                  <div className="p-3 bg-amber-500/10 rounded-lg text-center">
+                    <p className="text-xs text-amber-400 font-medium mb-1">Total Exits</p>
+                    <p className="text-lg font-bold text-amber-300">
                       {hourlyData.reduce((s, d) => s + d.exits, 0)}
                     </p>
                   </div>
@@ -709,16 +709,16 @@ export default function HistoricalAnalyticsPage() {
             {viewMode === 'comparison' && comparisonData && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-blue-50 rounded-lg">
-                    <p className="text-xs text-blue-600 font-medium mb-2">Current Period</p>
-                    <p className="text-xl font-bold text-blue-800">
+                  <div className="p-4 bg-blue-500/10 rounded-lg">
+                    <p className="text-xs text-blue-400 font-medium mb-2">Current Period</p>
+                    <p className="text-xl font-bold text-blue-300">
                       {comparisonData.period1.totalPeopleIn.toLocaleString()}
                     </p>
-                    <p className="text-xs text-blue-500">visitors</p>
+                    <p className="text-xs text-blue-400">visitors</p>
                   </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <p className="text-xs text-gray-500 font-medium mb-2">Previous Period</p>
-                    <p className="text-xl font-bold text-gray-700">
+                  <div className="p-4 bg-white/5 rounded-lg">
+                    <p className="text-xs text-gray-400 font-medium mb-2">Previous Period</p>
+                    <p className="text-xl font-bold text-gray-300">
                       {comparisonData.period2.totalPeopleIn.toLocaleString()}
                     </p>
                     <p className="text-xs text-gray-400">visitors</p>
@@ -728,8 +728,8 @@ export default function HistoricalAnalyticsPage() {
                   {Object.entries(comparisonData.changes).map(([key, change]) => {
                     const label = key.replace(/([A-Z])/g, ' $1').replace('total ', '').trim();
                     return (
-                      <div key={key} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                        <span className="text-sm text-gray-600 capitalize">{label}</span>
+                      <div key={key} className="flex items-center justify-between py-2 border-b border-white/10 last:border-0">
+                        <span className="text-sm text-gray-300 capitalize">{label}</span>
                         <span
                           className={`flex items-center text-sm font-semibold ${
                             change > 0 ? 'text-green-600' : change < 0 ? 'text-red-600' : 'text-gray-500'
@@ -747,7 +747,7 @@ export default function HistoricalAnalyticsPage() {
                     );
                   })}
                 </div>
-                <p className="text-xs text-gray-500 italic mt-3">{comparisonData.summary}</p>
+                <p className="text-xs text-gray-400 italic mt-3">{comparisonData.summary}</p>
               </div>
             )}
           </div>
@@ -756,20 +756,20 @@ export default function HistoricalAnalyticsPage() {
           <div className="space-y-4">
             {/* Gender Distribution */}
             {demographics && (
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="text-sm font-semibold text-gray-900 mb-4">Gender Distribution</h3>
+              <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4">Gender Distribution</h3>
                 <div className="flex items-center justify-center gap-6 mb-4">
                   <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center mb-1">
-                      <span className="text-lg font-bold text-blue-600">{demographics.gender.male}%</span>
+                    <div className="w-14 h-14 rounded-full bg-blue-500/10 flex items-center justify-center mb-1">
+                      <span className="text-lg font-bold text-blue-400">{demographics.gender.male}%</span>
                     </div>
-                    <span className="text-xs text-gray-500">Male</span>
+                    <span className="text-xs text-gray-400">Male</span>
                   </div>
                   <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-pink-100 flex items-center justify-center mb-1">
-                      <span className="text-lg font-bold text-pink-600">{demographics.gender.female}%</span>
+                    <div className="w-14 h-14 rounded-full bg-pink-500/10 flex items-center justify-center mb-1">
+                      <span className="text-lg font-bold text-pink-400">{demographics.gender.female}%</span>
                     </div>
-                    <span className="text-xs text-gray-500">Female</span>
+                    <span className="text-xs text-gray-400">Female</span>
                   </div>
                 </div>
               </div>
@@ -777,8 +777,8 @@ export default function HistoricalAnalyticsPage() {
 
             {/* Age Distribution */}
             {demographics && (
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <h3 className="text-sm font-semibold text-gray-900 mb-4">Age Distribution</h3>
+              <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5">
+                <h3 className="text-sm font-semibold text-white mb-4">Age Distribution</h3>
                 <HorizontalBarChart
                   data={Object.entries(demographics.age).map(([label, value], i) => ({
                     label,
@@ -793,22 +793,22 @@ export default function HistoricalAnalyticsPage() {
             )}
 
             {/* Data Quality Indicator */}
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Data Info</h3>
+            <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5">
+              <h3 className="text-sm font-semibold text-white mb-3">Data Info</h3>
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Mode</span>
+                  <span className="text-gray-400">Mode</span>
                   <span className={`font-medium ${dataMode === 'live' ? 'text-green-600' : 'text-amber-600'}`}>
                     {dataMode === 'live' ? 'Live Data' : 'Demo Data'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Period</span>
-                  <span className="text-gray-700 font-medium">{dailyData.length} days</span>
+                  <span className="text-gray-400">Period</span>
+                  <span className="text-gray-300 font-medium">{dailyData.length} days</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Data Points</span>
-                  <span className="text-gray-700 font-medium">
+                  <span className="text-gray-400">Data Points</span>
+                  <span className="text-gray-300 font-medium">
                     {comparisonData?.period1.dataPoints || dailyData.length}
                   </span>
                 </div>
@@ -820,33 +820,33 @@ export default function HistoricalAnalyticsPage() {
 
       {/* Daily Data Table */}
       {!loading && viewMode === 'daily' && dailyData.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h3 className="text-sm font-semibold text-gray-900">Daily Breakdown</h3>
+        <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/10">
+            <h3 className="text-sm font-semibold text-white">Daily Breakdown</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Visitors</th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Avg Occupancy</th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Peak Hour</th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Avg Dwell</th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Trend</th>
+                <tr className="bg-white/5">
+                  <th className="px-5 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Visitors</th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Occupancy</th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Peak Hour</th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Dwell</th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Trend</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-white/10">
                 {dailyData.map((day, i) => {
                   const prev = i > 0 ? dailyData[i - 1].visitors : day.visitors;
                   const change = prev ? Math.round(((day.visitors - prev) / prev) * 100) : 0;
                   return (
-                    <tr key={day.date} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-5 py-3 text-sm text-gray-900 font-medium">{day.label}</td>
-                      <td className="px-5 py-3 text-sm text-gray-700 text-right">{day.visitors}</td>
-                      <td className="px-5 py-3 text-sm text-gray-700 text-right">{day.avgOccupancy}</td>
-                      <td className="px-5 py-3 text-sm text-gray-700 text-right">{day.peakHour}</td>
-                      <td className="px-5 py-3 text-sm text-gray-700 text-right">{Math.round(day.avgDwellTime / 60)} min</td>
+                    <tr key={day.date} className="hover:bg-white/5 transition-colors">
+                      <td className="px-5 py-3 text-sm text-white font-medium">{day.label}</td>
+                      <td className="px-5 py-3 text-sm text-gray-300 text-right">{day.visitors}</td>
+                      <td className="px-5 py-3 text-sm text-gray-300 text-right">{day.avgOccupancy}</td>
+                      <td className="px-5 py-3 text-sm text-gray-300 text-right">{day.peakHour}</td>
+                      <td className="px-5 py-3 text-sm text-gray-300 text-right">{Math.round(day.avgDwellTime / 60)} min</td>
                       <td className="px-5 py-3 text-right">
                         <span
                           className={`inline-flex items-center text-xs font-medium ${

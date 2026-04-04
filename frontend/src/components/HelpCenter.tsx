@@ -83,7 +83,7 @@ const faqs = [
   },
   {
     question: 'How accurate is the AI analytics?',
-    answer: 'ObservAI uses YOLOv12 for person detection (95%+ accuracy) and InsightFace for demographics (92% accuracy). Performance depends on camera quality, lighting, and viewing angle. 1080p resolution is recommended.'
+    answer: 'ObservAI uses YOLO11L for person detection (95%+ accuracy) and InsightFace for demographics (92% accuracy). Performance depends on camera quality, lighting, and viewing angle. 1080p resolution is recommended.'
   },
   {
     question: 'What cameras are supported?',
@@ -173,8 +173,8 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
             onClick={() => setActiveTab('faq')}
             className={`flex-1 px-6 py-4 font-semibold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'faq'
-                ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                : 'text-gray-600 hover:bg-gray-50'
+                ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/20'
+                : 'text-gray-300 hover:bg-gray-800/50'
             }`}
           >
             <MessageCircle className="w-5 h-5" />
@@ -184,8 +184,8 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
             onClick={() => setActiveTab('videos')}
             className={`flex-1 px-6 py-4 font-semibold transition-all flex items-center justify-center gap-2 ${
               activeTab === 'videos'
-                ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                : 'text-gray-600 hover:bg-gray-50'
+                ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/20'
+                : 'text-gray-300 hover:bg-gray-800/50'
             }`}
           >
             <Video className="w-5 h-5" />
@@ -261,7 +261,7 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
 
           {activeTab === 'videos' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-blue-400 transition-all">
+              <div className="border-2 border-blue-500/30 rounded-xl overflow-hidden hover:border-blue-500/50 bg-gray-900/80 transition-all">
                 <div className="aspect-video bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
                   <Video className="w-16 h-16 text-white" />
                 </div>
@@ -271,7 +271,7 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                 </div>
               </div>
 
-              <div className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-blue-400 transition-all">
+              <div className="border-2 border-blue-500/30 rounded-xl overflow-hidden hover:border-blue-500/50 bg-gray-900/80 transition-all">
                 <div className="aspect-video bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
                   <Video className="w-16 h-16 text-white" />
                 </div>
@@ -281,7 +281,7 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                 </div>
               </div>
 
-              <div className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-blue-400 transition-all">
+              <div className="border-2 border-blue-500/30 rounded-xl overflow-hidden hover:border-blue-500/50 bg-gray-900/80 transition-all">
                 <div className="aspect-video bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
                   <Video className="w-16 h-16 text-white" />
                 </div>
@@ -291,7 +291,7 @@ export default function HelpCenter({ onClose }: HelpCenterProps) {
                 </div>
               </div>
 
-              <div className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-blue-400 transition-all">
+              <div className="border-2 border-blue-500/30 rounded-xl overflow-hidden hover:border-blue-500/50 bg-gray-900/80 transition-all">
                 <div className="aspect-video bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
                   <Video className="w-16 h-16 text-white" />
                 </div>

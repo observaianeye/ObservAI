@@ -75,6 +75,9 @@ class TrackedPerson:
   age_stability: float = 0.0          # How stable the age prediction is (0-1)
   gender_stability: float = 0.0       # How stable the gender prediction is (0-1)
   _demo_update_count: int = 0         # Total demographic update count
+  smoothed_bbox_norm: Optional[Tuple[float, float, float, float]] = None
+  zone_consecutive_inside: Dict[str, int] = field(default_factory=dict)
+  zone_consecutive_outside: Dict[str, int] = field(default_factory=dict)
 
   def contains_pixel(self, px: float, py: float) -> bool:
     x1, y1, x2, y2 = self.bbox_norm
@@ -1649,15 +1652,48 @@ class CameraAnalyticsEngine:
             person.age_stability = old_person.age_stability
             person.gender_stability = old_person.gender_stability
             person._demo_update_count = old_person._demo_update_count
+            # Transfer counting flags to prevent double-counting
+            person.counted_in = old_person.counted_in
+            person.counted_out = old_person.counted_out
             matched_key = key
             break
         if matched_key:
           self._dropped_demographics.pop(matched_key, None)
+          # If the old person was counted in but drop incremented people_out, reverse it
+          if person.counted_in and not person.counted_out:
+            self.people_out = max(0, self.people_out - 1)
         self.tracks[int(track_id)] = person
       else:
         person.prev_center_norm = person.center_norm
         person.center_norm = center_norm
-        person.bbox_norm = (x1_norm, y1_norm, x2_norm, y2_norm)
+
+        # Adaptive EMA bbox smoothing
+        raw_bbox = (x1_norm, y1_norm, x2_norm, y2_norm)
+        if person.smoothed_bbox_norm is not None:
+          old = person.smoothed_bbox_norm
+          old_cx = (old[0] + old[2]) / 2.0
+          old_cy = (old[1] + old[3]) / 2.0
+          new_cx = (raw_bbox[0] + raw_bbox[2]) / 2.0
+          new_cy = (raw_bbox[1] + raw_bbox[3]) / 2.0
+          displacement = ((new_cx - old_cx) ** 2 + (new_cy - old_cy) ** 2) ** 0.5
+
+          alpha_min = getattr(self.config, 'bbox_smoothing_alpha_min', 0.3)
+          alpha_max = getattr(self.config, 'bbox_smoothing_alpha_max', 0.9)
+
+          if displacement > 0.15:
+            alpha = 1.0
+          elif displacement > 0.03:
+            alpha = alpha_max
+          else:
+            alpha = alpha_min
+
+          person.smoothed_bbox_norm = tuple(
+            alpha * r + (1.0 - alpha) * s for r, s in zip(raw_bbox, old)
+          )  # type: ignore[assignment]
+        else:
+          person.smoothed_bbox_norm = raw_bbox
+
+        person.bbox_norm = person.smoothed_bbox_norm  # type: ignore[assignment]
         person.last_seen = now
 
       self._update_inside_state(person, now)
@@ -1707,14 +1743,24 @@ class CameraAnalyticsEngine:
         self._finalize_active_zones(person, now)
 
   def _update_zones(self, person: TrackedPerson, now: float) -> None:
+    enter_frames = getattr(self.config, 'zone_enter_debounce_frames', 3)
+    exit_frames = getattr(self.config, 'zone_exit_debounce_frames', 5)
+
     for zone_id, zone in self.zone_definitions.items():
       inside_zone = point_in_polygon(person.center_norm, zone.polygon)
       is_active = zone_id in person.active_zones
 
-      if inside_zone and not is_active:
+      if inside_zone:
+        person.zone_consecutive_inside[zone_id] = person.zone_consecutive_inside.get(zone_id, 0) + 1
+        person.zone_consecutive_outside[zone_id] = 0
+      else:
+        person.zone_consecutive_outside[zone_id] = person.zone_consecutive_outside.get(zone_id, 0) + 1
+        person.zone_consecutive_inside[zone_id] = 0
+
+      if not is_active and person.zone_consecutive_inside.get(zone_id, 0) >= enter_frames:
         person.active_zones[zone_id] = now
         self.zone_active_members[zone_id][person.track_id] = now
-      elif not inside_zone and is_active:
+      elif is_active and person.zone_consecutive_outside.get(zone_id, 0) >= exit_frames:
         started = person.active_zones.pop(zone_id)
         duration = now - started
         self.zone_completed_durations[zone_id].append(duration)

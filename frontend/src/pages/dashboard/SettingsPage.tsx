@@ -145,16 +145,16 @@ function SettingsSection({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between p-5 hover:bg-white/5 transition-colors"
       >
         <div className="flex items-center space-x-3">
           <div className={`w-10 h-10 ${iconBg} rounded-lg flex items-center justify-center`}>
             <Icon className={`w-5 h-5 ${iconColor}`} />
           </div>
-          <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+          <h3 className="text-base font-semibold text-white">{title}</h3>
         </div>
         {isOpen ? (
           <ChevronUp className="w-5 h-5 text-gray-400" />
@@ -162,7 +162,7 @@ function SettingsSection({
           <ChevronDown className="w-5 h-5 text-gray-400" />
         )}
       </button>
-      {isOpen && <div className="px-5 pb-5 border-t border-gray-100 pt-4">{children}</div>}
+      {isOpen && <div className="px-5 pb-5 border-t border-white/10 pt-4">{children}</div>}
     </div>
   );
 }
@@ -183,11 +183,11 @@ function Toggle({
   return (
     <label className="flex items-start justify-between cursor-pointer group py-2">
       <div className="flex-1 mr-4">
-        <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900 transition-colors">
+        <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">
           {label}
         </span>
         {description && (
-          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{description}</p>
         )}
       </div>
       <button
@@ -196,7 +196,7 @@ function Toggle({
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-          checked ? 'bg-blue-600' : 'bg-gray-200'
+          checked ? 'bg-blue-600' : 'bg-gray-600'
         }`}
       >
         <span
@@ -234,12 +234,12 @@ function Slider({
     <div className="py-2">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <span className="text-sm font-medium text-gray-700">{label}</span>
+          <span className="text-sm font-medium text-gray-300">{label}</span>
           {description && (
-            <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{description}</p>
           )}
         </div>
-        <span className="text-sm font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+        <span className="text-sm font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
           {value}{unit || ''}
         </span>
       </div>
@@ -250,7 +250,7 @@ function Slider({
         step={step || 1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+        className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
       />
       <div className="flex justify-between text-[10px] text-gray-400 mt-1">
         <span>{min}{unit || ''}</span>
@@ -275,11 +275,11 @@ function Select({
 }) {
   return (
     <div className="py-2">
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
+      <label className="block text-sm font-medium text-gray-300 mb-1.5">{label}</label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+        className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -309,6 +309,10 @@ export default function SettingsPage() {
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current: '', newPassword: '', confirm: '' });
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
 
   // Track changes
   useEffect(() => {
@@ -400,13 +404,13 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="text-sm text-gray-600 mt-1">Configure system preferences and analytics parameters</p>
+          <h1 className="text-2xl font-bold text-white">Settings</h1>
+          <p className="text-sm text-gray-400 mt-1">Configure system preferences and analytics parameters</p>
         </div>
         <div className="flex items-center space-x-3">
           <button
             onClick={handleReset}
-            className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
           >
             <RotateCcw className="w-4 h-4 mr-1.5" />
             Reset
@@ -429,17 +433,17 @@ export default function SettingsPage() {
       {/* System Status Banner */}
       <div className={`rounded-xl p-4 flex items-center space-x-3 ${
         backendHealth?.status === 'ready'
-          ? 'bg-green-50 border border-green-200'
+          ? 'bg-green-500/10 border border-green-500/20'
           : backendHealth?.status === 'loading'
-          ? 'bg-yellow-50 border border-yellow-200'
-          : 'bg-red-50 border border-red-200'
+          ? 'bg-yellow-500/10 border border-yellow-500/20'
+          : 'bg-red-500/10 border border-red-500/20'
       }`}>
         {backendHealth?.status === 'ready' ? (
           <>
-            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+            <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-green-800">System Online</p>
-              <p className="text-xs text-green-600">
+              <p className="text-sm font-medium text-green-300">System Online</p>
+              <p className="text-xs text-green-400">
                 Python backend connected &middot; {backendHealth.fps.toFixed(1)} FPS &middot; Model loaded
               </p>
             </div>
@@ -448,16 +452,16 @@ export default function SettingsPage() {
           <>
             <div className="w-5 h-5 border-2 border-yellow-500/30 border-t-yellow-500 rounded-full animate-spin flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-yellow-800">System Loading</p>
-              <p className="text-xs text-yellow-600">Phase: {backendHealth.phase}</p>
+              <p className="text-sm font-medium text-yellow-300">System Loading</p>
+              <p className="text-xs text-yellow-400">Phase: {backendHealth.phase}</p>
             </div>
           </>
         ) : (
           <>
-            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-red-800">System Offline</p>
-              <p className="text-xs text-red-600">
+              <p className="text-sm font-medium text-red-300">System Offline</p>
+              <p className="text-xs text-red-400">
                 {backendHealth?.error || 'Python backend is not reachable'}
               </p>
             </div>
@@ -466,8 +470,8 @@ export default function SettingsPage() {
         <div className="ml-auto flex items-center space-x-2">
           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
             dataMode === 'live'
-              ? 'bg-green-100 text-green-700'
-              : 'bg-blue-100 text-blue-700'
+              ? 'bg-green-500/10 text-green-400'
+              : 'bg-blue-500/10 text-blue-400'
           }`}>
             {dataMode === 'live' ? (
               <><Wifi className="w-3 h-3 mr-1" /> Live</>
@@ -479,26 +483,26 @@ export default function SettingsPage() {
       </div>
 
       {/* Data Mode Switch */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-              <Monitor className="w-5 h-5 text-indigo-600" />
+            <div className="w-10 h-10 bg-indigo-500/10 rounded-lg flex items-center justify-center">
+              <Monitor className="w-5 h-5 text-indigo-400" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-gray-900">Data Mode</h3>
-              <p className="text-xs text-gray-500">
+              <h3 className="text-base font-semibold text-white">Data Mode</h3>
+              <p className="text-xs text-gray-400">
                 Switch between live camera data and demo simulation data
               </p>
             </div>
           </div>
-          <div className="flex items-center bg-gray-100 rounded-lg p-1">
+          <div className="flex items-center bg-white/5 rounded-lg p-1">
             <button
               onClick={() => setDataMode('demo')}
               className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
                 dataMode === 'demo'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
               Demo
@@ -507,8 +511,8 @@ export default function SettingsPage() {
               onClick={() => setDataMode('live')}
               className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
                 dataMode === 'live'
-                  ? 'bg-white text-green-600 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-green-600 text-white shadow-sm'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
               Live
@@ -521,8 +525,8 @@ export default function SettingsPage() {
       <SettingsSection
         title="Camera & Detection"
         icon={Camera}
-        iconBg="bg-blue-100"
-        iconColor="text-blue-600"
+        iconBg="bg-blue-500/10"
+        iconColor="text-blue-400"
       >
         <div className="space-y-1">
           <Slider
@@ -574,7 +578,7 @@ export default function SettingsPage() {
             max={100}
           />
 
-          <div className="border-t border-gray-100 mt-3 pt-3 space-y-1">
+          <div className="border-t border-white/10 mt-3 pt-3 space-y-1">
             <Toggle
               label="Show Bounding Boxes"
               description="Display detection rectangles on the video feed"
@@ -601,8 +605,8 @@ export default function SettingsPage() {
       <SettingsSection
         title="Notifications"
         icon={Bell}
-        iconBg="bg-green-100"
-        iconColor="text-green-600"
+        iconBg="bg-green-500/10"
+        iconColor="text-green-400"
       >
         <div className="space-y-1">
           <Toggle
@@ -618,8 +622,8 @@ export default function SettingsPage() {
             onChange={(v) => updateNotifications('enableSound', v)}
           />
 
-          <div className="border-t border-gray-100 mt-3 pt-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Alert Types</p>
+          <div className="border-t border-white/10 mt-3 pt-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Alert Types</p>
             <Toggle
               label="Crowd Surge Alerts"
               description="When visitor rate exceeds 2x the average"
@@ -646,7 +650,7 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className="border-t border-gray-100 mt-3 pt-3">
+          <div className="border-t border-white/10 mt-3 pt-3">
             <Slider
               label="Occupancy Alert Threshold"
               description="Alert when zone occupancy exceeds this percentage"
@@ -658,7 +662,7 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className="border-t border-gray-100 mt-3 pt-3">
+          <div className="border-t border-white/10 mt-3 pt-3">
             <Toggle
               label="Quiet Hours"
               description="Suppress non-critical notifications during specified hours"
@@ -668,22 +672,22 @@ export default function SettingsPage() {
             {notifications.quietHoursEnabled && (
               <div className="flex items-center space-x-3 mt-2 ml-1">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">From</label>
+                  <label className="block text-xs text-gray-400 mb-1">From</label>
                   <input
                     type="time"
                     value={notifications.quietHoursStart}
                     onChange={(e) => updateNotifications('quietHoursStart', e.target.value)}
-                    className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                    className="px-2 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <span className="text-gray-400 mt-5">—</span>
+                <span className="text-gray-400 mt-5">---</span>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">To</label>
+                  <label className="block text-xs text-gray-400 mb-1">To</label>
                   <input
                     type="time"
                     value={notifications.quietHoursEnd}
                     onChange={(e) => updateNotifications('quietHoursEnd', e.target.value)}
-                    className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                    className="px-2 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -696,8 +700,8 @@ export default function SettingsPage() {
       <SettingsSection
         title="Regional & Display"
         icon={Globe}
-        iconBg="bg-purple-100"
-        iconColor="text-purple-600"
+        iconBg="bg-purple-500/10"
+        iconColor="text-purple-400"
       >
         <div className="space-y-1">
           <Select
@@ -719,14 +723,14 @@ export default function SettingsPage() {
             options={DATE_FORMATS}
           />
           <div className="py-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Time Format</label>
-            <div className="flex items-center bg-gray-100 rounded-lg p-1 w-fit">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">Time Format</label>
+            <div className="flex items-center bg-white/5 rounded-lg p-1 w-fit">
               <button
                 onClick={() => updateRegional('timeFormat', '12h')}
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
                   regional.timeFormat === '12h'
-                    ? 'bg-white text-purple-600 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:text-white'
                 }`}
               >
                 12h
@@ -735,8 +739,8 @@ export default function SettingsPage() {
                 onClick={() => updateRegional('timeFormat', '24h')}
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
                   regional.timeFormat === '24h'
-                    ? 'bg-white text-purple-600 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:text-white'
                 }`}
               >
                 24h
@@ -744,14 +748,14 @@ export default function SettingsPage() {
             </div>
           </div>
           <div className="py-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Theme</label>
-            <div className="flex items-center bg-gray-100 rounded-lg p-1 w-fit">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">Theme</label>
+            <div className="flex items-center bg-white/5 rounded-lg p-1 w-fit">
               <button
                 onClick={() => updateRegional('theme', 'light')}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all flex items-center space-x-1.5 ${
                   regional.theme === 'light'
-                    ? 'bg-white text-yellow-600 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-yellow-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Sun className="w-4 h-4" />
@@ -761,8 +765,8 @@ export default function SettingsPage() {
                 onClick={() => updateRegional('theme', 'dark')}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all flex items-center space-x-1.5 ${
                   regional.theme === 'dark'
-                    ? 'bg-white text-indigo-600 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Moon className="w-4 h-4" />
@@ -772,8 +776,8 @@ export default function SettingsPage() {
                 onClick={() => updateRegional('theme', 'system')}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all flex items-center space-x-1.5 ${
                   regional.theme === 'system'
-                    ? 'bg-white text-gray-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-gray-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:text-white'
                 }`}
               >
                 <Monitor className="w-4 h-4" />
@@ -788,84 +792,159 @@ export default function SettingsPage() {
       <SettingsSection
         title="User Profile"
         icon={User}
-        iconBg="bg-orange-100"
-        iconColor="text-orange-600"
+        iconBg="bg-orange-500/10"
+        iconColor="text-orange-400"
         defaultOpen={false}
       >
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">First Name</label>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">First Name</label>
               <input
                 type="text"
                 value={profile.firstName}
                 onChange={(e) => setProfile(prev => ({ ...prev, firstName: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Enter first name"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Last Name</label>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Last Name</label>
               <input
                 type="text"
                 value={profile.lastName}
                 onChange={(e) => setProfile(prev => ({ ...prev, lastName: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Enter last name"
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
             <input
               type="email"
               value={profile.email}
               disabled
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+              className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-gray-400 cursor-not-allowed"
             />
-            <p className="text-xs text-gray-400 mt-1">Email cannot be changed from settings</p>
+            <p className="text-xs text-gray-500 mt-1">Email cannot be changed from settings</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Role</label>
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">Role</label>
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400">
               {profile.role}
             </span>
           </div>
         </div>
       </SettingsSection>
 
-      {/* Security (Placeholder — kept minimal) */}
+      {/* Security */}
       <SettingsSection
         title="Security"
         icon={Shield}
-        iconBg="bg-red-100"
-        iconColor="text-red-600"
+        iconBg="bg-red-500/10"
+        iconColor="text-red-400"
         defaultOpen={false}
       >
         <div className="space-y-3">
-          <button className="w-full px-4 py-2.5 bg-gray-50 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors border border-gray-200 text-left">
-            Change Password
+          <button
+            onClick={() => { setShowPasswordForm(!showPasswordForm); setPasswordError(''); setPasswordSuccess(false); }}
+            className="w-full px-4 py-2.5 bg-white/5 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/10 transition-colors border border-white/10 text-left"
+          >
+            {showPasswordForm ? 'Cancel Password Change' : 'Change Password'}
           </button>
-          <button className="w-full px-4 py-2.5 bg-gray-50 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors border border-gray-200 text-left">
-            Enable Two-Factor Authentication
-          </button>
-          <button className="w-full px-4 py-2.5 bg-gray-50 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors border border-gray-200 text-left">
-            Manage API Keys
-          </button>
-          <p className="text-xs text-gray-400 mt-2">
-            Security features are managed through the authentication provider. Contact your administrator for access changes.
-          </p>
+
+          {showPasswordForm && (
+            <div className="space-y-3 p-4 bg-white/5 rounded-lg border border-white/10">
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">Current Password</label>
+                <input
+                  type="password"
+                  value={passwordForm.current}
+                  onChange={(e) => setPasswordForm(p => ({ ...p, current: e.target.value }))}
+                  className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">New Password</label>
+                <input
+                  type="password"
+                  value={passwordForm.newPassword}
+                  onChange={(e) => setPasswordForm(p => ({ ...p, newPassword: e.target.value }))}
+                  className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-white"
+                  placeholder="Minimum 8 characters"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">Confirm New Password</label>
+                <input
+                  type="password"
+                  value={passwordForm.confirm}
+                  onChange={(e) => setPasswordForm(p => ({ ...p, confirm: e.target.value }))}
+                  className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-white"
+                />
+              </div>
+              {passwordError && <p className="text-xs text-red-400">{passwordError}</p>}
+              {passwordSuccess && <p className="text-xs text-green-400">Password changed successfully!</p>}
+              <button
+                onClick={async () => {
+                  setPasswordError('');
+                  if (passwordForm.newPassword !== passwordForm.confirm) {
+                    setPasswordError('Passwords do not match');
+                    return;
+                  }
+                  if (passwordForm.newPassword.length < 8) {
+                    setPasswordError('Password must be at least 8 characters');
+                    return;
+                  }
+                  try {
+                    const res = await fetch(`${API_URL}/api/auth/change-password`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'include',
+                      body: JSON.stringify({ currentPassword: passwordForm.current, newPassword: passwordForm.newPassword })
+                    });
+                    if (res.ok) {
+                      setPasswordSuccess(true);
+                      setPasswordForm({ current: '', newPassword: '', confirm: '' });
+                    } else {
+                      const data = await res.json();
+                      setPasswordError(data.error || 'Failed to change password');
+                    }
+                  } catch {
+                    setPasswordError('Connection error');
+                  }
+                }}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+              >
+                Update Password
+              </button>
+            </div>
+          )}
+
+          <div className="relative">
+            <button className="w-full px-4 py-2.5 bg-white/5 text-gray-500 rounded-lg text-sm font-medium border border-white/10 text-left cursor-not-allowed" disabled>
+              Enable Two-Factor Authentication
+            </button>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 bg-white/5 px-2 py-0.5 rounded">Coming Soon</span>
+          </div>
+          <div className="relative">
+            <button className="w-full px-4 py-2.5 bg-white/5 text-gray-500 rounded-lg text-sm font-medium border border-white/10 text-left cursor-not-allowed" disabled>
+              Manage API Keys
+            </button>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 bg-white/5 px-2 py-0.5 rounded">Coming Soon</span>
+          </div>
         </div>
       </SettingsSection>
 
       {/* About */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">ObservAI</h3>
-            <p className="text-xs text-gray-500 mt-0.5">AI-Powered Real-Time Customer Analytics Platform</p>
+            <h3 className="text-sm font-semibold text-white">ObservAI</h3>
+            <p className="text-xs text-gray-400 mt-0.5">AI-Powered Real-Time Customer Analytics Platform</p>
           </div>
-          <span className="text-xs text-gray-400 font-mono">v1.0.0-beta</span>
+          <span className="text-xs text-gray-500 font-mono">v1.0.0-beta</span>
         </div>
       </div>
 

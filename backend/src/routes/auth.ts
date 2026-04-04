@@ -31,6 +31,11 @@ const ResetPasswordSchema = z.object({
     password: z.string().min(8)
 });
 
+const ChangePasswordSchema = z.object({
+    currentPassword: z.string(),
+    newPassword: z.string().min(8)
+});
+
 // Helper to create session
 const createSession = async (res: Response, userId: string, rememberMe = false) => {
     const token = crypto.randomBytes(32).toString('hex');
@@ -79,13 +84,19 @@ router.post('/register', async (req: Request, res: Response) => {
             lastName = parts.slice(1).join(' ');
         }
 
+        const trialExpiresAt = new Date();
+        trialExpiresAt.setDate(trialExpiresAt.getDate() + 14);
+
         const user = await prisma.user.create({
             data: {
                 email: data.email,
                 passwordHash,
                 firstName,
                 lastName,
-                role: 'MANAGER' // Default role
+                role: 'MANAGER',
+                accountType: 'TRIAL',
+                trialExpiresAt,
+                companyName: data.company || null
             }
         });
 
@@ -96,7 +107,9 @@ router.post('/register', async (req: Request, res: Response) => {
             email: user.email,
             firstName: user.firstName,
             lastName: user.lastName,
-            role: user.role
+            role: user.role,
+            accountType: user.accountType,
+            trialExpiresAt: user.trialExpiresAt?.toISOString() || null
         });
 
     } catch (error) {
@@ -140,7 +153,9 @@ router.post('/login', async (req: Request, res: Response) => {
             email: user.email,
             firstName: user.firstName,
             lastName: user.lastName,
-            role: user.role
+            role: user.role,
+            accountType: user.accountType,
+            trialExpiresAt: user.trialExpiresAt?.toISOString() || null
         });
 
     } catch (error) {
@@ -178,8 +193,101 @@ router.get('/me', authenticate, (req: Request, res: Response) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        role: user.role
+        role: user.role,
+        accountType: user.accountType || 'TRIAL',
+        trialExpiresAt: user.trialExpiresAt?.toISOString() || null
     });
+});
+
+// POST /api/auth/demo-login
+router.post('/demo-login', async (req: Request, res: Response) => {
+    try {
+        const demoEmail = 'demo@observai.com';
+
+        // Find or create demo user
+        let demoUser = await prisma.user.findUnique({
+            where: { email: demoEmail }
+        });
+
+        if (!demoUser) {
+            const passwordHash = await bcrypt.hash('demo-readonly-' + crypto.randomBytes(8).toString('hex'), 10);
+            demoUser = await prisma.user.create({
+                data: {
+                    email: demoEmail,
+                    passwordHash,
+                    firstName: 'Demo',
+                    lastName: 'User',
+                    role: 'VIEWER',
+                    accountType: 'DEMO',
+                    isActive: true
+                }
+            });
+        }
+
+        // Create short session (2 hours)
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 2);
+
+        await prisma.session.create({
+            data: { token, userId: demoUser.id, expiresAt }
+        });
+
+        res.cookie('session_token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            expires: expiresAt,
+            path: '/'
+        });
+
+        res.json({
+            id: demoUser.id,
+            email: demoUser.email,
+            firstName: demoUser.firstName,
+            lastName: demoUser.lastName,
+            role: demoUser.role,
+            accountType: demoUser.accountType,
+            trialExpiresAt: null
+        });
+
+    } catch (error) {
+        console.error('Demo login error:', error);
+        res.status(500).json({ error: 'Failed to start demo session' });
+    }
+});
+
+// POST /api/auth/change-password
+router.post('/change-password', authenticate, async (req: Request, res: Response) => {
+    try {
+        const data = ChangePasswordSchema.parse(req.body);
+        const user = req.user;
+
+        const fullUser = await prisma.user.findUnique({ where: { id: user.id } });
+        if (!fullUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const isValid = await bcrypt.compare(data.currentPassword, fullUser.passwordHash);
+        if (!isValid) {
+            return res.status(401).json({ error: 'Current password is incorrect' });
+        }
+
+        const passwordHash = await bcrypt.hash(data.newPassword, 10);
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { passwordHash }
+        });
+
+        res.json({ success: true, message: 'Password changed successfully' });
+
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Validation error', details: error.errors });
+        }
+        console.error('Change password error:', error);
+        res.status(500).json({ error: 'Failed to change password' });
+    }
 });
 
 // POST /api/auth/forgot-password

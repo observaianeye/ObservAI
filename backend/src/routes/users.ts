@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import { authenticate } from '../middleware/authMiddleware';
 
 const router = Router();
 
@@ -107,6 +108,40 @@ router.get('/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching user:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+// PATCH /api/users/profile - Update own profile
+router.patch('/profile', authenticate, async (req: Request, res: Response) => {
+  try {
+    const ProfileSchema = z.object({
+      firstName: z.string().optional(),
+      lastName: z.string().optional()
+    });
+
+    const data = ProfileSchema.parse(req.body);
+
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data,
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        accountType: true,
+        trialExpiresAt: true
+      }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation error', details: error.errors });
+    }
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 

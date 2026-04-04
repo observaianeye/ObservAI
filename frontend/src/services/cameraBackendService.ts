@@ -71,7 +71,7 @@ export interface Zone {
   y: number;
   width: number;
   height: number;
-  type: 'entrance' | 'exit';
+  type: 'entrance' | 'exit' | 'queue';
   color: string;
 }
 

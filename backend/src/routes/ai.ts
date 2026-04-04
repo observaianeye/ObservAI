@@ -97,6 +97,54 @@ function categorizeGeminiError(error: unknown): { code: GeminiErrorCode; message
   };
 }
 
+// Ollama integration
+async function getAvailableOllamaModel(ollamaUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${ollamaUrl}/api/tags`);
+    if (!res.ok) return null;
+    const data: any = await res.json();
+    const models = data.models?.map((m: any) => m.name) || [];
+
+    // Priority order
+    const preferred = ['llama3.1:8b', 'llama3:8b', 'mistral', 'phi3', 'gemma2', 'qwen2'];
+    for (const p of preferred) {
+      const found = models.find((m: string) => m.startsWith(p));
+      if (found) return found;
+    }
+    // Return first available model if none in preferred list
+    return models[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function callOllama(prompt: string): Promise<{ response: string; model: string }> {
+  const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+  const model = await getAvailableOllamaModel(OLLAMA_URL);
+
+  if (!model) {
+    throw new Error('OLLAMA_NO_MODEL: No models available. Run: ollama pull llama3.1:8b');
+  }
+
+  const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      prompt,
+      stream: false,
+      options: { temperature: 0.7, num_predict: 512 }
+    })
+  });
+
+  if (!res.ok) {
+    throw new Error(`Ollama error: ${res.status} ${res.statusText}`);
+  }
+
+  const data: any = await res.json();
+  return { response: data.response, model };
+}
+
 router.post('/chat', async (req: Request, res: Response) => {
   try {
     const { message, cameraId } = ChatRequestSchema.parse(req.body);
@@ -104,57 +152,89 @@ router.post('/chat', async (req: Request, res: Response) => {
     // Get recent analytics data for context
     const recentAnalytics = await getRecentAnalyticsContext(cameraId);
 
-    // Build context for Gemini
+    // Build context prompt
     const contextPrompt = buildContextPrompt(message, recentAnalytics);
 
-    // API key'i her request'te oku (dotenv.config() sonra çalıştığı için)
+    const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
+
+    // Try Ollama first (default), fall back to Gemini
+    if (AI_PROVIDER === 'ollama') {
+      try {
+        const { response: aiResponse, model: modelName } = await callOllama(contextPrompt);
+        return res.json({
+          message: aiResponse,
+          timestamp: new Date().toISOString(),
+          model: `ollama/${modelName}`
+        });
+      } catch (ollamaErr: unknown) {
+        const errMsg = ollamaErr instanceof Error ? ollamaErr.message : '';
+        console.warn(`[AI] Ollama failed: ${errMsg}`);
+
+        // If Ollama has no models, return helpful error
+        if (errMsg.includes('OLLAMA_NO_MODEL')) {
+          return res.status(503).json({
+            error: 'Ollama model not found. Run: ollama pull llama3.1:8b',
+            errorCode: 'NO_MODEL',
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // If Ollama is not running, return helpful error
+        if (errMsg.includes('ECONNREFUSED') || errMsg.includes('fetch failed')) {
+          return res.status(503).json({
+            error: 'Ollama is not running. Start Ollama and try again.',
+            errorCode: 'OLLAMA_OFFLINE',
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // Fall through to Gemini if configured
+        if (!process.env.GEMINI_API_KEY) {
+          return res.status(503).json({
+            error: `AI service unavailable: ${errMsg}`,
+            errorCode: 'UPSTREAM_ERROR',
+            timestamp: new Date().toISOString(),
+          });
+        }
+        console.log('[AI] Falling back to Gemini...');
+      }
+    }
+
+    // Gemini fallback / primary
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
     if (!GEMINI_API_KEY) {
-      const timestamp = new Date().toISOString();
-      console.error('[AI] NO_KEY error at', timestamp);
       return res.status(503).json({
-        error: 'Gemini API key tanımlı değil. backend/.env dosyasına GEMINI_API_KEY ekleyin.',
+        error: 'No AI provider available. Set AI_PROVIDER=ollama or provide GEMINI_API_KEY.',
         errorCode: 'NO_KEY',
-        timestamp,
+        timestamp: new Date().toISOString(),
       } as ErrorResponse);
     }
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-    // Call Gemini API — model öncelik sırası (test edildi, 2026-03-15):
-    // gemini-2.5-flash: ÇALIŞIYOR ✓
-    // gemini-2.0-flash-001: yedek
-    // gemini-2.0-flash-lite: son yedek
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     let modelName = 'gemini-2.5-flash';
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(contextPrompt);
       const response = await result.response;
-      const aiResponse = response.text();
-
-      res.json({
-        message: aiResponse,
+      return res.json({
+        message: response.text(),
         timestamp: new Date().toISOString(),
         model: modelName
       });
-      return;
     } catch (primaryErr: unknown) {
       const primaryErrMsg = primaryErr instanceof Error ? primaryErr.message.toLowerCase() : '';
       if (primaryErrMsg.includes('quota') || primaryErrMsg.includes('429') || primaryErrMsg.includes('404') || primaryErrMsg.includes('resource_exhausted')) {
-        console.log(`[AI] ${modelName} unavailable, falling back to gemini-2.0-flash-001`);
         modelName = 'gemini-2.0-flash-001';
       } else {
         throw primaryErr;
       }
     }
 
-    // Fallback model
     const model = genAI.getGenerativeModel({ model: modelName });
     const result = await model.generateContent(contextPrompt);
     const response = await result.response;
-    const aiResponse = response.text();
-
     res.json({
-      message: aiResponse,
+      message: response.text(),
       timestamp: new Date().toISOString(),
       model: modelName
     });
@@ -169,7 +249,6 @@ router.post('/chat', async (req: Request, res: Response) => {
 
     console.error(`[AI] ${code} error at ${timestamp}:`, error instanceof Error ? error.message : String(error));
 
-    // Kategorize ve uygun response döndür
     return res.status(statusCode).json({
       error: message,
       errorCode: code,
@@ -189,49 +268,61 @@ interface DebugResponse {
 }
 
 router.get('/debug', async (req: Request, res: Response) => {
+  const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
+  const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+
+  const result: any = {
+    provider: AI_PROVIDER,
+    ollama: { status: 'unknown', models: [] },
+    gemini: { status: 'unknown' }
+  };
+
+  // Check Ollama
+  try {
+    const ollamaRes = await fetch(`${OLLAMA_URL}/api/tags`);
+    if (ollamaRes.ok) {
+      const data: any = await ollamaRes.json();
+      result.ollama.status = 'online';
+      result.ollama.models = data.models?.map((m: any) => m.name) || [];
+      result.ollama.url = OLLAMA_URL;
+    } else {
+      result.ollama.status = 'error';
+    }
+  } catch {
+    result.ollama.status = 'offline';
+    result.ollama.url = OLLAMA_URL;
+  }
+
+  // Check Gemini
   const key = process.env.GEMINI_API_KEY || '';
   if (!key) {
-    return res.json({
-      status: 'NO_KEY',
-      message: 'GEMINI_API_KEY tanımlı değil',
-      keyPrefix: '[not-set]'
-    } as DebugResponse);
-  }
-
-  const keyPrefix = key.slice(0, 8) + '...';
-
-  // Test sırası — Chrome ile test edildi (2026-03-15)
-  const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite'];
-  for (const m of candidates) {
-    try {
-      const genAI = new GoogleGenerativeAI(key);
-      const model = genAI.getGenerativeModel({ model: m });
-      const result = await model.generateContent('Say "OK" only.');
-      return res.json({
-        status: 'OK',
-        model: m,
-        message: result.response.text(),
-        keyPrefix
-      } as DebugResponse);
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message.toLowerCase() : '';
-      if (!errMsg.includes('quota') && !errMsg.includes('429') && !errMsg.includes('404') && !errMsg.includes('resource_exhausted')) {
-        const errDetail = err instanceof Error ? err.message : 'Unknown error';
-        console.error(`[AI Debug] ${m} error:`, errDetail);
-        return res.json({
-          status: 'ERROR',
-          model: m,
-          message: errDetail,
-          keyPrefix
-        } as DebugResponse);
+    result.gemini.status = 'no_key';
+  } else {
+    result.gemini.keyPrefix = key.slice(0, 8) + '...';
+    const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash-001'];
+    for (const m of candidates) {
+      try {
+        const genAI = new GoogleGenerativeAI(key);
+        const model = genAI.getGenerativeModel({ model: m });
+        const genResult = await model.generateContent('Say "OK" only.');
+        result.gemini.status = 'ok';
+        result.gemini.model = m;
+        break;
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message.toLowerCase() : '';
+        if (!errMsg.includes('quota') && !errMsg.includes('429') && !errMsg.includes('404')) {
+          result.gemini.status = 'error';
+          result.gemini.error = err instanceof Error ? err.message : 'Unknown';
+          break;
+        }
       }
     }
+    if (result.gemini.status === 'unknown') {
+      result.gemini.status = 'quota_exhausted';
+    }
   }
-  return res.json({
-    status: 'ALL_QUOTA_EXHAUSTED',
-    message: `All candidates exhausted: ${candidates.join(', ')}`,
-    keyPrefix
-  } as DebugResponse);
+
+  res.json(result);
 });
 
 /**
@@ -326,9 +417,23 @@ async function getRecentAnalyticsContext(cameraId?: string): Promise<string> {
     }
 
     // Hava durumu (Open-Meteo, ücretsiz, API key gerektirmiyor)
+    // Try to use branch coordinates if available, default to Ankara
+    let weatherLat = 39.9334;
+    let weatherLon = 32.8597;
+    try {
+      const defaultBranch = await prisma.branch.findFirst({
+        where: { isDefault: true },
+        select: { latitude: true, longitude: true, city: true }
+      });
+      if (defaultBranch) {
+        weatherLat = defaultBranch.latitude;
+        weatherLon = defaultBranch.longitude;
+      }
+    } catch { /* branch lookup optional */ }
+
     try {
       const weatherRes = await fetch(
-        'https://api.open-meteo.com/v1/forecast?latitude=39.9334&longitude=32.8597&current_weather=true&hourly=precipitation_probability&forecast_days=1'
+        `https://api.open-meteo.com/v1/forecast?latitude=${weatherLat}&longitude=${weatherLon}&current_weather=true&hourly=precipitation_probability&forecast_days=1`
       );
       if (weatherRes.ok) {
         const weatherData: any = await weatherRes.json();
@@ -340,7 +445,7 @@ async function getRecentAnalyticsContext(cameraId?: string): Promise<string> {
         };
         const desc = wmoDesc[cw.weathercode] || `Code ${cw.weathercode}`;
         const precipProb = weatherData.hourly?.precipitation_probability?.[new Date().getHours()] ?? null;
-        context += `\n--- Current Weather (Ankara) ---\n`;
+        context += `\n--- Current Weather ---\n`;
         context += `Temperature: ${cw.temperature}°C, ${desc}, Wind: ${cw.windspeed} km/h\n`;
         if (precipProb !== null) context += `Rain Probability: ${precipProb}%\n`;
       }
@@ -476,8 +581,8 @@ async function getZoneInsights(): Promise<string | null> {
  * Build the full context prompt for Gemini
  */
 function buildContextPrompt(userMessage: string, analyticsContext: string): string {
-  return `You are an AI assistant for ObservAI, a real-time camera analytics platform for retail and cafe operations.
-Your role is to help managers and operators understand their data and make informed decisions.
+  return `You are an AI assistant for ObservAI, a real-time camera analytics platform for cafes and restaurants.
+Your role is to help cafe/restaurant managers understand their visitor data and make informed business decisions.
 
 You have access to the following REAL-TIME analytics data from the venue:
 
@@ -488,13 +593,14 @@ ${analyticsContext}
 User Question: ${userMessage}
 
 Instructions:
-- Answer the user's question based ONLY on the analytics data provided above
-- Be concise and actionable (2-3 sentences maximum)
+- Respond in the same language the user writes in. If Turkish, respond in Turkish. If English, respond in English.
+- Answer based on the analytics data provided above
+- Be concise and actionable (2-4 sentences)
 - Use specific numbers and metrics from the data
-- If the data doesn't contain information to answer the question, say "I don't have enough data to answer that. The system is currently tracking [mention what data is available]."
-- Format responses in a friendly, professional tone suitable for business managers
-- Focus on actionable insights and recommendations
-- When discussing trends, use the time range information provided
+- If the data doesn't contain enough info, say what data IS available
+- Focus on actionable insights for cafe/restaurant managers
+- Consider weather impact on visitor traffic when weather data is available
+- Suggest peak hour staffing, queue management, and marketing insights when relevant
 
 Answer:`;
 }

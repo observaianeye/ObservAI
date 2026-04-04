@@ -14,6 +14,8 @@ export default function ZoneCanvas() {
   const [loading, setLoading] = useState(false);
   const [backgroundImage, setBackgroundImage] = useState<string>('');
   const [captureError, setCaptureError] = useState<string>('');
+  const [overlapError, setOverlapError] = useState<string>('');
+  const [tempZoneOverlaps, setTempZoneOverlaps] = useState(false);
 
   // Interaction State
   const [interactionState, setInteractionState] = useState<{
@@ -77,6 +79,15 @@ export default function ZoneCanvas() {
       x: (e.clientX - rect.left) / rect.width,
       y: (e.clientY - rect.top) / rect.height
     };
+  };
+
+  const checkOverlap = (rect: { x: number; y: number; width: number; height: number }, excludeId?: string): boolean => {
+    return zones.some(z => {
+      if (z.id === excludeId) return false;
+      const r1 = rect;
+      const r2 = { x: z.x, y: z.y, width: z.width, height: z.height };
+      return !(r1.x + r1.width <= r2.x || r2.x + r2.width <= r1.x || r1.y + r1.height <= r2.y || r2.y + r2.height <= r1.y);
+    });
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -161,6 +172,7 @@ export default function ZoneCanvas() {
       const h = Math.abs(current.y - rawStart.y);
 
       setTempZone({ ...tempZone, x, y, width: w, height: h });
+      setTempZoneOverlaps(checkOverlap({ x, y, width: w, height: h }));
     }
     else if (interactionState.mode === 'moving' && interactionState.initialZoneState) {
       const init = interactionState.initialZoneState;
@@ -170,6 +182,9 @@ export default function ZoneCanvas() {
       // Clamp to bounds
       newX = Math.max(0, Math.min(newX, 1 - init.width));
       newY = Math.max(0, Math.min(newY, 1 - init.height));
+
+      // Prevent overlap during move
+      if (checkOverlap({ x: newX, y: newY, width: init.width, height: init.height }, init.id)) return;
 
       // Update zone list optimistically
       setZones(zones.map(z => z.id === init.id ? { ...z, x: newX, y: newY } : z));
@@ -189,6 +204,9 @@ export default function ZoneCanvas() {
       if (w < 0.02) w = 0.02;
       if (h < 0.02) h = 0.02;
 
+      // Prevent overlap during resize
+      if (checkOverlap({ x, y, width: w, height: h }, init.id)) return;
+
       // Update zone
       setZones(zones.map(z => z.id === init.id ? { ...z, x, y, width: w, height: h } : z));
     }
@@ -197,12 +215,17 @@ export default function ZoneCanvas() {
   const handleMouseUp = () => {
     if (interactionState.mode === 'drawing' && tempZone) {
       if (tempZone.width && tempZone.width > 0.05 && tempZone.height && tempZone.height > 0.05) {
-        setZones([...zones, tempZone as Zone]);
-        showToast('success', `Zone created`);
-      } else {
-        // showToast('error', 'Zone too small');
+        if (checkOverlap({ x: tempZone.x || 0, y: tempZone.y || 0, width: tempZone.width, height: tempZone.height })) {
+          setOverlapError('Zone overlaps with an existing zone. Please draw in an empty area.');
+          setTimeout(() => setOverlapError(''), 4000);
+        } else {
+          setOverlapError('');
+          setZones([...zones, tempZone as Zone]);
+          showToast('success', `Zone created`);
+        }
       }
       setTempZone(null);
+      setTempZoneOverlaps(false);
       setIsDrawing(false);
     }
 
@@ -227,8 +250,8 @@ export default function ZoneCanvas() {
     setZones(zones.map(z => z.id === id ? { ...z, name } : z));
   };
 
-  const updateZoneType = (id: string, type: 'entrance' | 'exit') => {
-    const color = type === 'entrance' ? '#3b82f6' : '#ef4444';
+  const updateZoneType = (id: string, type: 'entrance' | 'exit' | 'queue') => {
+    const color = type === 'entrance' ? '#3b82f6' : type === 'exit' ? '#ef4444' : '#f59e0b';
     setZones(zones.map(z => z.id === id ? { ...z, type, color } : z));
   };
 
@@ -316,6 +339,16 @@ export default function ZoneCanvas() {
         </div>
       )}
 
+      {overlapError && (
+        <div className="bg-red-900/50 border border-red-500/50 rounded-lg p-4 flex items-start space-x-3">
+          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-red-300">Zone Overlap</p>
+            <p className="text-sm text-red-400 mt-1">{overlapError}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <div className="rounded-xl border-2 border-blue-500/30 overflow-hidden shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:border-blue-500/50 backdrop-blur-md bg-gray-900/80 select-none">
@@ -391,7 +424,7 @@ export default function ZoneCanvas() {
               {/* Temp Zone Drawing */}
               {tempZone && tempZone.width !== undefined && (
                 <div
-                  className="absolute border-2 border-dashed rounded bg-blue-500 bg-opacity-20 border-blue-500 pointer-events-none"
+                  className={`absolute border-2 border-dashed rounded pointer-events-none ${tempZoneOverlaps ? 'bg-red-500 bg-opacity-20 border-red-500' : 'bg-blue-500 bg-opacity-20 border-blue-500'}`}
                   style={{
                     left: `${(tempZone.x || 0) * 100}%`,
                     top: `${(tempZone.y || 0) * 100}%`,
@@ -412,6 +445,10 @@ export default function ZoneCanvas() {
               <div className="flex items-center space-x-2">
                 <div className="w-3 h-3 bg-red-600 rounded"></div>
                 <span className="text-gray-300">Exit Zone</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }}></div>
+                <span className="text-gray-300">Queue Zone</span>
               </div>
             </div>
             <div className="text-xs text-gray-400">
@@ -459,12 +496,13 @@ export default function ZoneCanvas() {
                     </div>
                     <select
                       value={zone.type}
-                      onChange={(e) => updateZoneType(zone.id, e.target.value as 'entrance' | 'exit')}
+                      onChange={(e) => updateZoneType(zone.id, e.target.value as 'entrance' | 'exit' | 'queue')}
                       className="w-full text-xs px-2 py-1 border border-blue-500/30 bg-gray-800/50 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <option value="entrance">Entrance</option>
                       <option value="exit">Exit</option>
+                      <option value="queue">Queue</option>
                     </select>
                   </div>
                 ))}

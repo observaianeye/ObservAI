@@ -24,7 +24,7 @@ export default function LoginPage() {
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<number | null>(null);
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, demoLogin } = useAuth();
 
   const updatePasswordFieldPosition = useCallback(() => {
     if (passwordInputRef.current) {
@@ -100,12 +100,12 @@ export default function LoginPage() {
     setIsLoading(true);
     setError('');
 
-    const success = await login('admin@observai.com', 'demo1234');
+    const success = await demoLogin();
 
     if (success) {
       navigate('/dashboard');
     } else {
-      setError('Demo account unavailable');
+      setError('Demo session unavailable. Please try again.');
       setIsLoading(false);
     }
   };
@@ -134,7 +134,7 @@ export default function LoginPage() {
               />
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
-            <p className="text-gray-400 text-sm">Sign in to your account to continue</p>
+            <p className="text-gray-400 text-sm">Access your analytics dashboard</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
@@ -147,7 +147,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                  placeholder="admin@observai.com"
+                  placeholder="you@yourcafe.com"
                   required
                 />
               </div>
@@ -170,7 +170,7 @@ export default function LoginPage() {
                   onFocus={handlePasswordFocus}
                   onBlur={handlePasswordBlur}
                   className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                  placeholder="Type to see cameras watching..."
+                  placeholder="Enter your password"
                   required
                 />
               </div>
@@ -198,7 +198,7 @@ export default function LoginPage() {
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
                 <>
-                  Access System
+                  Sign In
                   <ArrowRight className="w-5 h-5" />
                 </>
               )}
@@ -228,7 +228,7 @@ export default function LoginPage() {
               className="mt-4 w-full py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/50 text-purple-300 font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               <Activity className="w-4 h-4" />
-              Use Demo Account
+              Try Demo
             </button>
           </div>
 

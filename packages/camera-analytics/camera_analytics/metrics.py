@@ -73,6 +73,9 @@ class QueueSnapshot:
   current: int
   average_wait_seconds: float
   longest_wait_seconds: float
+  longest_current_wait_seconds: float = 0.0
+  peak_count: int = 0
+  throughput_per_minute: float = 0.0
 
 
 @dataclass

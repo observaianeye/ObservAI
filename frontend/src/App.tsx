@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { DataModeProvider } from './contexts/DataModeContext';
+import { DashboardFilterProvider } from './contexts/DashboardFilterContext';
 import { ToastProvider } from './contexts/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalAlerts from './components/GlobalAlerts';
@@ -14,6 +15,7 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const RegisterPage = lazy(() => import('./pages/RegisterPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+const DemoRedirectPage = lazy(() => import('./pages/DemoRedirectPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 const DashboardLayout = lazy(() => import('./components/layout/DashboardLayout'));
 const CameraAnalyticsPage = lazy(() => import('./pages/dashboard/CameraAnalyticsPage'));
@@ -28,6 +30,7 @@ function App() {
   return (
     <AuthProvider>
       <DataModeProvider>
+        <DashboardFilterProvider>
         <ToastProvider>
           <Router>
           <Suspense fallback={<LoadingScreen />}>
@@ -36,6 +39,7 @@ function App() {
               <Route path="/home" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/demo" element={<DemoRedirectPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
 
@@ -104,6 +108,7 @@ function App() {
           <GlobalChatbot />
           </Router>
         </ToastProvider>
+        </DashboardFilterProvider>
       </DataModeProvider>
     </AuthProvider>
   );

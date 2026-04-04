@@ -19,6 +19,9 @@ model User {
   firstName     String?
   lastName      String?
   role          String  @default("MANAGER")
+  accountType   String  @default("TRIAL") // TRIAL | PAID | DEMO
+  trialExpiresAt DateTime?
+  companyName   String?
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -29,6 +32,7 @@ model User {
   zones         Zone[]
   sessions      Session[]
   passwordResets PasswordReset[]
+  branches      Branch[]
 
   @@map("users")
 }
@@ -61,6 +65,26 @@ model PasswordReset {
   @@map("password_resets")
 }
 
+// Branch/Location management
+model Branch {
+  id        String   @id @default(uuid())
+  name      String
+  city      String
+  latitude  Float
+  longitude Float
+  timezone  String   @default("Europe/Istanbul")
+  userId    String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cameras Camera[]
+
+  @@map("branches")
+}
+
 // Camera/Video source configuration
 model Camera {
   id          String       @id @default(uuid())
@@ -72,12 +96,14 @@ model Camera {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   createdBy   String
+  branchId    String?
 
   // Configuration
   config      String? // JSON string
 
   // Relations
   user          User            @relation(fields: [createdBy], references: [id])
+  branch        Branch?         @relation(fields: [branchId], references: [id])
   zones         Zone[]
   analyticsLogs AnalyticsLog[]
 

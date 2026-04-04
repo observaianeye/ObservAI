@@ -9,6 +9,36 @@ import { requireManager } from '../middleware/roleCheck';
 
 const router = Router();
 
+// Zone overlap detection helper
+function coordsToBBox(coordinates: Array<{ x: number; y: number }>): { x: number; y: number; width: number; height: number } {
+  const xs = coordinates.map(c => c.x);
+  const ys = coordinates.map(c => c.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  return { x: minX, y: minY, width: Math.max(...xs) - minX, height: Math.max(...ys) - minY };
+}
+
+function rectsOverlap(
+  r1: { x: number; y: number; width: number; height: number },
+  r2: { x: number; y: number; width: number; height: number }
+): boolean {
+  return !(r1.x + r1.width <= r2.x || r2.x + r2.width <= r1.x || r1.y + r1.height <= r2.y || r2.y + r2.height <= r1.y);
+}
+
+function findOverlaps(
+  newCoords: Array<{ x: number; y: number }>,
+  existingZones: Array<{ coordinates: string | Array<{ x: number; y: number }> }>,
+  excludeId?: string
+): boolean {
+  const newBBox = coordsToBBox(newCoords);
+  for (const ez of existingZones) {
+    if (excludeId && (ez as any).id === excludeId) continue;
+    const coords = typeof ez.coordinates === 'string' ? JSON.parse(ez.coordinates) : ez.coordinates;
+    if (rectsOverlap(newBBox, coordsToBBox(coords))) return true;
+  }
+  return false;
+}
+
 // Validation schemas
 const CreateZoneSchema = z.object({
   cameraId: z.string().uuid(),
@@ -65,6 +95,14 @@ router.get('/:cameraId', async (req: Request, res: Response) => {
 router.post('/', requireManager, async (req: Request, res: Response) => {
   try {
     const data = CreateZoneSchema.parse(req.body);
+
+    // Check overlap with existing zones for this camera
+    const existingZones = await prisma.zone.findMany({
+      where: { cameraId: data.cameraId, isActive: true }
+    });
+    if (findOverlaps(data.coordinates, existingZones)) {
+      return res.status(409).json({ error: 'Zone overlaps with an existing zone' });
+    }
 
     const zone = await prisma.zone.create({
       data: {
@@ -147,6 +185,17 @@ router.post('/batch', requireManager, async (req: Request, res: Response) => {
 
     if (!cameraId || !zones || !Array.isArray(zones)) {
       return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    // Check for overlaps among the batch zones themselves
+    for (let i = 0; i < zones.length; i++) {
+      for (let j = i + 1; j < zones.length; j++) {
+        const coordsI = zones[i].coordinates || [];
+        const coordsJ = zones[j].coordinates || [];
+        if (coordsI.length > 0 && coordsJ.length > 0 && rectsOverlap(coordsToBBox(coordsI), coordsToBBox(coordsJ))) {
+          return res.status(409).json({ error: `Zone "${zones[i].name}" overlaps with "${zones[j].name}"` });
+        }
+      }
     }
 
     // Delete existing zones for this camera

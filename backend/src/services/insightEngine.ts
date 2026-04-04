@@ -25,7 +25,24 @@ interface WeatherData {
   description: string;
 }
 
-async function getWeatherContext(lat = 39.9334, lon = 32.8597, city = 'Ankara'): Promise<string> {
+async function getWeatherContext(lat?: number, lon?: number, city?: string): Promise<string> {
+  // Try to use default branch coordinates
+  if (!lat || !lon) {
+    try {
+      const defaultBranch = await prisma.branch.findFirst({
+        where: { isDefault: true },
+        select: { latitude: true, longitude: true, city: true }
+      });
+      if (defaultBranch) {
+        lat = defaultBranch.latitude;
+        lon = defaultBranch.longitude;
+        city = defaultBranch.city;
+      }
+    } catch { /* fallback to defaults */ }
+  }
+  lat = lat || 39.9334;
+  lon = lon || 32.8597;
+  city = city || 'Ankara';
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=precipitation_probability&forecast_days=1`;
     const res = await fetch(url);

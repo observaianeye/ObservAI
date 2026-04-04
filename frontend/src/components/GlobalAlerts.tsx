@@ -75,9 +75,9 @@ const categoryIcons = {
 };
 
 const severityColors = {
-  high: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-  medium: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-  low: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' }
+  high: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/20' },
+  medium: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/20' },
+  low: { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/20' }
 };
 
 export default function GlobalAlerts() {
@@ -142,35 +142,35 @@ export default function GlobalAlerts() {
           <div
             role="dialog"
             aria-label="Alerts Panel"
-            className="fixed top-0 right-0 h-full w-full sm:w-[420px] bg-white shadow-2xl z-50 flex flex-col"
+            className="fixed top-0 right-0 h-full w-full sm:w-[420px] bg-[#0f1117]/80 backdrop-blur-xl shadow-2xl border-l border-white/10 z-50 flex flex-col"
           >
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+            <div className="flex items-center justify-between p-4 border-b border-white/10">
               <div className="flex items-center space-x-2">
-                <AlertCircle className="w-5 h-5 text-blue-600" />
-                <h2 className="text-lg font-semibold text-gray-900">Alerts</h2>
+                <AlertCircle className="w-5 h-5 text-blue-400" />
+                <h2 className="text-lg font-semibold text-white">Alerts</h2>
                 {unacknowledgedCount > 0 && (
-                  <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-semibold rounded-full">
+                  <span className="px-2 py-0.5 bg-red-500/10 text-red-400 text-xs font-semibold rounded-full">
                     {unacknowledgedCount} new
                   </span>
                 )}
               </div>
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                className="p-1 text-gray-400 hover:text-white hover:bg-white/5 rounded transition-colors"
                 aria-label="Close alerts"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex space-x-1 p-3 border-b border-gray-200 overflow-x-auto">
+            <div className="flex space-x-1 p-3 border-b border-white/10 overflow-x-auto">
               {(['all', 'sales', 'camera', 'inventory', 'labor'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${activeTab === tab
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-600 hover:bg-gray-50'
+                    ? 'bg-blue-500/10 text-blue-400'
+                    : 'text-gray-400 hover:bg-white/5'
                     }`}
                 >
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -182,7 +182,7 @@ export default function GlobalAlerts() {
               {filteredAlerts.length === 0 ? (
                 <div className="text-center py-12">
                   <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm text-gray-500">No alerts in this category</p>
+                  <p className="text-sm text-gray-400">No alerts in this category</p>
                 </div>
               ) : (
                 filteredAlerts.map(alert => {
@@ -203,23 +203,23 @@ export default function GlobalAlerts() {
                             {alert.source}
                           </span>
                         </div>
-                        <span className="text-xs text-gray-500">{alert.date}</span>
+                        <span className="text-xs text-gray-400">{alert.date}</span>
                       </div>
 
-                      <p className="text-sm text-gray-900 mb-3">{alert.message}</p>
+                      <p className="text-sm text-white mb-3">{alert.message}</p>
 
                       <div className="flex items-center space-x-2">
                         <Link
                           to={alert.link}
                           onClick={() => setIsOpen(false)}
-                          className="flex-1 px-3 py-1.5 bg-gray-50 text-gray-900 text-xs font-medium rounded hover:bg-gray-100 transition-colors text-center"
+                          className="flex-1 px-3 py-1.5 bg-white/5 text-white text-xs font-medium rounded hover:bg-white/10 transition-colors text-center"
                         >
                           View Details
                         </Link>
                         {!alert.acknowledged && (
                           <button
                             onClick={() => handleAcknowledge(alert.id)}
-                            className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-medium rounded hover:bg-blue-100 transition-colors"
+                            className="px-3 py-1.5 bg-blue-500/10 text-blue-400 text-xs font-medium rounded hover:bg-blue-500/20 transition-colors"
                           >
                             Acknowledge
                           </button>
