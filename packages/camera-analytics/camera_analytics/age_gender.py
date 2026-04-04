@@ -201,7 +201,12 @@ class InsightFaceEstimator(AgeGenderEstimator):
     """
     MIN_FACE_INPUT_SIZE = 256
 
-    def __init__(self, model_name: str = "buffalo_l", providers: list = None):
+    def __init__(self, model_name: str = None, providers: list = None):
+        # Auto-detect: use buffalo_l if available, otherwise buffalo_s
+        if model_name is None:
+            import os
+            buffalo_l_path = os.path.expanduser("~/.insightface/models/buffalo_l")
+            model_name = "buffalo_l" if os.path.isdir(buffalo_l_path) else "buffalo_s"
         self.model_name = model_name
         if providers is None:
             import platform as _platform

@@ -80,6 +80,10 @@ lerna-debug.log*
 *.pth
 yolov8n.pt
 
+# Prisma SQLite database
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+
 # Camera data
 packages/data/camera/latest_metrics.json
 

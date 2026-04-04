@@ -92,6 +92,14 @@ class HardwareOptimizer:
         # NVIDIA TensorRT optimization
         if hw["cuda_available"] and not hw["system"] == "Darwin":
             if target_format == "tensorrt" or target_format is None:
+                # Skip TensorRT export if tensorrt is not installed
+                try:
+                    import importlib
+                    if importlib.util.find_spec("tensorrt") is None:
+                        print("[OPTIMIZE] TensorRT not installed — using CUDA PyTorch (FP16)")
+                        return model_path
+                except Exception:
+                    pass
                 try:
                     # Ultralytics model.export(format="engine") creates "{stem}.engine"
                     # in the same directory as the source .pt file.
