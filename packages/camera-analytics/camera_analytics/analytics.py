@@ -563,6 +563,9 @@ class CameraAnalyticsEngine:
       # Use FFMPEG backend for network streams (HTTP/HTTPS) to avoid CAP_IMAGES fallback issues
       if isinstance(self.source, str) and self.source.startswith(('http://', 'https://')):
         cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+        # Set timeouts for HTTP streams (iVCam, IP cameras) to avoid indefinite hangs
+        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)   # 10s to open connection
+        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 15000)    # 15s per frame read
       else:
         cap = cv2.VideoCapture(self.source)
 
@@ -703,6 +706,13 @@ class CameraAnalyticsEngine:
       cap.set(cv2.CAP_PROP_BUFFERSIZE, 30)
       actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
       actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+      # If camera doesn't support 1080p, try 720p
+      if actual_w < 1280 or actual_h < 720:
+        print(f"[WARN] Camera returned {actual_w}x{actual_h}, trying 1280x720...")
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
       print(f"[INFO] Webcam ({_plat.system()}): {actual_w}x{actual_h} MJPG, async 3-thread pipeline")
       self._run_async_pipeline(cap)
     else:
@@ -732,9 +742,12 @@ class CameraAnalyticsEngine:
     # Create VideoCapture with FFMPEG backend for network streams
     if isinstance(self.source, str) and self.source.startswith('http'):
       cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+      # Set timeouts for HTTP streams (iVCam, IP cameras) to avoid indefinite hangs
+      cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)   # 10s to open connection
+      cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 15000)    # 15s per frame read
     else:
       cap = cv2.VideoCapture(self.source)
-    
+
     # Larger buffer for HLS burst tolerance (segments arrive in 2-6s bursts)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 30)
 
@@ -748,7 +761,21 @@ class CameraAnalyticsEngine:
     if not cap.isOpened():
       print(f"[ERROR] Failed to open {source_type}")
       return
-    
+
+    # Log actual resolution from source
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"[INFO] {source_type} resolution: {src_w}x{src_h}")
+
+    # For HTTP streams with low resolution, request higher if possible
+    if isinstance(self.source, str) and self.source.startswith('http') and (src_w < 1280 or src_h < 720):
+      cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+      cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+      new_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+      new_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+      if new_w != src_w or new_h != src_h:
+        print(f"[INFO] Upgraded resolution to {new_w}x{new_h}")
+
     # Get actual FPS from the video source
     source_fps = cap.get(cv2.CAP_PROP_FPS)
 
@@ -802,13 +829,42 @@ class CameraAnalyticsEngine:
     _inf_cnt  = [0]; _inf_t   = [time.time()]
 
     # ── Thread 1: Frame Capture ──────────────────────────────────────────────
+    _cap_holder = [cap]  # Mutable holder for reconnection
+
     def capture_fn():
       _last_capture_t = time.time()
+      _consecutive_failures = 0
+      _MAX_CONSECUTIVE_FAILURES = 100  # ~0.5s at 5ms sleep
+
       while not stop_event.is_set():
-        ret, frame = cap.read()
+        ret, frame = _cap_holder[0].read()
         if not ret or frame is None:
-          time.sleep(0.005)
+          _consecutive_failures += 1
+          # Reconnect HTTP streams after sustained failures
+          if (_consecutive_failures >= _MAX_CONSECUTIVE_FAILURES
+              and isinstance(self.source, str)
+              and self.source.startswith(('http://', 'https://'))):
+            print(f"[WARN] {_consecutive_failures} consecutive capture failures, reconnecting to {self.source[:60]}...")
+            try:
+              _cap_holder[0].release()
+            except Exception:
+              pass
+            time.sleep(1.0)
+            try:
+              new_cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
+              new_cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
+              new_cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 15000)
+              if self.is_live_source:
+                new_cap.set(cv2.CAP_PROP_BUFFERSIZE, 30)
+              _cap_holder[0] = new_cap
+              print(f"[INFO] Reconnected to source: opened={new_cap.isOpened()}")
+            except Exception as e:
+              print(f"[ERROR] Reconnection failed: {e}")
+            _consecutive_failures = 0
+          else:
+            time.sleep(0.005)
           continue
+        _consecutive_failures = 0
         # FPS pacing for recorded videos: read frames at source FPS
         # (live streams should read as fast as possible)
         if not self.is_live_source and self.source_fps and self.source_fps > 0:

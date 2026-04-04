@@ -294,8 +294,14 @@ class VideoLinkSource(VideoSource):
             if url.endswith(('.mp4', '.avi', '.mov', '.mkv', '.flv')):
                 print(f"   Detected direct video file URL: {url}")
                 self.is_live = False
+            elif ':4747/' in url or '/mjpeg' in url.lower() or ':8080/video' in url.lower():
+                # iVCam, DroidCam, and similar phone camera HTTP streams
+                print(f"   Detected phone camera HTTP stream (live): {url}")
+                self.is_live = True
             else:
-                print(f"   Detected HTTP stream: {url}")
+                # Generic HTTP streams without file extension are typically live feeds
+                print(f"   Detected HTTP stream (live): {url}")
+                self.is_live = True
             self._resolved_source = url
             return url
 

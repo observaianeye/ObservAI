@@ -1,8 +1,9 @@
-import { Camera, Circle, Monitor, Wifi, Upload, Trash2, Loader2 } from 'lucide-react';
+import { Camera, Circle, Monitor, Wifi, Upload, Trash2, Loader2, Smartphone, Play } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
-type SourceType = 'webcam' | 'file' | 'rtsp' | 'screen' | 'youtube';
+type SourceType = 'webcam' | 'file' | 'rtsp' | 'screen' | 'youtube' | 'phone';
 
 interface SavedCamera {
   id: string;
@@ -17,6 +18,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export default function CameraSelectionPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [sourceType, setSourceType] = useState<SourceType>('webcam');
   const [sourceValue, setSourceValue] = useState<string>('0');
   const [sourceName, setSourceName] = useState<string>('');
@@ -45,6 +47,7 @@ export default function CameraSelectionPage() {
 
   const sourceTypes = [
     { value: 'webcam', label: 'Webcam', icon: Camera, description: 'Built-in or USB camera' },
+    { value: 'phone', label: 'Phone Cam', icon: Smartphone, description: 'iVCam / DroidCam HTTP stream' },
     { value: 'file', label: 'Video File', icon: Upload, description: 'MP4, AVI, or other video file' },
     { value: 'rtsp', label: 'RTSP/RTMP Stream', icon: Wifi, description: 'Network camera or stream' },
     { value: 'screen', label: 'Screen Capture', icon: Monitor, description: 'Capture your screen' },
@@ -102,6 +105,21 @@ export default function CameraSelectionPage() {
     }
   };
 
+  const handleActivate = async (cameraId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/cameras/activate/${cameraId}`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        await fetchCameras();
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      console.error('Failed to activate camera:', err);
+    }
+  };
+
   const getSourceIcon = (type: string) => {
     const st = sourceTypes.find(s => s.value === type.toLowerCase());
     return st ? st.icon : Camera;
@@ -110,6 +128,7 @@ export default function CameraSelectionPage() {
   const getSourcePlaceholder = () => {
     switch (sourceType) {
       case 'webcam': return '0';
+      case 'phone': return 'http://192.168.1.100:4747/video';
       case 'file': return '/path/to/video.mp4';
       case 'rtsp': return 'rtsp://username:password@192.168.1.100:554/stream';
       case 'screen': return 'screen';
@@ -121,6 +140,7 @@ export default function CameraSelectionPage() {
   const getSourceDescription = () => {
     switch (sourceType) {
       case 'webcam': return 'Enter camera index (0 for built-in, 1 for first USB camera, etc.)';
+      case 'phone': return 'iVCam veya DroidCam HTTP stream URL girin (orn: http://IP:4747/video)';
       case 'file': return 'Enter the full path to your video file';
       case 'rtsp': return 'Enter RTSP or RTMP stream URL';
       case 'screen': return 'Type "screen" to capture your screen display';
@@ -150,7 +170,7 @@ export default function CameraSelectionPage() {
                   key={st.value}
                   onClick={() => {
                     setSourceType(st.value as SourceType);
-                    setSourceValue(st.value === 'webcam' ? '0' : st.value === 'screen' ? 'screen' : '');
+                    setSourceValue(st.value === 'webcam' ? '0' : st.value === 'screen' ? 'screen' : st.value === 'phone' ? 'http://' : '');
                   }}
                   className={`p-4 rounded-lg border-2 transition-all ${
                     sourceType === st.value
@@ -246,19 +266,27 @@ export default function CameraSelectionPage() {
                   <p className="text-xs text-gray-500 mb-4 font-mono break-all">{camera.sourceValue}</p>
                   <div className="flex gap-2">
                     <button
+                      onClick={() => handleActivate(camera.id)}
+                      className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      Aktif Et
+                    </button>
+                    <button
                       onClick={() => {
                         navigator.clipboard.writeText(
                           `python -m camera_analytics.run_with_websocket --source "${camera.sourceValue}"`
                         );
                       }}
-                      className="flex-1 px-3 py-2 bg-white/5 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/10 transition-colors border border-white/10"
+                      className="px-3 py-2 bg-white/5 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/10 transition-colors border border-white/10"
+                      title="Komutu kopyala"
                     >
-                      Copy Command
+                      Copy
                     </button>
                     <button
                       onClick={() => handleDelete(camera.id)}
                       className="px-3 py-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors border border-white/10"
-                      title="Delete camera"
+                      title="Sil"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

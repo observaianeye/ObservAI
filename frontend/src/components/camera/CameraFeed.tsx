@@ -94,6 +94,16 @@ export default function CameraFeed() {
   // Source switching loading state
   const [isSwitchingSource, setIsSwitchingSource] = useState(false);
 
+  // Saved cameras from Camera Selection page
+  interface SavedCamera {
+    id: string;
+    name: string;
+    sourceType: string;
+    sourceValue: string;
+    isActive: boolean;
+  }
+  const [savedCameras, setSavedCameras] = useState<SavedCamera[]>([]);
+
   // Backend readiness state machine
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -106,7 +116,7 @@ export default function CameraFeed() {
   const retryCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mjpegRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mjpegRetryCountRef = useRef(0);
-  const MAX_MJPEG_RETRIES = 8;
+  const MAX_MJPEG_RETRIES = 20;
 
   // Dynamic video dimensions for proper aspect ratio
   const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0 });
@@ -154,6 +164,24 @@ export default function CameraFeed() {
   useEffect(() => {
     localStorage.setItem('ipCameras', JSON.stringify(ipCameras));
   }, [ipCameras]);
+
+  // Fetch saved cameras from Camera Selection page
+  const fetchSavedCameras = useCallback(async () => {
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const res = await fetch(`${apiUrl}/api/cameras`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedCameras(data);
+      }
+    } catch {
+      // Silently handle - API might not be available
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSavedCameras();
+  }, [fetchSavedCameras]);
 
   // Auto-start camera when entering Live mode
   // Use last selected source from localStorage, or default to MacBook camera
@@ -516,6 +544,10 @@ export default function CameraFeed() {
 
   const initializeCamera = async () => {
     setError(null);
+    // Reset MJPEG retry counters so the stream can reconnect
+    mjpegRetryCountRef.current = 0;
+    setRetryCountDisplay(0);
+    setNextRetryIn(0);
 
     try {
       let mediaStream: MediaStream | null = null;
@@ -837,6 +869,36 @@ export default function CameraFeed() {
     setIPCameras(ipCameras.filter(cam => cam.id !== cameraId));
   };
 
+  // Map saved camera sourceType to CameraFeed source change
+  const handleSavedCameraSelect = useCallback((camera: SavedCamera) => {
+    const value = camera.sourceValue;
+    switch (camera.sourceType.toUpperCase()) {
+      case 'WEBCAM':
+        handleSourceChange('webcam');
+        break;
+      case 'PHONE':
+      case 'HTTP':
+        // Phone camera or HTTP stream — use as videolink with URL
+        handleSourceChange('videolink', { url: value });
+        break;
+      case 'RTSP':
+      case 'RTMP':
+        handleSourceChange('videolink', { url: value });
+        break;
+      case 'YOUTUBE':
+        handleSourceChange('videolink', { url: value });
+        break;
+      case 'FILE':
+        handleSourceChange('videolink', { url: value });
+        break;
+      case 'SCREEN_CAPTURE':
+        handleSourceChange('videolink', { url: 'screen' });
+        break;
+      default:
+        handleSourceChange('videolink', { url: value });
+    }
+  }, [handleSourceChange]);
+
   const getSourceLabel = () => {
     switch (currentSource.type) {
       case 'webcam': return 'Camera';
@@ -855,7 +917,7 @@ export default function CameraFeed() {
     <GlassCard
       ref={containerRef}
       variant="neon"
-      className="overflow-hidden"
+      className={`overflow-hidden ${isFullscreen ? 'flex flex-col h-screen' : ''}`}
     >
       {/* Header */}
       <div className="bg-gradient-to-r from-gray-800 to-gray-900 px-4 py-3 flex items-center justify-between">
@@ -954,6 +1016,34 @@ export default function CameraFeed() {
             </button>
           </div>
 
+          {/* Saved Cameras from Camera Selection page */}
+          {savedCameras.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs text-gray-500 mb-1.5">Kayitli Kaynaklar:</p>
+              <div className="space-y-1">
+                {savedCameras.map((cam) => (
+                  <button
+                    key={cam.id}
+                    onClick={() => handleSavedCameraSelect(cam)}
+                    className={`w-full text-left px-3 py-2 text-xs rounded-lg transition-colors flex items-center justify-between ${
+                      cam.isActive
+                        ? 'bg-blue-600/20 text-blue-300 ring-1 ring-blue-500/50'
+                        : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {cam.isActive && <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />}
+                      <span className="font-medium">{cam.name}</span>
+                    </span>
+                    <span className="text-gray-500 text-[10px] uppercase">{cam.sourceType}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quick Connect */}
+          <p className="text-xs text-gray-500 mb-1.5">Hizli Baglan:</p>
           <div className="grid grid-cols-2 gap-2 mb-3">
             <button
               onClick={() => handleSourceChange('webcam')}
@@ -991,7 +1081,7 @@ export default function CameraFeed() {
               <label className="text-xs text-gray-300 mb-1 flex items-center">
                 <LinkIcon className="w-3 h-3 mr-1" />
                 ivCam Tailscale URL
-                <span className="ml-2 text-gray-500">(uzaktan erişim için)</span>
+                <span className="ml-2 text-gray-500">(uzaktan erisim icin)</span>
               </label>
               <div className="flex space-x-2">
                 <input
@@ -1007,8 +1097,8 @@ export default function CameraFeed() {
               </div>
               <p className="text-xs text-gray-500 mt-1">
                 {iphoneRemoteUrl.trim()
-                  ? '🌐 Tailscale HTTP stream kullanılacak (ivCam Windows client gerekmez)'
-                  : '📱 Boş bırakırsan: ivCam virtual kamera (index 1) — aynı ağda çalışır'}
+                  ? 'Tailscale HTTP stream kullanilacak'
+                  : 'Bos birakirsan: iVCam virtual kamera (index 1)'}
               </p>
             </div>
           )}
@@ -1153,22 +1243,35 @@ export default function CameraFeed() {
         </div>
       )}
 
-      {/* Video Feed - Container maintains proper aspect ratio, capped for portrait sources (e.g. iPhone) */}
+      {/* Video Feed - Container matches exact video aspect ratio for perfect overlay alignment */}
       <div
-        className="relative bg-gray-900"
+        className={`relative bg-black ${isFullscreen ? 'flex items-center justify-center' : ''}`}
         style={(() => {
+          // In fullscreen: fill available space, center video
+          if (isFullscreen) {
+            return { flex: 1, minHeight: 0 };
+          }
           if (videoDimensions.width > 0 && videoDimensions.height > 0) {
             const isPortrait = videoDimensions.height > videoDimensions.width;
-            if (isPortrait) {
-              // Portrait camera (e.g. iPhone 1080×1920): cap to landscape box, video letterboxes inside
-              return { aspectRatio: '16/9', maxHeight: '70vh' };
-            }
-            return { aspectRatio: `${videoDimensions.width}/${videoDimensions.height}` };
+            return {
+              aspectRatio: `${videoDimensions.width}/${videoDimensions.height}`,
+              ...(isPortrait ? { maxHeight: '70vh', margin: '0 auto' } : {})
+            };
           }
           return { aspectRatio: '16/9' };
         })()}
       >
-        <div className="absolute inset-0">
+        <div
+          className="absolute inset-0"
+          style={isFullscreen && videoDimensions.width > 0 ? {
+            aspectRatio: `${videoDimensions.width}/${videoDimensions.height}`,
+            maxWidth: '100%',
+            maxHeight: '100%',
+            margin: 'auto',
+            position: 'absolute',
+            inset: 0,
+          } : undefined}
+        >
           {dataMode === 'demo' ? (
             // Demo mode - placeholder
             <div className="w-full h-full flex items-center justify-center">
@@ -1256,7 +1359,7 @@ export default function CameraFeed() {
               ref={mjpegImgRef}
               src={mjpegUrl}
               alt="Camera stream"
-              className="w-full h-full object-contain bg-black"
+              className="w-full h-full object-fill"
               onLoad={(e) => {
                 const img = e.currentTarget;
                 if (img.naturalWidth && img.naturalHeight) {
@@ -1278,7 +1381,7 @@ export default function CameraFeed() {
                 console.warn(`[CameraFeed] MJPEG stream error (attempt ${mjpegRetryCountRef.current + 1}/${MAX_MJPEG_RETRIES})`);
 
                 if (mjpegRetryCountRef.current >= MAX_MJPEG_RETRIES) {
-                  setError(`MJPEG stream failed after ${MAX_MJPEG_RETRIES} attempts.\n\nCheck Python backend:\npython -m camera_analytics.run_with_websocket --source 0`);
+                  setError(`MJPEG stream ${MAX_MJPEG_RETRIES} denemeden sonra başarısız.\n\niVCam/kamera uygulamasının çalıştığından ve backend'in bağlı olduğundan emin olun.`);
                   return;
                 }
 
@@ -1316,7 +1419,7 @@ export default function CameraFeed() {
           {/* Video element (Demo mode or when using browser camera directly) */}
           <video
             ref={videoRef}
-            className={`w-full h-full object-contain bg-black ${dataMode === 'demo' || error ? 'hidden' : ''}`}
+            className={`w-full h-full object-fill ${dataMode === 'demo' || error ? 'hidden' : ''}`}
             autoPlay
             playsInline
             muted
@@ -1328,13 +1431,13 @@ export default function CameraFeed() {
             }}
           />
 
-          {/* Canvas overlay for detections */}
+          {/* Canvas overlay for detections — matches video dimensions exactly */}
           {dataMode === 'live' && isStreaming && !error && (
             <canvas
               ref={canvasRef}
-              width={(videoDimensions.width > 64 ? videoDimensions.width : null) || containerRef.current?.clientWidth || 1280}
-              height={(videoDimensions.height > 64 ? videoDimensions.height : null) || containerRef.current?.clientHeight || 720}
-              className="absolute inset-0 w-full h-full pointer-events-none"
+              width={videoDimensions.width > 64 ? videoDimensions.width : 1920}
+              height={videoDimensions.height > 64 ? videoDimensions.height : 1080}
+              className="absolute inset-0 pointer-events-none"
               style={{ width: '100%', height: '100%' }}
             />
           )}

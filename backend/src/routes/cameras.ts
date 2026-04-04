@@ -13,7 +13,7 @@ const router = Router();
 const CreateCameraSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().optional(),
-  sourceType: z.enum(['WEBCAM', 'FILE', 'RTSP', 'RTMP', 'HTTP', 'YOUTUBE', 'SCREEN_CAPTURE']),
+  sourceType: z.enum(['WEBCAM', 'FILE', 'RTSP', 'RTMP', 'HTTP', 'YOUTUBE', 'SCREEN_CAPTURE', 'PHONE']),
   sourceValue: z.string().min(1),
   config: z.record(z.any()).optional(),
   createdBy: z.string().uuid()
@@ -49,6 +49,46 @@ router.get('/', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching cameras:', error);
     res.status(500).json({ error: 'Failed to fetch cameras' });
+  }
+});
+
+// GET /api/cameras/active - Get the currently active camera
+router.get('/active', async (req: Request, res: Response) => {
+  try {
+    const camera = await prisma.camera.findFirst({
+      where: { isActive: true },
+      include: {
+        zones: true,
+        user: {
+          select: { id: true, email: true, firstName: true, lastName: true }
+        }
+      }
+    });
+    res.json(camera);
+  } catch (error) {
+    console.error('Error fetching active camera:', error);
+    res.status(500).json({ error: 'Failed to fetch active camera' });
+  }
+});
+
+// POST /api/cameras/activate/:id - Activate a camera (deactivate all others)
+router.post('/activate/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Deactivate all cameras
+    await prisma.camera.updateMany({ data: { isActive: false } });
+
+    // Activate the selected one
+    const camera = await prisma.camera.update({
+      where: { id },
+      data: { isActive: true }
+    });
+
+    res.json(camera);
+  } catch (error) {
+    console.error('Error activating camera:', error);
+    res.status(500).json({ error: 'Failed to activate camera' });
   }
 });
 
