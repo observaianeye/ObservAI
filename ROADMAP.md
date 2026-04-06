@@ -12,11 +12,41 @@ Bu dosya, proje ekibinin (5 kisi) Claude Code kullanarak takip edecegi adim adim
 - Her adim sonunda ilgili degisiklikler test edilmeli
 - CLAUDE.md dosyasini her zaman oku, proje bilgisi orada
 
+## Takim Arkadaslari Icin Talimatlar
+
+> **ONCELIKLI:** Asagidaki adimlari sirasıyla takip edin. Branch olusturmadan hicbir ise baslamayin!
+
+### Ilk Kurulum (Bir kez yapilir)
+1. `git clone https://github.com/observaianeye/ObservAI.git` ile repoyu klonlayin
+2. **Kendi isminizle branch olusturun:**
+   ```bash
+   git checkout -b <isminiz>   # ornek: git checkout -b ahmet
+   git push origin <isminiz>   # remote'a push edin
+   ```
+3. Bagimliliklari yukleyin:
+   - `cd frontend && pnpm install`
+   - `cd backend && npm install`
+   - `cd packages/camera-analytics && pip install -e ".[demographics]"`
+4. `.env.example` dosyalarini kopyalayin: `cp .env.example .env` (root, backend/, frontend/)
+
+### Her Oturumda
+1. Claude Code'a: **"ROADMAP.md'yi oku ve uygun adimi sec"** deyin
+2. Kendi adiniza atanmis veya `TODO` olan bir adimi secin
+3. `IN PROGRESS` olan baska birinin adimina **dokunmayin**
+4. Calismalarinizi kendi branch'inizde yapin, commit + push edin
+5. Adim tamamlaninca `main`'e merge edin (bkz. CLAUDE.md → Git Calisma Akisi)
+6. ROADMAP'te adimin durumunu `DONE` yapin, tarih ve isminizi yazin
+
+### Onemli Uyarilar
+- `.env` dosyalari repoda yoktur — `.env.example` dosyalarini kopyalayip doldurun
+- YOLO model dosyasi (`yolo11l.pt`) git'te degildir — ilk calistirmada otomatik indirilir
+- Her zaman kendi branch'inizde calisin, dogrudan `main`'e commit yapmayin
+
 ---
 
 ## ADIM 1: GitHub Kurulumu ve Repo Esleme
-**Durum:** TODO
-**Atanan:** -
+**Durum:** IN PROGRESS
+**Atanan:** Emre (2026-04-06)
 **Bagimlilik:** Yok (ilk adim)
 
 ### Amac

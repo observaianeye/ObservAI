@@ -4,6 +4,46 @@ ObservAI - Cafe/restoran icin gercek zamanli kamera analitik platformu. Ziyaretc
 
 > **ROADMAP:** Gelistirme yol haritasi ve gorev takibi icin `ROADMAP.md` dosyasini oku. Her oturum basinda ROADMAP'i kontrol et ve uzerinde calistigin adimi `IN PROGRESS` olarak guncelle.
 
+## Git Calisma Akisi (Ekip icin)
+
+- **Ana repo:** https://github.com/observaianeye/ObservAI
+- Her gelistirici **kendi ismiyle** bir branch'te calisir
+- Bir adimi bitirince degisiklikleri `main`'e merge eder
+- `main` branch her zaman calisan, kararlı (stable) kodun oldugu yerdir
+
+### Branch Isimleri
+| Kisi | Branch |
+|------|--------|
+| Emre Partal | `partal` |
+| (Diger ekip uyeleri kendi isimlerini eklesin) |  |
+
+### Gunluk Calisma Akisi
+```bash
+# 1. Kendi branch'ine gec ve main'den guncellemeleri al
+git checkout <ismin>
+git pull origin main
+
+# 2. Calis, commit et, push et
+git add <dosyalar>
+git commit -m "aciklama"
+git push origin <ismin>
+
+# 3. Adim tamamlaninca: main'e merge et
+git checkout main
+git pull origin main
+git merge <ismin>
+git push origin main
+
+# 4. Kendi branch'ine geri don ve devam et
+git checkout <ismin>
+git pull origin main
+```
+
+### CI/CD
+- Push ve PR'larda GitHub Actions otomatik calisir (`.github/workflows/ci.yml`)
+- Frontend: `pnpm typecheck` + `pnpm build`
+- Backend: `prisma generate` + `npm run build`
+
 ## Servisler
 
 | Servis | Port | Teknoloji |
