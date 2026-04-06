@@ -45,8 +45,8 @@ Bu dosya, proje ekibinin (5 kisi) Claude Code kullanarak takip edecegi adim adim
 ---
 
 ## ADIM 1: GitHub Kurulumu ve Repo Esleme
-**Durum:** IN PROGRESS
-**Atanan:** Emre (2026-04-06)
+**Durum:** DONE (2026-04-06)
+**Atanan:** Emre
 **Bagimlilik:** Yok (ilk adim)
 
 ### Amac
