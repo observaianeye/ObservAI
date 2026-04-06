@@ -76,7 +76,9 @@ npm run db:studio               # Prisma Studio GUI
 
 # Python Analytics (packages/camera-analytics/)
 pip install -e ".[demographics]"
+pip install tensorrt-cu12                       # TensorRT (NVIDIA GPU gerekli)
 python -m camera_analytics.run_with_websocket --model yolo11l.pt
+# NOT: Ilk calistirmada TensorRT engine derlenir (~2-5 dk). Sonraki baslatmalarda cache'ten yukler.
 ```
 
 ## Mimari
@@ -124,6 +126,7 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 `.env.example` dosyalarini kopyala (root, backend/, frontend/).
 - `AI_PROVIDER=ollama` — AI saglayici (ollama veya gemini)
 - `OLLAMA_URL=http://localhost:11434` — Ollama API endpoint
+- `OLLAMA_MODEL=llama3.1:8b` — Tercih edilen Ollama modeli
 - `GEMINI_API_KEY` — Gemini fallback icin (opsiyonel)
 - `DATABASE_URL` — Prisma (default: SQLite)
 - `VITE_BACKEND_URL=http://localhost:5001` — Python analytics
@@ -131,34 +134,65 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 
 ## Donanim
 
-- **GPU**: NVIDIA RTX 5070 (12GB VRAM, CUDA)
-- **Model**: yolo11l.pt (50MB, FP16 inference)
-- **InsightFace**: buffalo_l (CUDA EP, genderage + detection + recognition)
-- **TensorRT**: Kurulu degil — PyTorch CUDA + ONNX Runtime CUDA kullaniliyor
+- **GPU**: NVIDIA RTX 5070 (12GB VRAM, CUDA 13.2)
+- **Model**: yolo11l.engine (TensorRT FP16, ~50MB) — `yolo11l.pt`'den otomatik derlenir
+- **InsightFace**: buffalo_l (TensorRT EP FP16, genderage + detection + recognition)
+- **TensorRT**: 10.16 — YOLO + InsightFace icin FP16 hizlandirilmis inference
+
+### TensorRT Kurulumu (Ekip icin — Herkes Yapmalı)
+
+NVIDIA GPU olan herkesin bilgisayarinda kurulmali. TensorRT, YOLO ve InsightFace inference'ini ~2-3x hizlandirir.
+
+```bash
+# 1. Venv'e TensorRT kur
+cd packages/camera-analytics
+pip install tensorrt-cu12
+
+# 2. Ilk calistirmada engine'ler otomatik derlenir (~2-5 dk)
+#    YOLO: yolo11l.pt → yolo11l.engine (Ultralytics export)
+#    InsightFace: ONNX → TRT engine (onnxruntime TensorRT EP, cache: trt_engine_cache/)
+python -m camera_analytics.run_with_websocket --source 1 --model yolo11l.pt
+
+# 3. Sonraki baslatmalarda cache'ten yuklenir (anlik baslatma)
+```
+
+**Gereksinimler:**
+- NVIDIA GPU (RTX 3000+ onerilen)
+- NVIDIA Driver >= 550+
+- Python 3.10-3.12
+- onnxruntime-gpu >= 1.19 (zaten demographics dependency'de)
+
+**Sorun giderme:**
+- TensorRT yoksa otomatik fallback: CUDA EP → CPU EP (performans duşer ama calisir)
+- `trt_engine_cache/` silip yeniden baslatmak engine'leri yeniden derler
+- `yolo11l.engine` silmek YOLO engine'i yeniden derler
+- Farkli GPU'da derlenmiş engine calismaz, silip yeniden derleyin
 
 ## Onemli Teknik Detaylar
 
 ### Demografi Pipeline
-1. InsightFace full-frame face detection (her `face_detection_interval` frame'de)
+1. InsightFace full-frame face detection (her frame'de, RTX 5070 ile 960x960 det_size)
 2. Yuz → YOLO kisi bbox eslestirme (proportional tolerance)
-3. Eslesmeyenler icin crop-based fallback (max 3 crop)
-4. Quality-based confidence: face_size * pose_factor * det_score
-5. Temporal smoothing: Age=EMA+weighted_median, Gender=decay-weighted voting
-6. Demographics persistence cache: track drop → save → re-entry restore (counted_in/out flag'leri de transfer edilir)
+3. Eslesmeyenler icin crop-based fallback (max 3 crop, CLAHE low-light enhancement)
+4. AYRI age/gender confidence: age=lenient pose penalty, gender=strict (yaw>55 reject)
+5. Temporal smoothing: Age=EMA+weighted_median (stability dampening), Gender=decay-weighted voting + lock
+6. Gender lock: 8 ardisik ayni cinsiyet oyu sonrasi cinsiyet kilitlenir (flip-flop engelleme)
+7. Demographics persistence cache: track drop → save → re-entry restore (120s pencere)
 
 ### Konfigürasyon Parametreleri (default_zones.yaml)
 ```yaml
 yolo_input_size: 640          # YOLO giris boyutu
-face_detection_interval: 3    # Her N frame'de InsightFace calistir
-demo_age_ema_alpha: 0.25      # Yas EMA smoothing (yuksek=hizli yakinlasma)
-demo_min_confidence: 0.30     # Min yuz tespit guven esigi
-demo_gender_consensus: 0.60   # Cinsiyet oylama esigi
-demo_temporal_decay: 0.90     # Eski oylar icin azalma carpani
+face_detection_interval: 1    # Her frame'de InsightFace calistir (RTX 5070)
+demo_age_ema_alpha: 0.15      # Yas EMA smoothing (dusuk=daha stabil)
+demo_min_confidence: 0.40     # Min yuz tespit guven esigi (yuksek=temiz tahmin)
+demo_gender_consensus: 0.70   # Cinsiyet oylama esigi (yuksek=flip-flop engelleme)
+demo_temporal_decay: 0.85     # Eski oylar icin azalma carpani
+demo_gender_lock_threshold: 8 # Cinsiyet kilitleme icin ardisik oy sayisi
 confidence_threshold: 0.5     # YOLO kisi tespit esigi
 queue_alert_threshold: 5      # Queue zone alert kisi esigi
 zone_enter_debounce_frames: 3 # Zone girisi icin ardisik frame sayisi
 zone_exit_debounce_frames: 5  # Zone cikisi icin ardisik frame sayisi
-bbox_smoothing_alpha_min: 0.3 # Bbox EMA min (jitter icin agir smoothing)
+bbox_smoothing_alpha_min: 0.2 # Bbox EMA min (jitter icin agir smoothing)
 bbox_smoothing_alpha_max: 0.9 # Bbox EMA max (gercek hareket icin hafif smoothing)
 ```
 
@@ -167,9 +201,10 @@ Numpy float32/int64 degerleri `json.dump()` ile uyumsuz. `metrics.py` icinde `_t
 
 ### Bbox Smoothing
 Adaptive EMA ile YOLO bbox koordinatlarinda jitter engellenir:
-- Kucuk yer degisiklik (jitter): alpha=0.3 (agir smoothing)
-- Buyuk yer degisiklik (gercek hareket): alpha=0.9
-- Ani ziplayis (>%15 frame): alpha=1.0 (direkt kabul)
+- Kucuk yer degisiklik (jitter <1.5%): alpha=0.2 (agir smoothing)
+- Orta hareket (1.5-5%): interpolated alpha (0.2-0.9 arasi)
+- Buyuk yer degisiklik (>5%): alpha=0.9 (hafif smoothing)
+- Ani ziplayis (>15% frame): alpha=1.0 (direkt kabul)
 
 ### Zone Hysteresis
 Zone giris/cikis flip-flop engelleme:

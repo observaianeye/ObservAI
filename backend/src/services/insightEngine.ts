@@ -2,19 +2,21 @@
  * ObservAI Insight Engine
  *
  * AI-powered analytics insight generation service.
- * Generates real-time alerts, trend analysis, and Gemini-powered recommendations.
+ * Generates real-time alerts, trend analysis, and AI-powered recommendations.
+ * Uses Ollama (primary) with Gemini fallback for LLM-based features.
  *
  * Insight Types:
  * - occupancy_alert: Zone capacity > 80%
  * - wait_time_alert: Person in zone > threshold
  * - crowd_surge: Sudden visitor spike (>1.5x rolling average)
  * - trend: Peak hours, demographic shifts, zone comparisons
- * - recommendation: Gemini AI-generated business suggestions
+ * - recommendation: Ollama/Gemini AI-generated business suggestions
  * - demographic_trend: Morning vs evening demographic profiles
  */
 
 import { prisma } from '../lib/db';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { callOllama } from '../routes/ai';
 
 // ─── Weather Helper ───────────────────────────────────────────────────────────
 
@@ -386,55 +388,54 @@ export async function getStats(
 }
 
 /**
- * Generate AI-powered recommendations using Gemini API.
+ * Build the analytics context string for recommendation generation.
  */
-export async function getAIRecommendations(cameraId?: string): Promise<string[]> {
-  try {
-    // Gather analytics context
-    const oneDay = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const where: any = { timestamp: { gte: oneDay } };
-    if (cameraId) where.cameraId = cameraId;
+async function buildRecommendationContext(cameraId?: string): Promise<{
+  contextStr: string;
+  totalVisitors: number;
+  avgOccupancy: number;
+  demographics: ReturnType<typeof extractDemographicProfile>;
+}> {
+  const oneDay = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const where: any = { timestamp: { gte: oneDay } };
+  if (cameraId) where.cameraId = cameraId;
 
-    const [logs, zoneInsights, recentInsights] = await Promise.all([
-      prisma.analyticsLog.findMany({
-        where,
-        orderBy: { timestamp: 'desc' },
-        take: 200,
-      }),
-      prisma.zoneInsight.findMany({
-        where: { timestamp: { gte: oneDay } },
-        orderBy: { timestamp: 'desc' },
-        take: 50,
-        include: { zone: { select: { name: true, type: true } } },
-      }),
-      prisma.$queryRaw<any[]>`
-        SELECT * FROM insights WHERE "createdAt" >= ${oneDay.toISOString()} ORDER BY "createdAt" DESC LIMIT 20
-      `,
-    ]);
+  const [logs, zoneInsights, recentInsights] = await Promise.all([
+    prisma.analyticsLog.findMany({
+      where,
+      orderBy: { timestamp: 'desc' },
+      take: 200,
+    }),
+    prisma.zoneInsight.findMany({
+      where: { timestamp: { gte: oneDay } },
+      orderBy: { timestamp: 'desc' },
+      take: 50,
+      include: { zone: { select: { name: true, type: true } } },
+    }),
+    prisma.$queryRaw<any[]>`
+      SELECT * FROM insights WHERE "createdAt" >= ${oneDay.toISOString()} ORDER BY "createdAt" DESC LIMIT 20
+    `,
+  ]);
 
-    // Build context summary
-    const totalVisitors = logs.reduce((s, l) => s + l.peopleIn, 0);
-    const avgOccupancy = logs.length > 0
-      ? round2(logs.reduce((s, l) => s + l.currentCount, 0) / logs.length)
-      : 0;
-    const peakCount = logs.length > 0 ? Math.max(...logs.map(l => l.currentCount)) : 0;
-    const demographics = extractDemographicProfile(logs);
+  const totalVisitors = logs.reduce((s, l) => s + l.peopleIn, 0);
+  const avgOccupancy = logs.length > 0
+    ? round2(logs.reduce((s, l) => s + l.currentCount, 0) / logs.length)
+    : 0;
+  const peakCount = logs.length > 0 ? Math.max(...logs.map(l => l.currentCount)) : 0;
+  const demographics = extractDemographicProfile(logs);
 
-    // Build zone insight summary
-    const zoneSummary = zoneInsights.slice(0, 10).map(zi =>
-      `- ${zi.zone?.name || 'Unknown zone'}: Person stayed ${Math.round(zi.duration / 60)} min` +
-      (zi.gender ? ` (${zi.gender}` + (zi.age ? `, age ~${zi.age}` : '') + ')' : '')
-    ).join('\n');
+  const zoneSummary = zoneInsights.slice(0, 10).map(zi =>
+    `- ${zi.zone?.name || 'Unknown zone'}: Person stayed ${Math.round(zi.duration / 60)} min` +
+    (zi.gender ? ` (${zi.gender}` + (zi.age ? `, age ~${zi.age}` : '') + ')' : '')
+  ).join('\n');
 
-    // Build alerts summary
-    const alertSummary = recentInsights.slice(0, 5).map(i =>
-      `- [${i.severity.toUpperCase()}] ${i.title}: ${i.message}`
-    ).join('\n');
+  const alertSummary = recentInsights.slice(0, 5).map(i =>
+    `- [${i.severity.toUpperCase()}] ${i.title}: ${i.message}`
+  ).join('\n');
 
-    // Hava durumu verisini al (Open-Meteo, ücretsiz)
-    const weatherCtx = await getWeatherContext();
+  const weatherCtx = await getWeatherContext();
 
-    const contextStr = `
+  const contextStr = `
 === LAST 24-HOUR ANALYTICS SUMMARY ===
 Total Visitors: ${totalVisitors}
 Average Occupancy: ${avgOccupancy}
@@ -454,59 +455,106 @@ ${zoneSummary ? `Zone Alerts:\n${zoneSummary}` : 'Zone Alerts: None'}
 ${alertSummary ? `Recent Alerts:\n${alertSummary}` : 'Recent Alerts: None'}
 `;
 
-    const prompt = `You are an AI analytics advisor for ObservAI, a real-time visitor analytics platform used in retail stores and cafes.
+  return { contextStr, totalVisitors, avgOccupancy, demographics };
+}
 
-Based on the following analytics data, provide exactly 5 actionable business recommendations. Each recommendation should be specific, data-driven, and implementable.
+/**
+ * Parse AI response text into an array of recommendation strings.
+ */
+function parseRecommendations(text: string): string[] {
+  // Try JSON array first
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed)) return parsed.map(String).slice(0, 5);
+    } catch { /* fall through */ }
+  }
+  // Fallback: split by newlines and filter meaningful lines
+  return text
+    .split('\n')
+    .map(l => l.replace(/^\d+[\.\)]\s*/, '').trim()) // Remove numbered prefixes
+    .filter(l => l.length > 15)
+    .slice(0, 5);
+}
+
+/**
+ * Generate AI-powered recommendations.
+ * Priority: Ollama (primary) -> Gemini (fallback) -> Demo recommendations
+ */
+export async function getAIRecommendations(cameraId?: string): Promise<string[]> {
+  try {
+    const { contextStr, totalVisitors, avgOccupancy, demographics } =
+      await buildRecommendationContext(cameraId);
+
+    const prompt = `You are an AI analytics advisor for ObservAI, a real-time visitor analytics platform for cafes and restaurants.
+
+Based on the following analytics data, provide exactly 5 actionable business recommendations.
+Each recommendation should be specific, data-driven, and implementable.
+
+LANGUAGE RULE:
+- Write recommendations in BOTH Turkish and English format.
+- Format each recommendation as: "TR: <Turkish> | EN: <English>"
 
 ${contextStr}
 
 Format: Return ONLY a JSON array of 5 strings, each a concise recommendation (1-2 sentences).
-Example: ["Recommendation 1", "Recommendation 2", ...]
+Example: ["TR: Yogun saatlerde 2 ek personel ayin. | EN: Assign 2 additional staff during peak hours.", ...]
 
 Recommendations:`;
 
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-    if (!GEMINI_API_KEY) {
-      return getDemoRecommendations(totalVisitors, avgOccupancy, demographics);
+    const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
+
+    // --- Try Ollama first (primary provider) ---
+    if (AI_PROVIDER === 'ollama') {
+      try {
+        const { response: aiResponse, model } = await callOllama(prompt);
+        console.log(`[InsightEngine] Ollama recommendation generated via ${model}`);
+        const recs = parseRecommendations(aiResponse);
+        if (recs.length > 0) return recs;
+      } catch (ollamaErr: unknown) {
+        const errMsg = ollamaErr instanceof Error ? ollamaErr.message : '';
+        console.warn(`[InsightEngine] Ollama failed for recommendations: ${errMsg}`);
+        // Fall through to Gemini
+      }
     }
 
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    // Model öncelik sırası — test edildi (2026-03-15)
-    const modelCandidates = ['gemini-2.5-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite'];
+    // --- Try Gemini fallback ---
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+    if (GEMINI_API_KEY) {
+      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+      const modelCandidates = ['gemini-2.5-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite'];
 
-    for (const modelName of modelCandidates) {
-      try {
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
+      for (const modelName of modelCandidates) {
+        try {
+          const model = genAI.getGenerativeModel({ model: modelName });
+          const result = await model.generateContent(prompt);
+          const text = result.response.text();
+          console.log(`[InsightEngine] Gemini recommendation via ${modelName}`);
+          const recs = parseRecommendations(text);
+          if (recs.length > 0) return recs;
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          const isQuotaOrMissing =
+            errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('429') ||
+            errMsg.toLowerCase().includes('404') || errMsg.toLowerCase().includes('resource_exhausted');
 
-        console.log(`[Gemini] model: ${modelName}, status: success`);
-
-        const jsonMatch = text.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed)) return parsed.map(String).slice(0, 5);
-        }
-        return text.split('\n').filter(l => l.trim().length > 10).slice(0, 5);
-      } catch (err: unknown) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        const isQuotaOrMissing =
-          errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('429') ||
-          errMsg.toLowerCase().includes('404') || errMsg.toLowerCase().includes('resource_exhausted');
-
-        if (isQuotaOrMissing) {
-          console.log(`[Gemini] model: ${modelName}, status: quota_exhausted`);
-        } else {
-          console.error(`[Gemini] model: ${modelName}, status: error, error: ${errMsg}`);
-          throw err;
+          if (isQuotaOrMissing) {
+            console.log(`[InsightEngine] Gemini ${modelName}: quota_exhausted`);
+          } else {
+            console.error(`[InsightEngine] Gemini ${modelName}: error - ${errMsg}`);
+            break; // Non-quota error, stop trying
+          }
         }
       }
     }
-    console.log('[Gemini] All models exhausted, returning demo recommendations');
+
+    // --- Fallback to demo recommendations ---
+    console.log('[InsightEngine] All AI providers unavailable, returning demo recommendations');
     return getDemoRecommendations(totalVisitors, avgOccupancy, demographics);
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.error('[Gemini] error generating recommendations:', errMsg);
+    console.error('[InsightEngine] Error generating recommendations:', errMsg);
     return getDemoRecommendations();
   }
 }

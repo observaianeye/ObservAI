@@ -1,6 +1,6 @@
 /**
  * AI Q&A Routes
- * Natural language interface powered by Google Gemini
+ * Natural language interface powered by Ollama (primary) with Gemini fallback
  */
 
 import { Router, Request, Response } from 'express';
@@ -9,9 +9,6 @@ import { prisma } from '../lib/db';
 import { z } from 'zod';
 
 const router = Router();
-
-// NOT: GEMINI_API_KEY ve genAI modül yüklenirken değil,
-// her request'te okunuyor — dotenv.config() sonra çalıştığı için.
 
 // Validation schema
 const ChatRequestSchema = z.object({
@@ -100,12 +97,22 @@ function categorizeGeminiError(error: unknown): { code: GeminiErrorCode; message
 // Ollama integration
 async function getAvailableOllamaModel(ollamaUrl: string): Promise<string | null> {
   try {
+    // If a specific model is configured via env, check if it exists
+    const envModel = process.env.OLLAMA_MODEL;
+
     const res = await fetch(`${ollamaUrl}/api/tags`);
     if (!res.ok) return null;
     const data: any = await res.json();
     const models = data.models?.map((m: any) => m.name) || [];
 
-    // Priority order
+    // If OLLAMA_MODEL is set, prefer it
+    if (envModel) {
+      const found = models.find((m: string) => m.startsWith(envModel));
+      if (found) return found;
+      console.warn(`[AI] OLLAMA_MODEL=${envModel} not found, falling back to priority list`);
+    }
+
+    // Priority order: llama3.1:8b preferred for best Turkish + analytics performance
     const preferred = ['llama3.1:8b', 'llama3:8b', 'mistral', 'phi3', 'gemma2', 'qwen2'];
     for (const p of preferred) {
       const found = models.find((m: string) => m.startsWith(p));
@@ -118,7 +125,7 @@ async function getAvailableOllamaModel(ollamaUrl: string): Promise<string | null
   }
 }
 
-async function callOllama(prompt: string): Promise<{ response: string; model: string }> {
+export async function callOllama(prompt: string): Promise<{ response: string; model: string }> {
   const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
   const model = await getAvailableOllamaModel(OLLAMA_URL);
 
@@ -133,7 +140,7 @@ async function callOllama(prompt: string): Promise<{ response: string; model: st
       model,
       prompt,
       stream: false,
-      options: { temperature: 0.7, num_predict: 512 }
+      options: { temperature: 0.5, num_predict: 1024 }
     })
   });
 
@@ -143,6 +150,34 @@ async function callOllama(prompt: string): Promise<{ response: string; model: st
 
   const data: any = await res.json();
   return { response: data.response, model };
+}
+
+/**
+ * Check if Ollama is reachable and has models available.
+ * Used at startup and by the /debug endpoint.
+ */
+export async function checkOllamaHealth(): Promise<{
+  status: 'online' | 'offline' | 'no_models';
+  models: string[];
+  url: string;
+  selectedModel: string | null;
+}> {
+  const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`);
+    if (!res.ok) {
+      return { status: 'offline', models: [], url: OLLAMA_URL, selectedModel: null };
+    }
+    const data: any = await res.json();
+    const models = data.models?.map((m: any) => m.name) || [];
+    if (models.length === 0) {
+      return { status: 'no_models', models: [], url: OLLAMA_URL, selectedModel: null };
+    }
+    const selectedModel = await getAvailableOllamaModel(OLLAMA_URL);
+    return { status: 'online', models, url: OLLAMA_URL, selectedModel };
+  } catch {
+    return { status: 'offline', models: [], url: OLLAMA_URL, selectedModel: null };
+  }
 }
 
 router.post('/chat', async (req: Request, res: Response) => {
@@ -267,31 +302,44 @@ interface DebugResponse {
   keyPrefix: string;
 }
 
+/**
+ * GET /api/ai/status - Quick AI provider status check (used by frontend badge)
+ * Returns provider info without making actual AI calls.
+ */
+router.get('/status', async (req: Request, res: Response) => {
+  const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
+  const ollamaHealth = await checkOllamaHealth();
+  const hasGeminiKey = !!process.env.GEMINI_API_KEY;
+
+  res.json({
+    provider: AI_PROVIDER,
+    ollama: {
+      status: ollamaHealth.status,
+      model: ollamaHealth.selectedModel,
+      url: ollamaHealth.url,
+    },
+    gemini: {
+      available: hasGeminiKey,
+    },
+    // Overall: is any AI provider usable?
+    available: ollamaHealth.status === 'online' || hasGeminiKey,
+  });
+});
+
 router.get('/debug', async (req: Request, res: Response) => {
   const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
-  const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+  const ollamaHealth = await checkOllamaHealth();
 
   const result: any = {
     provider: AI_PROVIDER,
-    ollama: { status: 'unknown', models: [] },
+    ollama: {
+      status: ollamaHealth.status,
+      models: ollamaHealth.models,
+      url: ollamaHealth.url,
+      selectedModel: ollamaHealth.selectedModel,
+    },
     gemini: { status: 'unknown' }
   };
-
-  // Check Ollama
-  try {
-    const ollamaRes = await fetch(`${OLLAMA_URL}/api/tags`);
-    if (ollamaRes.ok) {
-      const data: any = await ollamaRes.json();
-      result.ollama.status = 'online';
-      result.ollama.models = data.models?.map((m: any) => m.name) || [];
-      result.ollama.url = OLLAMA_URL;
-    } else {
-      result.ollama.status = 'error';
-    }
-  } catch {
-    result.ollama.status = 'offline';
-    result.ollama.url = OLLAMA_URL;
-  }
 
   // Check Gemini
   const key = process.env.GEMINI_API_KEY || '';
@@ -304,7 +352,7 @@ router.get('/debug', async (req: Request, res: Response) => {
       try {
         const genAI = new GoogleGenerativeAI(key);
         const model = genAI.getGenerativeModel({ model: m });
-        const genResult = await model.generateContent('Say "OK" only.');
+        await model.generateContent('Say "OK" only.');
         result.gemini.status = 'ok';
         result.gemini.model = m;
         break;
@@ -386,34 +434,42 @@ async function getRecentAnalyticsContext(cameraId?: string): Promise<string> {
     // Get zone insights
     const zoneInsights = await getZoneInsights();
 
-    // Build context string
-    let context = '=== RECENT ANALYTICS DATA ===\n\n';
+    // Build structured context string
+    let context = '=== VENUE ANALYTICS DATA ===\n\n';
 
     if (logs[0].camera) {
-      context += `Camera: ${logs[0].camera.name}\n`;
-      context += `Type: ${logs[0].camera.sourceType}\n\n`;
+      context += `| Field          | Value                    |\n`;
+      context += `|----------------|-------------------------|\n`;
+      context += `| Camera         | ${logs[0].camera.name}  |\n`;
+      context += `| Source Type    | ${logs[0].camera.sourceType} |\n`;
+      context += `| Time Range     | ${logs[logs.length - 1].timestamp.toISOString()} to ${logs[0].timestamp.toISOString()} |\n`;
+      context += `| Data Points    | ${logs.length}          |\n\n`;
+    } else {
+      context += `Time Range: ${logs[logs.length - 1].timestamp.toISOString()} to ${logs[0].timestamp.toISOString()}\n`;
+      context += `Data Points: ${logs.length}\n\n`;
     }
 
-    context += `Time Range: ${logs[logs.length - 1].timestamp.toISOString()} to ${logs[0].timestamp.toISOString()}\n`;
-    context += `Total Entries: ${logs.length}\n\n`;
-
-    context += '--- Summary Statistics ---\n';
-    context += `Total People Entered: ${totalPeopleIn}\n`;
-    context += `Total People Exited: ${totalPeopleOut}\n`;
-    context += `Current Count (Avg): ${avgCurrentCount}\n`;
+    context += '--- Traffic Summary ---\n';
+    context += `| Metric                 | Value       |\n`;
+    context += `|------------------------|------------|\n`;
+    context += `| Total People Entered   | ${totalPeopleIn}        |\n`;
+    context += `| Total People Exited    | ${totalPeopleOut}        |\n`;
+    context += `| Current Count (Avg)    | ${avgCurrentCount}       |\n`;
+    context += `| Net Traffic            | ${totalPeopleIn - totalPeopleOut} |\n`;
     if (avgQueueCount !== null) {
-      context += `Queue Count (Avg): ${avgQueueCount}\n`;
+      context += `| Queue Count (Avg)      | ${avgQueueCount}        |\n`;
     }
     if (avgWaitTime !== null) {
-      context += `Average Wait Time: ${avgWaitTime} seconds\n`;
+      context += `| Average Wait Time      | ${avgWaitTime} seconds  |\n`;
     }
+    context += '\n';
 
     if (demographics) {
-      context += `\n--- Demographics ---\n${demographics}\n`;
+      context += `--- Demographics ---\n${demographics}\n`;
     }
 
     if (zoneInsights) {
-      context += `\n--- Zone Insights ---\n${zoneInsights}\n`;
+      context += `--- Zone Insights ---\n${zoneInsights}\n`;
     }
 
     // Hava durumu (Open-Meteo, ücretsiz, API key gerektirmiyor)
@@ -578,11 +634,18 @@ async function getZoneInsights(): Promise<string | null> {
 }
 
 /**
- * Build the full context prompt for Gemini
+ * Build the full context prompt for the AI model (Ollama or Gemini).
+ * Provides structured analytics data and bilingual instructions.
  */
 function buildContextPrompt(userMessage: string, analyticsContext: string): string {
   return `You are an AI assistant for ObservAI, a real-time camera analytics platform for cafes and restaurants.
 Your role is to help cafe/restaurant managers understand their visitor data and make informed business decisions.
+
+IMPORTANT LANGUAGE RULE:
+- Detect the language of the user's question below.
+- If the user writes in Turkish, respond ENTIRELY in Turkish.
+- If the user writes in English, respond ENTIRELY in English.
+- Do NOT mix languages.
 
 You have access to the following REAL-TIME analytics data from the venue:
 
@@ -592,15 +655,15 @@ ${analyticsContext}
 
 User Question: ${userMessage}
 
-Instructions:
-- Respond in the same language the user writes in. If Turkish, respond in Turkish. If English, respond in English.
-- Answer based on the analytics data provided above
-- Be concise and actionable (2-4 sentences)
-- Use specific numbers and metrics from the data
-- If the data doesn't contain enough info, say what data IS available
-- Focus on actionable insights for cafe/restaurant managers
-- Consider weather impact on visitor traffic when weather data is available
-- Suggest peak hour staffing, queue management, and marketing insights when relevant
+Response Guidelines:
+1. Answer based ONLY on the analytics data provided above.
+2. Be concise and actionable (3-5 sentences).
+3. Use specific numbers and metrics from the data (e.g., "12 visitors entered", "average wait 4.2 min").
+4. If the data doesn't contain enough info for the question, explain what data IS available and suggest what to track.
+5. Focus on actionable insights: staffing decisions, queue management, marketing timing, layout optimization.
+6. When weather data is available, correlate it with visitor patterns (e.g., rain -> fewer visitors).
+7. When demographic data is available, suggest targeted marketing or product placement.
+8. For queue alerts, suggest concrete actions (open new register, redirect traffic, etc.).
 
 Answer:`;
 }

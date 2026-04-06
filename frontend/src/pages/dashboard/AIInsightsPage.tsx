@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   Filter,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { cameraBackendService, ZoneInsight } from '../../services/cameraBackendService';
@@ -192,6 +194,13 @@ export default function AIInsightsPage() {
   const [recSource, setRecSource] = useState<string>('');
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // AI status
+  const [aiStatus, setAiStatus] = useState<{
+    provider: string;
+    ollama: { status: string; model: string | null };
+    available: boolean;
+  } | null>(null);
+
   // UI state
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -264,6 +273,19 @@ export default function AIInsightsPage() {
     const interval = setInterval(() => loadData(selectedPeriod), 60000);
     return () => clearInterval(interval);
   }, [loadData, selectedPeriod]);
+
+  // Fetch AI provider status
+  useEffect(() => {
+    async function fetchAIStatus() {
+      try {
+        const res = await fetch(`${API_URL}/api/ai/status`);
+        if (res.ok) setAiStatus(await res.json());
+      } catch { /* silent */ }
+    }
+    fetchAIStatus();
+    const interval = setInterval(fetchAIStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ── Socket.IO zone insights ──
   useEffect(() => {
@@ -368,9 +390,31 @@ export default function AIInsightsPage() {
             <Sparkles className="w-6 h-6 text-purple-400" />
             AI Insights
           </h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Intelligent alerts, trend analysis, and AI-powered recommendations
-          </p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-sm text-gray-400">
+              Intelligent alerts, trend analysis, and AI-powered recommendations
+            </p>
+            {aiStatus && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                  aiStatus.available
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-red-500/10 border-red-500/30 text-red-400'
+                }`}
+              >
+                {aiStatus.available ? (
+                  <Wifi className="w-3 h-3" />
+                ) : (
+                  <WifiOff className="w-3 h-3" />
+                )}
+                {aiStatus.available
+                  ? aiStatus.ollama.status === 'online'
+                    ? `Ollama: ${aiStatus.ollama.model || 'connected'}`
+                    : 'Gemini'
+                  : 'AI Offline'}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           {unreadCount > 0 && (
@@ -717,7 +761,7 @@ export default function AIInsightsPage() {
               <div>
                 <h3 className="text-sm font-semibold text-white">AI Recommendations</h3>
                 <p className="text-[10px] text-gray-500 uppercase tracking-wider">
-                  {recSource === 'gemini' ? 'Powered by Gemini' : 'Demo Mode'}
+                  {recSource === 'ollama' ? 'Powered by Ollama' : recSource === 'gemini' ? 'Powered by Gemini' : 'Demo Mode'}
                 </p>
               </div>
             </div>

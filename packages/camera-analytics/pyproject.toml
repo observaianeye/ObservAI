@@ -26,6 +26,11 @@ demographics = [
   "timm>=0.9.0",
   "yacs>=0.1.8",
 ]
+# TensorRT: NVIDIA GPU acceleration (YOLO + InsightFace ~2-3x speedup)
+# Requires NVIDIA GPU with CUDA support. First run compiles engines (~2-5 min).
+tensorrt = [
+  "tensorrt-cu12>=10.0.0",
+]
 dev = ["black>=23.3.0", "mypy>=1.6.0", "ruff>=0.1.0"]
 
 [tool.setuptools.packages.find]

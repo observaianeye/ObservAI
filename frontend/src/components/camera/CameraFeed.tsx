@@ -107,6 +107,8 @@ export default function CameraFeed() {
   // Backend readiness state machine
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Source version counter — incremented on each source change to re-trigger subscriptions
+  const [sourceVersion, setSourceVersion] = useState(0);
   // Connection state machine
   const [connectionState, setConnectionState] = useState<ConnectionState>('DISCONNECTED');
   const retryCountRef = useRef(0);
@@ -363,7 +365,8 @@ export default function CameraFeed() {
       }
       localStorage.removeItem('backendRunning');
     }
-  }, [dataMode]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataMode, sourceVersion]);
 
   // Monitor fullscreen changes
   useEffect(() => {
@@ -720,13 +723,7 @@ export default function CameraFeed() {
     canvasSizeInitialized.current = false;
 
     try {
-      // 1. Cleanup existing subscriptions
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
-
-      // 2. Stop current frontend camera and streams
+      // 1. Stop current frontend camera and streams
       stopCamera();
 
       // 3. Stop backend stream if active (to release camera hardware)
@@ -801,6 +798,10 @@ export default function CameraFeed() {
 
         // Set streaming state BEFORE updating source to trigger MJPEG display
         setIsStreaming(true);
+
+        // Trigger re-subscription to backend detections + health polling
+        // The useEffect depends on sourceVersion and will re-run, establishing fresh subscriptions
+        setSourceVersion(v => v + 1);
       }
 
       // 10. Update frontend source state AFTER backend has switched

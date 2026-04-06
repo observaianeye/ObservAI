@@ -154,10 +154,19 @@ router.get('/recommendations', async (req: Request, res: Response) => {
     const cameraId = req.query.cameraId as string | undefined;
     const recommendations = await getAIRecommendations(cameraId);
 
+    // Determine which AI source was used
+    const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
+    let source = 'demo';
+    if (AI_PROVIDER === 'ollama') {
+      source = 'ollama';
+    } else if (process.env.GEMINI_API_KEY) {
+      source = 'gemini';
+    }
+
     res.json({
       recommendations,
       generatedAt: new Date().toISOString(),
-      source: process.env.GEMINI_API_KEY ? 'gemini' : 'demo',
+      source,
     });
   } catch (error) {
     console.error('[Insights] Recommendations error:', error);

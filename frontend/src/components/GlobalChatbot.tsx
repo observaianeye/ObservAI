@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { X, Send, Sparkles } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { X, Send, Sparkles, Wifi, WifiOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation } from 'react-router-dom';
 
@@ -8,6 +8,12 @@ interface Message {
   type: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+}
+
+interface AIStatus {
+  provider: string;
+  ollama: { status: string; model: string | null };
+  available: boolean;
 }
 
 const quickActions = [
@@ -32,10 +38,32 @@ export default function GlobalChatbot() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [aiStatus, setAiStatus] = useState<AIStatus | null>(null);
+
   const isDashboard = location.pathname.startsWith('/dashboard');
   const shouldShow = isAuthenticated && isDashboard;
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+  // Poll AI status when chatbot is opened
+  const fetchAIStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/ai/status`, { credentials: 'include' });
+      if (res.ok) {
+        setAiStatus(await res.json());
+      }
+    } catch {
+      setAiStatus(null);
+    }
+  }, [API_URL]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchAIStatus();
+      const interval = setInterval(fetchAIStatus, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [isOpen, fetchAIStatus]);
 
   useEffect(() => {
     sessionStorage.setItem('chatMessages', JSON.stringify(messages.slice(-20)));
@@ -148,7 +176,27 @@ export default function GlobalChatbot() {
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-white">ObservAI Assistant</h2>
-                  <p className="text-xs text-gray-400">AI-powered insights</p>
+                  <div className="flex items-center gap-1.5">
+                    {aiStatus ? (
+                      aiStatus.available ? (
+                        <>
+                          <Wifi className="w-3 h-3 text-emerald-400" />
+                          <p className="text-xs text-emerald-400">
+                            {aiStatus.ollama.status === 'online'
+                              ? `Ollama (${aiStatus.ollama.model || 'connected'})`
+                              : 'Gemini fallback'}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <WifiOff className="w-3 h-3 text-red-400" />
+                          <p className="text-xs text-red-400">AI offline</p>
+                        </>
+                      )
+                    ) : (
+                      <p className="text-xs text-gray-400">AI-powered insights</p>
+                    )}
+                  </div>
                 </div>
               </div>
               <button
