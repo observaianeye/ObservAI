@@ -55,8 +55,8 @@ demo_min_confidence: 0.40
 
 # Gender consensus threshold: fraction of weighted votes needed to assign gender
 # Higher = stronger agreement needed. Range: 0.55-0.85.
-# Set high to prevent flip-flopping. Gender must be >75% consensus to be assigned.
-demo_gender_consensus: 0.75
+# Balanced: 70% consensus allows distant camera faces to reach consensus.
+demo_gender_consensus: 0.70
 
 # Max history samples for temporal smoothing (age and gender)
 # More samples = more stable predictions over time
@@ -72,11 +72,11 @@ demo_temporal_decay: 0.85
 demo_continuous_refinement: true
 
 # Performance: Face detection frequency (her kaç frame'de bir)
-# RTX 5070 12GB: every frame for maximum accuracy and stable predictions
-face_detection_interval: 1
+# RTX 5070 + TRT YOLO: every 3 frames, 960x960 det_size for quality
+face_detection_interval: 3
 
 # Gender lock: once gender has N consecutive same-gender high-confidence votes, lock it
-# Prevents flip-flopping after initial consensus is reached
+# Higher = more evidence needed before locking (prevents premature wrong locks)
 demo_gender_lock_threshold: 8
 
 # Performance: Demografi minimum bbox boyutları (pixels)
@@ -94,6 +94,6 @@ queue_wait_time_window: 300
 zone_enter_debounce_frames: 3
 zone_exit_debounce_frames: 5
 
-# Bbox smoothing EMA alpha range
-bbox_smoothing_alpha_min: 0.3
+# Bbox smoothing EMA alpha range (lower min = heavier smoothing for stationary)
+bbox_smoothing_alpha_min: 0.2
 bbox_smoothing_alpha_max: 0.9

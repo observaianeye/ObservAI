@@ -168,7 +168,16 @@ class CameraBackendService {
 
   connect(url: string = 'http://localhost:5001'): void {
     if (this.socket?.connected) {
+      console.log('[BackendService] Already connected, skipping reconnect');
       return;
+    }
+
+    // Clean up stale socket before creating new one
+    if (this.socket) {
+      console.log('[BackendService] Cleaning up stale socket before reconnect');
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
     }
 
     this.socket = io(url, {

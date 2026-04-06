@@ -66,10 +66,10 @@ class TrackedPerson:
   anonymous_id: Optional[str] = None  # Privacy-preserving ID for cross-zone tracking
 
   # Task 2.2.1: Improved temporal smoothing for demographics
-  age_history: deque = field(default_factory=lambda: deque(maxlen=50))
-  age_confidence_history: deque = field(default_factory=lambda: deque(maxlen=50))
-  gender_history: deque = field(default_factory=lambda: deque(maxlen=50))
-  gender_confidence_history: deque = field(default_factory=lambda: deque(maxlen=50))
+  age_history: deque = field(default_factory=lambda: deque(maxlen=80))
+  age_confidence_history: deque = field(default_factory=lambda: deque(maxlen=80))
+  gender_history: deque = field(default_factory=lambda: deque(maxlen=80))
+  gender_confidence_history: deque = field(default_factory=lambda: deque(maxlen=80))
   gender_confidence: float = 0.5
   age_ema: Optional[float] = None     # Exponential moving average for age
   age_stability: float = 0.0          # How stable the age prediction is (0-1)
@@ -172,7 +172,7 @@ class TrackedPerson:
       self.age_stability = max(0.0, 1.0 - std_dev / 10.0)
 
   def update_gender(self, new_gender: str, confidence: float = 1.0,
-                    consensus_threshold: float = 0.75,
+                    consensus_threshold: float = 0.70,
                     temporal_decay: float = 0.85,
                     min_confidence: float = 0.25,
                     lock_threshold: int = 8) -> None:
@@ -201,10 +201,10 @@ class TrackedPerson:
       return
 
     # Track consecutive same-gender votes for locking
-    if new_gender == self._gender_last_vote and confidence >= 0.5:
+    if new_gender == self._gender_last_vote and confidence >= 0.35:
       self._gender_consecutive_same += 1
     else:
-      self._gender_consecutive_same = 1 if confidence >= 0.5 else 0
+      self._gender_consecutive_same = 1 if confidence >= 0.35 else 0
     self._gender_last_vote = new_gender
 
     # Store gender + confidence pair
@@ -408,6 +408,7 @@ class CameraAnalyticsEngine:
       self.face_detection_interval = config.face_detection_interval
 
     self.frame_count = 0
+    self._last_track_emit_time = 0.0  # Throttle track emission to ~10 Hz
     self.demographics_executor = ThreadPoolExecutor(
       max_workers=1, thread_name_prefix="demographics"
     )
@@ -465,7 +466,7 @@ class CameraAnalyticsEngine:
     else:
         try:
             self.age_gender_estimator = EstimatorFactory.create_estimator()
-            self.age_gender_estimator.prepare(ctx_id=0, det_size=(960, 960))
+            self.age_gender_estimator.prepare(ctx_id=0, det_size=(640, 640))
             print("[INFO] Age/Gender Estimator initialized (Optimized Mode)")
         except Exception as err:
             print(f"[WARN] Age/Gender Estimator initialization failed: {err}")
@@ -694,8 +695,8 @@ class CameraAnalyticsEngine:
         if not ret:
             return None
 
-    # Encode as JPEG — kalite 92 (yüksek kalite, makul dosya boyutu)
-    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 95]
+    # Encode as JPEG — quality 85 for snapshots (good quality, reasonable size)
+    encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
     _, buffer = cv2.imencode('.jpg', frame, encode_params)
     jpg_as_text = base64.b64encode(buffer).decode('utf-8')
     return f"data:image/jpeg;base64,{jpg_as_text}"
@@ -740,6 +741,26 @@ class CameraAnalyticsEngine:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+      # If 720p also failed (0x0), fall back to camera's native resolution
+      if actual_w == 0 or actual_h == 0:
+        print(f"[WARN] Resolution {actual_w}x{actual_h} invalid, falling back to 640x480...")
+        cap.release()
+        cap = cv2.VideoCapture(self.source, backend)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 30)
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        # Last resort: just read whatever the camera gives
+        if actual_w == 0 or actual_h == 0:
+          ret, test_frame = cap.read()
+          if ret and test_frame is not None:
+            actual_h, actual_w = test_frame.shape[:2]
+            print(f"[INFO] Got actual frame: {actual_w}x{actual_h}")
+          else:
+            print(f"[ERROR] Cannot read any frame from camera {self.source}")
       print(f"[INFO] Webcam ({_plat.system()}): {actual_w}x{actual_h} MJPG, async 3-thread pipeline")
       self._run_async_pipeline(cap)
     else:
@@ -846,7 +867,7 @@ class CameraAnalyticsEngine:
     import queue as _queue
 
     raw_frame_q = _queue.Queue(maxsize=30)  # Capture → Inference (large for HLS bursts)
-    result_q    = _queue.Queue(maxsize=10)  # Inference → Main
+    result_q    = _queue.Queue(maxsize=15)  # Inference → Main (increased for HLS burst smoothing)
     stop_event  = threading.Event()
 
     # FPS sayaçları (her thread için ayrı)
@@ -1011,45 +1032,67 @@ class CameraAnalyticsEngine:
 
                   if best_face is not None and hasattr(best_face, 'age') and best_face.age is not None:
                     gender = None
+                    raw_gender_val = None
                     if hasattr(best_face, 'gender') and best_face.gender is not None:
-                      gender = "male" if round(float(best_face.gender)) == 1 else "female"
+                      raw_gender_val = float(best_face.gender)
+                      gender = "male" if round(raw_gender_val) == 1 else "female"
                     if gender is not None:
                       ds = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.3
-                      # Quality-based confidence: large frontal faces get high weight,
-                      # small/side faces get lower weight (but still contribute)
                       face_w = best_face.bbox[2] - best_face.bbox[0]
                       face_h = best_face.bbox[3] - best_face.bbox[1]
                       face_area = face_w * face_h
                       frame_area = fh * fw
-                      # size_factor: 0.3 for tiny faces, 1.0 for 0.1%+ of frame
                       size_factor = min(1.0, max(0.3, (face_area / max(1, frame_area)) / 0.001))
-                      # pose_factor: frontal = 1.0, profile = 0.4
-                      pose_factor = 0.8
+
+                      # Determine face yaw angle for pose-based confidence
+                      yaw = 30.0  # default assumption (slight angle)
                       if hasattr(best_face, 'pose') and best_face.pose is not None:
                         yaw = abs(float(best_face.pose[1]))
-                        pose_factor = max(0.4, 1.0 - yaw / 120.0)
-                      conf = 0.85 * min(1.0, ds / 0.5) * size_factor * pose_factor
-                      conf = max(0.15, min(0.95, conf))  # floor 0.15, cap 0.95
-                      demo_results[tid] = (float(best_face.age), gender, conf)
+
+                      # AGE confidence: lenient — age estimates from side faces are still usable
+                      age_pose = max(0.3, 1.0 - yaw / 120.0)
+                      age_conf = 0.85 * min(1.0, ds / 0.5) * size_factor * age_pose
+                      age_conf = max(0.10, min(0.95, age_conf))
+
+                      # GENDER confidence: strict — only near-frontal faces are reliable
+                      # Profile faces (yaw > 55°) are rejected entirely for gender voting
+                      if yaw > 55.0:
+                        gender_conf = 0.0  # skip gender for profile/rear faces
+                      else:
+                        gender_pose = max(0.1, 1.0 - yaw / 70.0)  # balanced penalty
+                        gender_conf = 0.85 * min(1.0, ds / 0.5) * size_factor * gender_pose
+                        gender_conf = max(0.0, min(0.95, gender_conf))
+
+                      demo_results[tid] = (float(best_face.age), gender, age_conf, gender_conf)
                       matched_tids.add(tid)
 
-              # Step 3: Crop-based fallback for ALL unmatched persons
-              # Try head crops for persons not matched by full-frame detection.
-              # This catches people facing away, at angles, or at distance.
+                      # Diagnostic: Log raw gender values for first 300 frames
+                      if _demo_frame_counter[0] <= 300 and _demo_frame_counter[0] % 10 == 0:
+                        print(f"[GENDER-DEBUG] tid={tid} raw_gender={raw_gender_val} decoded={gender} "
+                              f"age={best_face.age:.0f} yaw={yaw:.0f}° det_score={ds:.2f} "
+                              f"gender_conf={gender_conf:.2f} face_size={face_w:.0f}x{face_h:.0f}", flush=True)
+
+              # Step 3: Crop-based fallback for unmatched persons WITHOUT demographics
+              # RTX 5070 at 35% GPU — can afford more crops per frame
               crop_count = 0
               for i in range(len(ids)):
-                if crop_count >= 5:
+                if crop_count >= 2:  # Max 2 crops per frame (balance FPS vs coverage)
                   break
                 tid = int(ids[i])
                 if tid in matched_tids:
                   continue
+                # Skip persons that already have established demographics
+                existing = self.tracks.get(tid)
+                if existing and existing.gender != "unknown" and existing.age is not None:
+                  if existing.gender_locked or existing._demo_update_count >= 8:
+                    continue
                 x1, y1, x2, y2 = xyxys[i]
                 ph, pw = y2 - y1, x2 - x1
                 if ph < self.config.demo_min_bbox_height or pw < self.config.demo_min_bbox_width:
                   continue
-                # Crop upper 60% of person bbox (head + shoulders) with generous padding
-                head_y2 = y1 + ph * 0.60
-                pad_x, pad_y = pw * 0.25, ph * 0.15
+                # Crop upper 70% of person bbox (head + shoulders + chest) with generous padding
+                head_y2 = y1 + ph * 0.70
+                pad_x, pad_y = pw * 0.35, ph * 0.20
                 cx1 = max(0, int(x1 - pad_x))
                 cy1 = max(0, int(y1 - pad_y))
                 cx2 = min(fw, int(x2 + pad_x))
@@ -1057,13 +1100,33 @@ class CameraAnalyticsEngine:
                 crop = frame[cy1:cy2, cx1:cx2]
                 if crop.size == 0 or crop.shape[0] < 20 or crop.shape[1] < 20:
                   continue
+                # Apply CLAHE for low-light enhancement on crops (helps night cameras)
+                try:
+                  lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+                  l_ch, a_ch, b_ch = cv2.split(lab)
+                  clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                  l_enhanced = clahe.apply(l_ch)
+                  crop = cv2.cvtColor(cv2.merge([l_enhanced, a_ch, b_ch]), cv2.COLOR_LAB2BGR)
+                except Exception:
+                  pass  # Use original crop if enhancement fails
                 age, gender, conf = self.age_gender_estimator.predict(crop)
                 if age is not None and gender is not None:
-                  demo_results[tid] = (age, gender, conf)
+                  # Crop-based: use same conf for both age and gender (conservative)
+                  demo_results[tid] = (age, gender, conf, conf)
                   crop_count += 1
 
-              if _demo_frame_counter[0] % 90 == 0:  # Log every ~30 detection cycles
-                print(f"[DEMO] Hybrid: {n_full} full-frame, {len(matched_tids)} matched, {crop_count} crop, {len(demo_results)} total", flush=True)
+              if _demo_frame_counter[0] % 30 == 0:  # Log every 30 frames for gender debugging
+                # Diagnostic: log gender predictions for first few persons
+                gender_debug = []
+                for _tid, _res in list(demo_results.items())[:3]:
+                  if len(_res) == 4:
+                    _a, _g, _ac, _gc = _res
+                    gender_debug.append(f"tid={_tid}:{_g}(gc={_gc:.2f})")
+                  else:
+                    _a, _g, _c = _res
+                    gender_debug.append(f"tid={_tid}:{_g}(c={_c:.2f})")
+                gd_str = ", ".join(gender_debug) if gender_debug else "none"
+                print(f"[DEMO] Hybrid: {n_full} full-frame, {len(matched_tids)} matched, {crop_count} crop, {len(demo_results)} total | gender: {gd_str}", flush=True)
             except Exception as e:
               print(f"[WARN] Demographics error: {e}", flush=True)
 
@@ -1626,7 +1689,10 @@ class CameraAnalyticsEngine:
     timestamp = time.time()
     self._update_tracks(result, frame_w, frame_h, timestamp)
     self._update_demographics(frame)
-    self._emit_track_stream(timestamp)
+    # Throttle track stream to ~10Hz (every 100ms) — reduces CPU overhead
+    if timestamp - self._last_track_emit_time >= 0.100:
+      self._emit_track_stream(timestamp)
+      self._last_track_emit_time = timestamp
 
     # Apply privacy blur if enabled (GDPR/KVKK compliance)
     if self.privacy_mode:
@@ -1664,9 +1730,8 @@ class CameraAnalyticsEngine:
       self._write_metrics(metrics)
       self.last_metrics_write = timestamp
 
-    # ALWAYS render overlay on every frame (using latest metrics)
-    # This ensures toggle changes take effect immediately
-    if hasattr(self, '_latest_metrics'):
+    # Render overlay only when heatmap is visible (saves CPU when off)
+    if hasattr(self, '_latest_metrics') and self.overlay.state.heatmap_visible:
       frame = self.overlay.render(frame, self._latest_metrics)
 
     # Update cache with overlay (thread-safe) - every frame
@@ -1763,15 +1828,19 @@ class CameraAnalyticsEngine:
           new_cy = (raw_bbox[1] + raw_bbox[3]) / 2.0
           displacement = ((new_cx - old_cx) ** 2 + (new_cy - old_cy) ** 2) ** 0.5
 
-          alpha_min = getattr(self.config, 'bbox_smoothing_alpha_min', 0.3)
+          alpha_min = getattr(self.config, 'bbox_smoothing_alpha_min', 0.2)
           alpha_max = getattr(self.config, 'bbox_smoothing_alpha_max', 0.9)
 
           if displacement > 0.15:
-            alpha = 1.0
-          elif displacement > 0.03:
-            alpha = alpha_max
+            alpha = 1.0  # teleport: accept raw position
+          elif displacement > 0.05:
+            alpha = alpha_max  # real movement: light smoothing
+          elif displacement > 0.015:
+            # Interpolate between min and max for moderate movement
+            t = (displacement - 0.015) / (0.05 - 0.015)
+            alpha = alpha_min + t * (alpha_max - alpha_min)
           else:
-            alpha = alpha_min
+            alpha = alpha_min  # jitter: heavy smoothing
 
           person.smoothed_bbox_norm = tuple(
             alpha * r + (1.0 - alpha) * s for r, s in zip(raw_bbox, old)
@@ -1904,7 +1973,7 @@ class CameraAnalyticsEngine:
     )
     self.heatmap[row, col] += 5
 
-  def _drop_stale_tracks(self, active_ids: set[int], now: float, ttl: float = 8.0) -> None:
+  def _drop_stale_tracks(self, active_ids: set[int], now: float, ttl: float = 1.5) -> None:
     for track_id in list(self.tracks.keys()):
       person = self.tracks[track_id]
       if track_id in active_ids:
@@ -2165,26 +2234,34 @@ class CameraAnalyticsEngine:
     gender_consensus = cfg.demo_gender_consensus
     temporal_decay = cfg.demo_temporal_decay
     gender_lock_threshold = cfg.demo_gender_lock_threshold
-    # NOTE: demo_min_confidence is for face DETECTION filtering (det_score check).
-    # For temporal voting acceptance, use a very low threshold (0.01) because the
-    # quality-based confidence is already scaled by face size/pose/det_score.
-    # Filtering here would reject valid predictions from distant faces.
-    voting_min_conf = 0.01
+    # Age voting: accept most predictions (low threshold) since EMA+median handles noise
+    age_voting_min_conf = 0.05
+    # Gender voting: require reasonable confidence — filters noise but accepts
+    # distant/slightly-angled face votes for street cameras.
+    gender_voting_min_conf = 0.30
 
     matched = 0
-    for track_id, (age, gender, conf) in demo_results.items():
+    for track_id, result_tuple in demo_results.items():
+      # Support both 3-tuple (legacy) and 4-tuple (separate age/gender conf)
+      if len(result_tuple) == 4:
+        age, gender, age_conf, gender_conf = result_tuple
+      else:
+        age, gender, conf = result_tuple
+        age_conf = conf
+        gender_conf = conf
+
       if track_id in self.tracks:
         person = self.tracks[track_id]
         matched += 1
         if age is not None:
-          person.update_age(age, confidence=conf,
+          person.update_age(age, confidence=age_conf,
                             ema_alpha=age_ema_alpha,
-                            min_confidence=voting_min_conf)
-        if gender is not None:
-          person.update_gender(gender, confidence=conf,
+                            min_confidence=age_voting_min_conf)
+        if gender is not None and gender_conf > 0:
+          person.update_gender(gender, confidence=gender_conf,
                                consensus_threshold=gender_consensus,
                                temporal_decay=temporal_decay,
-                               min_confidence=voting_min_conf,
+                               min_confidence=gender_voting_min_conf,
                                lock_threshold=gender_lock_threshold)
 
     if self.frame_count % 90 == 0:
@@ -2376,6 +2453,10 @@ class CameraAnalyticsEngine:
   def _build_track_stream(self, now: float) -> List[Dict[str, object]]:
     track_payload: List[Dict[str, object]] = []
     for track_id, person in self.tracks.items():
+      age_since_seen = now - person.last_seen
+      # Skip tracks unseen for >1.0s — don't send ghost BBoxes to frontend
+      if age_since_seen > 1.0:
+        continue
       x1, y1, x2, y2 = person.bbox_norm
       width = max(0.0, x2 - x1)
       height = max(0.0, y2 - y1)
@@ -2390,6 +2471,7 @@ class CameraAnalyticsEngine:
         "age": float(person.age) if person.age is not None else None,
         "dwellSec": float(dwell),
         "state": person.state,
+        "isStale": age_since_seen > 0.5,
       }
       track_payload.append(payload)
     return track_payload

@@ -48,7 +48,7 @@ class AnalyticsConfig:
   # Task 2.2.1: Demographic Prediction Improvement parameters
   demo_age_ema_alpha: float = 0.15      # EMA smoothing factor for age (lower = more stable)
   demo_min_confidence: float = 0.40     # Minimum confidence to accept a demographic prediction
-  demo_gender_consensus: float = 0.75   # Gender consensus threshold (fraction of weighted votes)
+  demo_gender_consensus: float = 0.70   # Gender consensus threshold (fraction of weighted votes)
   demo_max_age_history: int = 80        # Max age samples for temporal smoothing
   demo_max_gender_history: int = 80     # Max gender samples for temporal smoothing
   demo_temporal_decay: float = 0.85     # Decay factor for older gender votes (per sample)
@@ -63,7 +63,7 @@ class AnalyticsConfig:
   demo_min_crop_width: int = 20
 
   # Performance: Face detection frequency (every N frames)
-  face_detection_interval: int = 1   # RTX 5070: every frame for maximum accuracy
+  face_detection_interval: int = 3   # RTX 5070: every 3 frames (960x960 quality, 30+ FPS with TRT YOLO)
 
   # Queue analytics
   queue_alert_threshold: int = 5
@@ -74,7 +74,7 @@ class AnalyticsConfig:
   zone_exit_debounce_frames: int = 5
 
   # Bbox smoothing EMA alpha range
-  bbox_smoothing_alpha_min: float = 0.3
+  bbox_smoothing_alpha_min: float = 0.2
   bbox_smoothing_alpha_max: float = 0.9
 
 
@@ -142,7 +142,7 @@ def load_config(path: Path) -> AnalyticsConfig:
     # Task 2.2.1: Demographic smoothing params
     demo_age_ema_alpha=float(data.get("demo_age_ema_alpha", 0.15)),
     demo_min_confidence=float(data.get("demo_min_confidence", 0.40)),
-    demo_gender_consensus=float(data.get("demo_gender_consensus", 0.75)),
+    demo_gender_consensus=float(data.get("demo_gender_consensus", 0.70)),
     demo_max_age_history=int(data.get("demo_max_age_history", 80)),
     demo_max_gender_history=int(data.get("demo_max_gender_history", 80)),
     demo_temporal_decay=float(data.get("demo_temporal_decay", 0.85)),
@@ -154,7 +154,7 @@ def load_config(path: Path) -> AnalyticsConfig:
     demo_min_crop_height=int(data.get("demo_min_crop_height", 40)),
     demo_min_crop_width=int(data.get("demo_min_crop_width", 20)),
     # Performance: Face detection frequency
-    face_detection_interval=int(data.get("face_detection_interval", 1)),
+    face_detection_interval=int(data.get("face_detection_interval", 3)),
     # Queue analytics
     queue_alert_threshold=int(data.get("queue_alert_threshold", 5)),
     queue_wait_time_window=int(data.get("queue_wait_time_window", 300)),
@@ -162,6 +162,6 @@ def load_config(path: Path) -> AnalyticsConfig:
     zone_enter_debounce_frames=int(data.get("zone_enter_debounce_frames", 3)),
     zone_exit_debounce_frames=int(data.get("zone_exit_debounce_frames", 5)),
     # Bbox smoothing
-    bbox_smoothing_alpha_min=float(data.get("bbox_smoothing_alpha_min", 0.3)),
+    bbox_smoothing_alpha_min=float(data.get("bbox_smoothing_alpha_min", 0.2)),
     bbox_smoothing_alpha_max=float(data.get("bbox_smoothing_alpha_max", 0.9)),
   )

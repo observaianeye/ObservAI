@@ -3,6 +3,11 @@ node_modules/
 .pnp
 .pnp.js
 
+# TensorRT engines (GPU-specific, must be compiled per machine)
+*.engine
+trt_engine_cache/
+*.onnx
+
 # Python
 __pycache__/
 *.py[cod]
