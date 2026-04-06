@@ -20,6 +20,7 @@ import { pythonBackendManager } from './lib/pythonBackendManager';
 import { getKafkaConsumer } from './lib/kafkaConsumer';
 import cookieParser from 'cookie-parser';
 import authRouter from './routes/auth';
+import { checkOllamaHealth } from './routes/ai';
 // Load environment variables
 dotenv.config();
 
@@ -115,6 +116,29 @@ async function startServer() {
     } catch (dbError) {
       console.warn('⚠️  Database connection failed (continuing without DB):', (dbError as Error).message);
       console.warn('   Python backend manager will still work!');
+    }
+
+    // Check Ollama status at startup
+    try {
+      const ollamaHealth = await checkOllamaHealth();
+      const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
+      if (ollamaHealth.status === 'online') {
+        console.log(`✅ Ollama connected (${ollamaHealth.url}), model: ${ollamaHealth.selectedModel}`);
+      } else if (ollamaHealth.status === 'no_models') {
+        console.warn(`⚠️  Ollama is running but has no models. Run: ollama pull llama3.1:8b`);
+      } else {
+        console.warn(`⚠️  Ollama is offline (${ollamaHealth.url}).`);
+        if (AI_PROVIDER === 'ollama') {
+          if (process.env.GEMINI_API_KEY) {
+            console.warn('   Gemini fallback is available.');
+          } else {
+            console.warn('   No AI fallback configured. AI features will be unavailable.');
+            console.warn('   Start Ollama or set GEMINI_API_KEY in .env');
+          }
+        }
+      }
+    } catch {
+      console.warn('⚠️  Could not check Ollama status');
     }
 
     // // Auto-start Python backend

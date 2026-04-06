@@ -46,13 +46,14 @@ class AnalyticsConfig:
   max_detections: int = 100             # Max detections per frame (crowded scene support)
 
   # Task 2.2.1: Demographic Prediction Improvement parameters
-  demo_age_ema_alpha: float = 0.25      # EMA smoothing factor for age (lower = more stable)
-  demo_min_confidence: float = 0.30     # Minimum confidence to accept a demographic prediction
-  demo_gender_consensus: float = 0.60   # Gender consensus threshold (fraction of weighted votes)
-  demo_max_age_history: int = 50        # Max age samples for temporal smoothing
-  demo_max_gender_history: int = 50     # Max gender samples for temporal smoothing
-  demo_temporal_decay: float = 0.90     # Decay factor for older gender votes (per sample)
+  demo_age_ema_alpha: float = 0.15      # EMA smoothing factor for age (lower = more stable)
+  demo_min_confidence: float = 0.40     # Minimum confidence to accept a demographic prediction
+  demo_gender_consensus: float = 0.75   # Gender consensus threshold (fraction of weighted votes)
+  demo_max_age_history: int = 80        # Max age samples for temporal smoothing
+  demo_max_gender_history: int = 80     # Max gender samples for temporal smoothing
+  demo_temporal_decay: float = 0.85     # Decay factor for older gender votes (per sample)
   demo_continuous_refinement: bool = True  # Keep refining demographics even after initial classification
+  demo_gender_lock_threshold: int = 8     # Lock gender after N consecutive same-gender high-confidence votes
 
   # Minimum person bounding-box sizes for demographics processing
   demo_min_bbox_width: int = 25   # px – below this, skip face analysis
@@ -62,7 +63,7 @@ class AnalyticsConfig:
   demo_min_crop_width: int = 20
 
   # Performance: Face detection frequency (every N frames)
-  face_detection_interval: int = 3   # Every N frames: 3 balances accuracy with FPS
+  face_detection_interval: int = 1   # RTX 5070: every frame for maximum accuracy
 
   # Queue analytics
   queue_alert_threshold: int = 5
@@ -139,20 +140,21 @@ def load_config(path: Path) -> AnalyticsConfig:
     agnostic_nms=bool(data.get("agnostic_nms", True)),
     max_detections=int(data.get("max_detections", 100)),
     # Task 2.2.1: Demographic smoothing params
-    demo_age_ema_alpha=float(data.get("demo_age_ema_alpha", 0.25)),
-    demo_min_confidence=float(data.get("demo_min_confidence", 0.30)),
-    demo_gender_consensus=float(data.get("demo_gender_consensus", 0.60)),
-    demo_max_age_history=int(data.get("demo_max_age_history", 50)),
-    demo_max_gender_history=int(data.get("demo_max_gender_history", 50)),
-    demo_temporal_decay=float(data.get("demo_temporal_decay", 0.90)),
+    demo_age_ema_alpha=float(data.get("demo_age_ema_alpha", 0.15)),
+    demo_min_confidence=float(data.get("demo_min_confidence", 0.40)),
+    demo_gender_consensus=float(data.get("demo_gender_consensus", 0.75)),
+    demo_max_age_history=int(data.get("demo_max_age_history", 80)),
+    demo_max_gender_history=int(data.get("demo_max_gender_history", 80)),
+    demo_temporal_decay=float(data.get("demo_temporal_decay", 0.85)),
     demo_continuous_refinement=bool(data.get("demo_continuous_refinement", True)),
+    demo_gender_lock_threshold=int(data.get("demo_gender_lock_threshold", 8)),
     # Demographic bounding-box and crop size thresholds
     demo_min_bbox_width=int(data.get("demo_min_bbox_width", 25)),
     demo_min_bbox_height=int(data.get("demo_min_bbox_height", 40)),
     demo_min_crop_height=int(data.get("demo_min_crop_height", 40)),
     demo_min_crop_width=int(data.get("demo_min_crop_width", 20)),
     # Performance: Face detection frequency
-    face_detection_interval=int(data.get("face_detection_interval", 3)),
+    face_detection_interval=int(data.get("face_detection_interval", 1)),
     # Queue analytics
     queue_alert_threshold=int(data.get("queue_alert_threshold", 5)),
     queue_wait_time_window=int(data.get("queue_wait_time_window", 300)),

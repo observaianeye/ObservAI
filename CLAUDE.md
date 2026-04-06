@@ -124,6 +124,7 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 `.env.example` dosyalarini kopyala (root, backend/, frontend/).
 - `AI_PROVIDER=ollama` — AI saglayici (ollama veya gemini)
 - `OLLAMA_URL=http://localhost:11434` — Ollama API endpoint
+- `OLLAMA_MODEL=llama3.1:8b` — Tercih edilen Ollama modeli
 - `GEMINI_API_KEY` — Gemini fallback icin (opsiyonel)
 - `DATABASE_URL` — Prisma (default: SQLite)
 - `VITE_BACKEND_URL=http://localhost:5001` — Python analytics
@@ -139,21 +140,23 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 ## Onemli Teknik Detaylar
 
 ### Demografi Pipeline
-1. InsightFace full-frame face detection (her `face_detection_interval` frame'de)
+1. InsightFace full-frame face detection (her frame'de, RTX 5070 ile 960x960 det_size)
 2. Yuz → YOLO kisi bbox eslestirme (proportional tolerance)
-3. Eslesmeyenler icin crop-based fallback (max 3 crop)
+3. Eslesmeyenler icin crop-based fallback (max 5 crop)
 4. Quality-based confidence: face_size * pose_factor * det_score
-5. Temporal smoothing: Age=EMA+weighted_median, Gender=decay-weighted voting
-6. Demographics persistence cache: track drop → save → re-entry restore (counted_in/out flag'leri de transfer edilir)
+5. Temporal smoothing: Age=EMA+weighted_median (stability dampening), Gender=decay-weighted voting + lock
+6. Gender lock: 8 ardisik ayni cinsiyet oyu sonrasi cinsiyet kilitlenir (flip-flop engelleme)
+7. Demographics persistence cache: track drop → save → re-entry restore (120s pencere)
 
 ### Konfigürasyon Parametreleri (default_zones.yaml)
 ```yaml
 yolo_input_size: 640          # YOLO giris boyutu
-face_detection_interval: 3    # Her N frame'de InsightFace calistir
-demo_age_ema_alpha: 0.25      # Yas EMA smoothing (yuksek=hizli yakinlasma)
-demo_min_confidence: 0.30     # Min yuz tespit guven esigi
-demo_gender_consensus: 0.60   # Cinsiyet oylama esigi
-demo_temporal_decay: 0.90     # Eski oylar icin azalma carpani
+face_detection_interval: 1    # Her frame'de InsightFace calistir (RTX 5070)
+demo_age_ema_alpha: 0.15      # Yas EMA smoothing (dusuk=daha stabil)
+demo_min_confidence: 0.40     # Min yuz tespit guven esigi (yuksek=temiz tahmin)
+demo_gender_consensus: 0.75   # Cinsiyet oylama esigi (yuksek=flip-flop engelleme)
+demo_temporal_decay: 0.85     # Eski oylar icin azalma carpani
+demo_gender_lock_threshold: 8 # Cinsiyet kilitleme icin ardisik oy sayisi
 confidence_threshold: 0.5     # YOLO kisi tespit esigi
 queue_alert_threshold: 5      # Queue zone alert kisi esigi
 zone_enter_debounce_frames: 3 # Zone girisi icin ardisik frame sayisi

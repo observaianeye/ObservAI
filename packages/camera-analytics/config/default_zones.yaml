@@ -45,31 +45,39 @@ max_detections: 100
 
 # Task 2.2.1: Demographic Prediction Improvement
 # EMA smoothing factor for age: 0.1 (very smooth) to 0.5 (responsive). Default: 0.3
-demo_age_ema_alpha: 0.25
+# Lower = smoother, less jumping. RTX 5070: we run every frame so can afford slower convergence
+demo_age_ema_alpha: 0.15
 
 # Minimum model confidence to accept a demographic prediction
 # Higher = reject noisy detections. Range: 0.1-0.5. Default: 0.30
-demo_min_confidence: 0.30
+# RTX 5070 + 960x960 det_size: higher threshold for cleaner predictions
+demo_min_confidence: 0.40
 
 # Gender consensus threshold: fraction of weighted votes needed to assign gender
-# Higher = stronger agreement needed. Range: 0.55-0.85. Default: 0.70
-demo_gender_consensus: 0.60
+# Higher = stronger agreement needed. Range: 0.55-0.85.
+# Set high to prevent flip-flopping. Gender must be >75% consensus to be assigned.
+demo_gender_consensus: 0.75
 
 # Max history samples for temporal smoothing (age and gender)
-demo_max_age_history: 50
-demo_max_gender_history: 50
+# More samples = more stable predictions over time
+demo_max_age_history: 80
+demo_max_gender_history: 80
 
 # Temporal decay for older gender votes (per sample, recent = 1.0)
-# Lower = older votes fade faster. Range: 0.85-0.99. Default: 0.90
-demo_temporal_decay: 0.90
+# Lower = older votes fade faster, helps correct early misclassifications
+demo_temporal_decay: 0.85
 
 # Continuous refinement: keep improving demographics even after initial classification
 # Set to false for legacy behavior (stop after first good classification)
 demo_continuous_refinement: true
 
 # Performance: Face detection frequency (her kaç frame'de bir)
-# RTX 5070: every frame for maximum accuracy and stable predictions
-face_detection_interval: 3
+# RTX 5070 12GB: every frame for maximum accuracy and stable predictions
+face_detection_interval: 1
+
+# Gender lock: once gender has N consecutive same-gender high-confidence votes, lock it
+# Prevents flip-flopping after initial consensus is reached
+demo_gender_lock_threshold: 8
 
 # Performance: Demografi minimum bbox boyutları (pixels)
 # ivCam kalitesi arttığı için daha küçük kişileri de işliyoruz

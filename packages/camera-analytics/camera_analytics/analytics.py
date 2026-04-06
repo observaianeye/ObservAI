@@ -74,6 +74,9 @@ class TrackedPerson:
   age_ema: Optional[float] = None     # Exponential moving average for age
   age_stability: float = 0.0          # How stable the age prediction is (0-1)
   gender_stability: float = 0.0       # How stable the gender prediction is (0-1)
+  gender_locked: bool = False          # Once locked, gender no longer changes
+  _gender_consecutive_same: int = 0    # Consecutive same-gender high-confidence votes
+  _gender_last_vote: str = ""          # Last voted gender for consecutive tracking
   _demo_update_count: int = 0         # Total demographic update count
   smoothed_bbox_norm: Optional[Tuple[float, float, float, float]] = None
   zone_consecutive_inside: Dict[str, int] = field(default_factory=dict)
@@ -84,12 +87,13 @@ class TrackedPerson:
     return x1 <= px <= x2 and y1 <= py <= y2
 
   def update_age(self, new_age: float, confidence: float = 1.0,
-                 ema_alpha: float = 0.3, min_confidence: float = 0.25) -> None:
+                 ema_alpha: float = 0.15, min_confidence: float = 0.25) -> None:
     """
-    Task 2.2.1: Confidence-weighted EMA + median hybrid for age estimation.
+    Confidence-weighted EMA + median hybrid for age estimation.
 
     Uses exponential moving average weighted by confidence for responsive updates,
-    combined with median filtering for outlier robustness.
+    combined with median filtering for outlier robustness. Once stable, age changes
+    are heavily dampened to prevent display jitter.
 
     Args:
         new_age: Raw age prediction from model
@@ -123,6 +127,9 @@ class TrackedPerson:
     # --- Confidence-weighted EMA ---
     # Alpha scales with confidence: high-confidence updates shift the EMA more
     effective_alpha = ema_alpha * confidence
+    # Once stable, dampen alpha further to prevent display jitter
+    if self.age_stability > 0.8 and len(samples) >= 10:
+      effective_alpha *= 0.3
     if self.age_ema is None:
       self.age_ema = float(new_age)
     else:
@@ -149,7 +156,8 @@ class TrackedPerson:
 
       # Blend EMA (responsive) with weighted median (robust)
       # More samples = trust median more; fewer = trust EMA more
-      blend = min(0.6, len(samples) / 20.0)  # Caps at 60% median weight
+      # Higher cap (0.75) so median dominates once we have enough data
+      blend = min(0.75, len(samples) / 15.0)
       self.age = (1 - blend) * self.age_ema + blend * weighted_median
     else:
       # Few samples: use EMA directly
@@ -158,21 +166,21 @@ class TrackedPerson:
     # --- Stability score ---
     # Low variance in recent predictions = high stability
     if len(samples) >= 3:
-      recent = samples[-min(10, len(samples)):]
+      recent = samples[-min(15, len(samples)):]
       std_dev = float(np.std(recent))
       # Normalize: std_dev of 0 => stability 1.0, std_dev of 10+ => stability ~0
       self.age_stability = max(0.0, 1.0 - std_dev / 10.0)
 
   def update_gender(self, new_gender: str, confidence: float = 1.0,
-                    consensus_threshold: float = 0.65,
-                    temporal_decay: float = 0.95,
-                    min_confidence: float = 0.25) -> None:
+                    consensus_threshold: float = 0.75,
+                    temporal_decay: float = 0.85,
+                    min_confidence: float = 0.25,
+                    lock_threshold: int = 8) -> None:
     """
-    Task 2.2.1: Confidence-weighted gender voting with temporal decay.
+    Confidence-weighted gender voting with temporal decay and locking.
 
-    Recent high-confidence predictions matter more than old low-confidence ones.
-    Uses temporal decay so stale predictions fade, preventing early misclassifications
-    from permanently locking in the wrong gender.
+    Once gender accumulates lock_threshold consecutive same-gender high-confidence
+    votes, it locks permanently for this track to prevent flip-flopping.
 
     Args:
         new_gender: Predicted gender ("male"/"female")
@@ -180,12 +188,24 @@ class TrackedPerson:
         consensus_threshold: Required vote fraction for gender assignment (from config)
         temporal_decay: Decay multiplier for older votes (from config)
         min_confidence: Minimum confidence to accept (from config)
+        lock_threshold: Consecutive same-gender votes to lock (from config)
     """
     if not new_gender or new_gender == "unknown":
       return
 
     if confidence < min_confidence:
       return
+
+    # If gender is locked, skip all processing
+    if self.gender_locked:
+      return
+
+    # Track consecutive same-gender votes for locking
+    if new_gender == self._gender_last_vote and confidence >= 0.5:
+      self._gender_consecutive_same += 1
+    else:
+      self._gender_consecutive_same = 1 if confidence >= 0.5 else 0
+    self._gender_last_vote = new_gender
 
     # Store gender + confidence pair
     self.gender_history.append(new_gender)
@@ -221,7 +241,7 @@ class TrackedPerson:
     male_ratio = male_score / total_score
     female_ratio = female_score / total_score
 
-    # Apply consensus threshold (configurable, default 0.65 for less aggressive locking)
+    # Apply consensus threshold
     if male_ratio >= consensus_threshold:
       self.gender = "male"
       self.gender_confidence = male_ratio
@@ -231,8 +251,15 @@ class TrackedPerson:
     # If neither reaches consensus, keep previous assignment (unknown > wrong)
 
     # --- Gender stability score ---
-    # High if dominant gender consistently wins over time
     self.gender_stability = max(male_ratio, female_ratio)
+
+    # --- Gender lock: prevent flip-flopping ---
+    # Lock once we have enough consecutive same-gender high-confidence votes
+    # AND the consensus threshold is met
+    if (self._gender_consecutive_same >= lock_threshold and
+        self.gender != "unknown" and
+        self.gender_stability >= consensus_threshold):
+      self.gender_locked = True
 
 
 class CameraAnalyticsEngine:
@@ -438,7 +465,7 @@ class CameraAnalyticsEngine:
     else:
         try:
             self.age_gender_estimator = EstimatorFactory.create_estimator()
-            self.age_gender_estimator.prepare(ctx_id=0, det_size=(640, 640))
+            self.age_gender_estimator.prepare(ctx_id=0, det_size=(960, 960))
             print("[INFO] Age/Gender Estimator initialized (Optimized Mode)")
         except Exception as err:
             print(f"[WARN] Age/Gender Estimator initialization failed: {err}")
@@ -924,7 +951,7 @@ class CameraAnalyticsEngine:
           if not _insightface_initialized[0] and self.age_gender_estimator is not None:
             try:
               print("[INFO] Re-initializing InsightFace on inference thread for CUDA compatibility...", flush=True)
-              self.age_gender_estimator.prepare(ctx_id=0, det_size=(640, 640))
+              self.age_gender_estimator.prepare(ctx_id=0, det_size=(960, 960))
               _insightface_initialized[0] = True
               print("[INFO] InsightFace ready on inference thread", flush=True)
             except Exception as e:
@@ -1011,7 +1038,7 @@ class CameraAnalyticsEngine:
               # This catches people facing away, at angles, or at distance.
               crop_count = 0
               for i in range(len(ids)):
-                if crop_count >= 3:
+                if crop_count >= 5:
                   break
                 tid = int(ids[i])
                 if tid in matched_tids:
@@ -1693,7 +1720,7 @@ class CameraAnalyticsEngine:
         aspect = round(w / max(h, 0.001), 1)
         matched_key = None
         for key, (old_person, drop_time) in self._dropped_demographics.items():
-          if now - drop_time > 60:
+          if now - drop_time > 120:
             continue
           old_aspect = float(key.split('_')[0])
           if abs(aspect - old_aspect) < 0.3:
@@ -1707,6 +1734,9 @@ class CameraAnalyticsEngine:
             person.gender_confidence = old_person.gender_confidence
             person.age_stability = old_person.age_stability
             person.gender_stability = old_person.gender_stability
+            person.gender_locked = old_person.gender_locked
+            person._gender_consecutive_same = old_person._gender_consecutive_same
+            person._gender_last_vote = old_person._gender_last_vote
             person._demo_update_count = old_person._demo_update_count
             # Transfer counting flags to prevent double-counting
             person.counted_in = old_person.counted_in
@@ -1874,7 +1904,7 @@ class CameraAnalyticsEngine:
     )
     self.heatmap[row, col] += 5
 
-  def _drop_stale_tracks(self, active_ids: set[int], now: float, ttl: float = 5.0) -> None:
+  def _drop_stale_tracks(self, active_ids: set[int], now: float, ttl: float = 8.0) -> None:
     for track_id in list(self.tracks.keys()):
       person = self.tracks[track_id]
       if track_id in active_ids:
@@ -1893,10 +1923,10 @@ class CameraAnalyticsEngine:
           aspect = round(w / max(h, 0.001), 1)
           key = f"{aspect}_{person.gender}_{int(person.age or 0)}"
           self._dropped_demographics[key] = (person, now)
-          # Evict old entries (>60s)
+          # Evict old entries (>120s)
           self._dropped_demographics = {
             k: (p, t) for k, (p, t) in self._dropped_demographics.items()
-            if now - t < 60
+            if now - t < 120
           }
         if person.counted_in and not person.counted_out:
           self.people_out += 1
@@ -2134,6 +2164,7 @@ class CameraAnalyticsEngine:
     age_ema_alpha = cfg.demo_age_ema_alpha
     gender_consensus = cfg.demo_gender_consensus
     temporal_decay = cfg.demo_temporal_decay
+    gender_lock_threshold = cfg.demo_gender_lock_threshold
     # NOTE: demo_min_confidence is for face DETECTION filtering (det_score check).
     # For temporal voting acceptance, use a very low threshold (0.01) because the
     # quality-based confidence is already scaled by face size/pose/det_score.
@@ -2153,7 +2184,8 @@ class CameraAnalyticsEngine:
           person.update_gender(gender, confidence=conf,
                                consensus_threshold=gender_consensus,
                                temporal_decay=temporal_decay,
-                               min_confidence=voting_min_conf)
+                               min_confidence=voting_min_conf,
+                               lock_threshold=gender_lock_threshold)
 
     if self.frame_count % 90 == 0:
       print(f"[DEMO] Applied: {len(demo_results)} detected, {matched} applied to tracks", flush=True)

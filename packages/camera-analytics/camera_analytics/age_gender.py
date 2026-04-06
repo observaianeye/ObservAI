@@ -199,7 +199,7 @@ class InsightFaceEstimator(AgeGenderEstimator):
     buffalo_l provides significantly better age/gender prediction than buffalo_s,
     especially for profile faces and low-resolution crops.
     """
-    MIN_FACE_INPUT_SIZE = 256
+    MIN_FACE_INPUT_SIZE = 320
 
     def __init__(self, model_name: str = "buffalo_l", providers: list = None):
         self.model_name = model_name
@@ -294,7 +294,7 @@ class InsightFaceEstimator(AgeGenderEstimator):
             face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
 
             det_score = float(face.det_score) if hasattr(face, 'det_score') else 0.0
-            if det_score < 0.15:
+            if det_score < 0.25:
                 return None, None, 0.0
 
             age = float(face.age) if face.age is not None else None
