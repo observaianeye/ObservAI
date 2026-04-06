@@ -1,0 +1,675 @@
+
+
+
+Software Requirements Specification
+SRS
+An Eye
+Team 12
+
+
+
+
+
+Faik Emre Partal, 22203786
+Halil İbrahim Atalay, 22103092
+Mevlüt Yılmaz, 22201947
+Semih Şengül, 22202588
+Uğur Ayberk Karakış, 22201725
+
+
+
+
+Bilkent University
+Department of Information Systems and Technologies
+
+01.12.2025
+Change History
+
+Change List
+The Executive Summary was extended.
+Functional Requirements part changed.
+The Use Case Diagram was re-drawn.
+Some Non-functional requirements were removed and modified.
+The verification part changed according to new FReqs and NFReqs.
+In the product perspective part, we made modifications for Interfaces
+
+
+Project Details
+
+Team 12
+
+Individual Contributions Overview
+
+
+Executive Summary
+This Software Requirements Specification (SRS) document defines the scope, objectives, and detailed requirements of ObservAI, an AI-powered analytics platform developed by Team 12 to help café and restaurant managers make data-driven decisions using real-time computer-vision insights. The document provides a complete description of the software system, including its functional and non-functional requirements, system interfaces, database design, and verification approach. ObservAI is designed as a web-based platform that integrates camera-based analytics, artificial intelligence, and interactive data visualization within a single management dashboard. Through live video streams, the system detects customers, estimates demographics, and visualizes spatial heatmaps to assist managers in understanding crowd behavior and optimizing their operations. The SRS also defines the characteristics of the sole user group—managers—highlighting the system’s focus on usability, accessibility, and ease of interpretation for non-technical users. Each major component of the system, including the frontend (React), backend (Node.js), and AI modules (YOLOv8 and OpenCV), is documented to demonstrate how they interact securely through HTTPS and comply with KVKK and GDPR regulations for anonymized data handling. In addition to defining the product scope, the SRS elaborates on software quality attributes such as reliability, maintainability, security, and logical database requirements. The preparation of this document involved close team collaboration, research on software-engineering standards, and iterative refinement based on instructor feedback. Throughout the process, the team faced several challenges, including balancing academic workload, ensuring consistency across sections, and adapting the report to formal IEEE SRS standards. These difficulties were addressed through regular team meetings, shared documentation practices, and constructive peer reviews, which collectively contributed to improving the clarity and coherence of the final document. As a result, this SRS serves as a structured and verifiable foundation for the future design and implementation of ObservAI. It ensures that all requirements are traceable, realistic, and measurable, providing a clear roadmap for building a reliable, scalable, and ethically compliant AI-based analytics solution for café and restaurant environments. The document establishes a robust baseline that will guide development activities in the upcoming phases of the project lifecycle. This SRS document provides a stable foundation for the upcoming design and implementation phases.
+
+
+Table of Contents
+Page Number
+
+
+List of Tables
+Page Number
+
+List of Figures
+Page Number
+
+
+
+Abbreviations
+
+
+Product Scope
+
+The software product under development is named ObservAI, a web-based artificial intelligence and computer vision platform designed for real-time customer analytics in cafés and restaurants. The system aims to provide managers with live visual insights into customer behavior, occupancy trends, and spatial usage through camera-based analysis supported by AI-driven interpretation.
+ObservAI operates as a centralized, browser-accessible analytics environment that integrates computer vision capabilities with intelligent data visualization. It continuously processes live camera feeds to detect and count individuals, estimate basic demographics such as approximate age groups or gender distribution, and generate real-time heatmaps to indicate customer movement density and area utilization. These analytics are presented through a unified web interface, allowing managers to monitor and interpret on-site activity in an intuitive and data-informed way.
+The application consists of a single administrative panel which serves as the primary point of access for authorized managerial users. This dashboard consolidates all analytics, AI insights, and visualization components. No additional user roles or public access levels are provided, as the application is designed exclusively for management use. The admin panel enables the viewing of live camera analyses, historical trends, and AI-generated suggestions regarding crowd flow, customer distribution, and operational optimization.
+ObservAI does not include mobile or desktop native applications; however, it is fully responsive and compatible across devices such as tablets, laptops, and smartphones through standard web browsers. The design ensures that the platform maintains consistent usability and readability regardless of screen size.
+From a technical standpoint, the platform’s front-end is developed using React, ensuring a dynamic and responsive interface, while the back end is powered by Node.js, managing data flow, model execution, and API endpoints. The AI modules—implemented using open-source computer vision frameworks—run inference on real-time video streams to produce continuous analytical output without manual intervention. A visualization layer transforms this raw data into interpretable formats, such as charts, demographic summaries, and spatial heatmaps.
+The benefits of the ObservAI system are rooted in its ability to offer actionable intelligence directly from visual data without the need for manual data collection. It helps café and restaurant managers understand customer dynamics, optimize space usage, and predict peak activity periods through AI-assisted suggestions. In doing so, it provides a foundation for data-driven operational decision-making and improves awareness of real-time in-store patterns.
+The product’s scope, consistent with the Initial Plan and Project Scope, deliberately excludes non-analytical features such as staff management, point-of-sale integration, and inventory tracking. ObservAI is not a complete business management system; instead, it focuses solely on transforming camera-based data into meaningful business intelligence.
+
+User Characteristics
+
+The ObservAI system is designed primarily for a single user group: café or restaurant managers. Since the software’s main purpose is to provide real-time analytics and AI-driven insights based on camera data, it does not target general employees, customers, or technical operators. Instead, its usability, interface, and access permissions are all shaped around managerial needs and capabilities.
+ U1: Manager Users
+Educational Level: Manager users typically possess at least a high school education, with many holding vocational or university-level degrees in fields such as business management, hospitality, or restaurant operations. They are not expected to have formal technical education in artificial intelligence, computer science, or software engineering.
+Demographics: The primary users of the system are café and restaurant managers, generally between 25 and 55 years of age. They are professionals responsible for supervising staff, monitoring customer activity, and making operational decisions. Their work environments are usually small to medium-sized hospitality businesses.
+Experience: Managers are experienced in handling day-to-day operations, evaluating customer behavior, and ensuring service quality. They are accustomed to using business tools such as scheduling dashboards, point-of-sale systems, and reporting applications. Their interaction with ObservAI is driven by the need to quickly interpret AI-based analytics and apply them to decision-making, rather than by technical curiosity or system administration.
+Disabilities and Accessibility: ObservAI is primarily designed for indoor managerial use, focusing on comfort and readability rather than full accessibility compliance. The interface provides high color contrast, legible text, and adjustable visual components to support users with mild visual impairments. However, the system does not target public or multi-role accessibility standards, as it is intended exclusively for managerial users.
+Technical Expertise: Most manager users have a basic to moderate level of digital literacy. They are comfortable using web browsers, emails, and analytics dashboards but may not have technical skills related to configuration, coding, or data systems. ObservAI’s design, therefore, emphasizes intuitive interaction, minimal setup requirements, and clear visual feedback, ensuring ease of use without technical training.
+Devices and Environment: Managers are expected to access ObservAI from standard computing devices, including desktop computers, laptops, or tablets. The system is primarily used in office spaces or back-office areas within cafés or restaurants. ObservAI’s interface is fully responsive, maintaining consistent usability and visual clarity across different screen sizes and devices.
+
+
+Product Perspective
+ObservAI is designed as a standalone, full-stack web application that operates independently on its own server environment. The system integrates its front-end (React-based web interface) and back-end (Node.js + AI inference layer) within a unified architecture. While it functions autonomously, the backend exposes RESTful APIs, allowing potential future integrations with larger restaurant ecosystems or third-party dashboards.
+For the current academic implementation, ObservAI remains self-contained, performing all core analytics, data processing, and AI computations internally. However, its modular structure ensures easy adaptability for broader enterprise environments, where camera analytics and AI modules could be integrated into existing management software through secure API endpoints.
+Hosting for ObservAI will primarily depend on cloud services such as AWS, Render, or Vercel, ensuring scalability and remote access. However, due to budget and resource constraints, local hosting alternatives may be used during development or testing phases.
+System Interfaces
+ObservAI’s primary system interfaces are designed to manage real-time video input, AI analytics, and user interaction efficiently.
+Analytics Engine Interface
+The backend’s AI module processes live video frames, detects individuals, and produces anonymized metrics such as crowd density, dwell time, and movement heatmaps. The AI layer communicates with the main backend via RESTful API calls to update the database and dashboard in real time.
+Web Server Interface
+All data is accessed and transmitted via secure HTTPS connections. The frontend communicates with the backend through standardized JSON-based APIs for fast, secure data exchange.
+User Interfaces
+3.2.0. Landing Page:
+Serves as the entry screen with the ObservAI logo, brief intro, and a “Login” button leading to the authentication page.
+Login Page 
+Provides secure access through username and password authentication. User credentials are verified via the backend API, and all sessions are encrypted via HTTPS.
+Dashboard Home
+Displays live camera analytics, including real-time crowd detection, demographic estimation, and heatmap visualizations.
+Camera/Layering Page
+Allows users to select and view live camera feeds individually or in layered mode. Users can toggle visual overlays such as heatmaps, detection boxes, or region zones for better analysis.
+AI Suggestion
+Presents AI-generated observations and recommendations such as peak hours, customer density patterns, and suggested operational adjustments.
+Settings Page
+Enables camera configuration, threshold adjustments, and basic system preferences.
+Help Page
+Provides user guidance and troubleshooting information. Includes step-by-step explanations for system features, contact support details, and frequently asked questions.
+Notification Page
+Displays system alerts and status messages such as connectivity issues, detection updates, or important system warnings in real time.
+The interface design follows Material UI and Tailwind CSS principles for a clean, responsive layout across all devices. Pages maintain consistent visual themes with clear typography, color-coded visuals, and tooltip-based assistance to enhance readability and reduce cognitive load.
+Do’s
+Maintain consistency in layout and color schemes.
+Ensure charts, maps, and video overlays are clearly labeled.
+Provide accessible font sizes and adjustable visualization density.
+Keep dashboards minimalistic and focused on essential insights.
+Don’ts
+Avoid overcrowding analytical views with excessive metrics.
+Refrain from including unnecessary navigation steps.
+Avoid overly technical terminology in AI explanations.
+
+Hardware Interfaces
+ObservAI connects primarily with IP cameras using RTSP protocols to fetch real-time video streams for real-time analytics. For testing purposes, this interface can also load pre-recorded videos. Each camera’s stream is processed by the backend AI system, which performs frame extraction and inference on GPU-enabled environments when available.
+For simulations, the system supports local file inputs (MP4 format), ensuring flexibility during testing. The backend operates on standard x86-based servers or cloud instances with moderate GPU acceleration (e.g., NVIDIA T4 or GTX 1660).
+No direct physical sensors or external hardware devices are used aside from cameras and the hosting server.
+
+Software Interfaces
+The following software components form the backbone of ObservAI’s functionality:
+Database Management System
+Name: PostgreSQL + TimescaleDB
+Mnemonic: DBMS
+Version: Latest stable
+Source: PostgreSQL Global Development Group
+Stores time-series analytics data (e.g., customer counts, dwell durations, movement heatmaps). Local caching and short-term storage are handled using SQLite on the edge device. 
+Local Cache Database
+Name: SQLite
+Mnemonic: CacheDB
+Temporary caching of results for real-time inference on local or edge devices.
+AI Libraries
+Name: YOLOv8-nano, OpenCV, PyTorch
+Mnemonic: AI Modules
+Version: Latest stable releases
+Source: Ultralytics, OpenCV Foundation, PyTorch.org
+Real-time object detection, person tracking, and video frame analysis.
+Frontend Framework
+Name: React + Material UI + Tailwind CSS
+Develops the interactive, responsive manager dashboard and visualizes data with minimal latency.
+Backend Framework
+Name: Node.js + Express
+API management, AI integration, and secure data exchange between AI layer and frontend.
+Operating Systems
+Name: Windows, macOS
+Mnemonic: OS
+Version number: Windows 10 or higher / macOS Ventura or higher
+Source: Microsoft Corporation, Apple Inc.
+The ObservAI platform shall function identically across the latest two versions of Chrome, Edge, Safari, and Firefox. It shall be deployable on Windows and macOS servers without code modification. All services shall run inside Docker containers to ensure consistent behavior across environments. Migration to cloud platforms such as AWS ECS or Azure Container Apps shall require minimal configuration. 
+Programming Environment
+Name: Visual Studio Code, PyCharm
+Mnemonic: IDE
+Version number: Latest stable versions
+Source: Microsoft, JetBrains
+Visual Studio Code and PyCharm serve as the integrated development environments for building and maintaining ObservAI’s backend and AI modules. These environments support debugging, testing, and continuous integration workflows, ensuring efficient and modular development of both the AI pipeline and the web application.
+Notification System Specifications
+Name: Firebase Cloud Messaging (FCM), Web Push API
+Mnemonic: Notification System
+Version number: Latest stable versions
+Source: Google
+The notification system enables real-time alerts and system updates for managerial users. Notifications may include alerts about unusual customer patterns, high-traffic warnings, or camera connectivity issues. Using FCM and the Web Push API ensures reliable, cross-platform message delivery for both desktop and mobile web environments.
+Large Language Model (LLM) Integration
+Name: Gemini 2.0 Flash
+Mnemonic: LLM
+Version number: Latest stable release
+Source: Google DeepMind
+The LLM module integrates Gemini 2.0 Flash to provide advanced natural language processing and AI-driven insight generation within ObservAI. It converts analytical outputs and visual data into human-readable summaries, explanations, and operational recommendations. The model operates through API calls, ensuring seamless interaction with ObservAI’s backend and enabling scalable, real-time generation of contextual insights for managerial users.
+Web Server Interface
+Name: HTTPS + JSON-based REST API
+Mnemonic: WebAPI
+Version: Latest stable TLS/HTTPS standards
+Source: Internal ObservAI Backend Services
+Provides secure, encrypted communication between frontend and backend components. All data is transmitted over HTTPS using standardized JSON-based APIs to ensure fast, consistent, and secure data exchange. This interface handles all request/response operations, delivering real-time analytics, AI inference results, system status updates, and configuration data between client-side applications and server-side logic.
+Communications Interfaces
+ObservAI communicates using two primary protocols to ensure secure data transmission and real-time video processing across system components.
+3.5.0. HTTPS Communication Interface
+	Used for all backend–frontend interactions and metadata exchange.
+Protocol: HTTPS (Port: 443)
+Encryption: SSL/TLS
+Data Format: JSON
+Purpose: Securely transmits analytics results, dashboard data, authentication information, configuration settings, and AI-generated insights.
+Security: Ensures encrypted, end-to-end communication between the React frontend, Node.js backend, and database services.
+Environment: Cloud-hosted or local LAN environments during testing.
+3.5.1. RTSP Communication Interface
+	Used for receiving real-time video streams from IP cameras.
+Protocol: RTSP (Real-Time Streaming Protocol)
+Port: Default RTSP ports (554 or camera-specific)
+Data Format: Compressed video stream (H.264/H.265)
+Purpose: Provides continuous camera video feeds to the AI inference module for detection, tracking, and heatmap generation.
+Usage Conditions: Requires stable local network or LAN connection; supports both real cameras and pre-recorded video sources during testing.
+Security Note: RTSP streams can be optionally secured using RTSPS depending on camera device capabilities.
+With HTTPS ensuring encrypted data transfer and RTSP providing real-time video streaming, ObservAI maintains a secure and efficient communication architecture between cameras, backend services, and the dashboard interface.
+Memory Constraints
+ObservAI requires sufficient memory resources to handle real-time video inference and analytics. The server should have a minimum of 8 GB RAM, with 16 GB RAM recommended, and if a GPU is used, at least 4 GB of VRAM is needed for stable processing of multiple camera streams. The system typically consumes around 1 GB of memory for two concurrent RTSP streams, while the local SQLite cache may use up to 1–2 GB of disk space. On the client side, modern browsers should have at least 512 MB of available memory, with 1 GB recommended to ensure smooth rendering of the dashboard and visualizations.
+
+Assumptions and Dependencies 
+
+Email System and User Authentication Services
+Assumption: The system assumes that a reliable email service is available for verification and password recovery during user registration. If the email service provider changes, or if external email verification is restricted by organizational policies, the account creation and verification process may be affected.  
+This would impact FReq1.
+Network and Internet Connectivity
+Assumption: ObservAI depends on stable internet connectivity for real-time camera streaming and dashboard updates. Any network latency, outage, or restricted Wi-Fi conditions could delay live analytics, disrupt user access, or cause incomplete visual data displays.
+This would affect FReq2 and FReq3.
+Camera and Video Stream Availability
+Assumption: The system assumes the availability and proper configuration of IP cameras providing live RTSP streams. If a camera becomes disconnected, misconfigured, or uses an incompatible format, real-time customer analytics cannot be performed.
+This would impact FReq2 and FReq4.
+AI Model and Library Dependencies
+Assumption: ObservAI’s analytics rely on open-source computer vision libraries such as YOLOv8, OpenCV, and PyTorch. Any changes, deprecations, or compatibility issues in these frameworks could affect detection accuracy, performance, or inference speed.
+This would influence FReq2 and FReq3.
+Hardware and Processing Resources
+Assumption: The system assumes adequate processing capability, including access to GPU-enabled hardware or cloud resources for real-time inference. If only CPU-based hardware is available, analytics and heatmap generation might experience significant delays.
+ This would impact FReq2and FReq3.
+Browser and Device Compatibility
+Assumption: ObservAI is designed to function across modern web browsers and devices. If users access the system from outdated browsers or devices that do not support essential web technologies (e.g., WebGL modern CSS standards), visualization and dashboard responsiveness may degrade.
+This would affect FReq3.
+Data Privacy and Regulatory Compliance
+Assumption: The system assumes that camera analytics comply with local and international privacy regulations (e.g., GDPR) and that captured video data are processed in anonymized form. If privacy laws change or stricter anonymization is required, AI detection and visualization functions may need revision.
+This would impact FReq2 and FReq4.
+Hosting and Infrastructure Environment
+Assumption: ObservAI assumes deployment on a reliable hosting environment (e.g., AWS, Render, or local on-premise server). Any change in hosting provider, server configuration, or database environment may affect data availability, latency, or notification delivery.
+This would influence FReq2 and FReq4.
+
+Functional Requirements
+
+This section specifies the functional behavior and interaction design of the ObservAI system. It defines what the software shall do to meet user and business objectives, how users and external components interact with it, and how these behaviors are represented and traced. Subsection 5.1 details the Functional Requirements, Subsection 5.2 presents the corresponding UML Use Case Diagram, and Subsection 5.3 provides a cross-reference table linking the functional requirements, use cases, and the high-level requirements defined in the Initial Plan.
+List of Functional Requirements in Textual Format
+FReq 1: Manager Authentication and Dashboard Access
+Description:
+The system shall authenticate a manager using validated credentials and, upon successful authentication, grant access to the operations dashboard. Authentication must be completed before any analytics, visualization, or AI features become accessible.
+Inputs / Stimuli:
+Email Address — Provided by the manager during login. Must match an existing record in the Managers table.
+Password — Entered by the manager. Must match the hashed password stored for that user.
+Login Request — Triggered when the manager presses the “Login” button in the UI.
+Process / Function:
+The system shall perform the following steps in order:
+Receive User Credentials
+The authentication module receives email + password via a secure POST request (HTTPS).
+Validate Input Format
+Email must be syntactically valid. Password must follow system password rules.
+Lookup User Account
+System checks if the email exists in the Managers database table.
+Verify Password
+Compare hashed password with stored hash using secure password hashing.
+Check Account Status
+The system ensures the account is:
+Active
+Not Locked
+Not Suspended
+Create Authenticated Session
+If all validations pass:
+Generate a session token
+Redirect the manager to the operations dashboard
+Failure Handling
+If any validation fails:
+Reject login
+Display an appropriate message (e.g., “Invalid credentials”)
+Outputs / Responses:
+On success:
+Access granted → Operations Dashboard is displayed
+UI shows analytics modules
+A session token is returned to the frontend
+On failure:
+Display meaningful error messages (no technical details)
+Account remains on login page
+FReq 2: Real-Time Dashboard Data Display
+Description:
+The system shall display customer activity information in real time, including visitor counts, detected movement density, zone activity, and demographic estimations. All dashboard visuals must update automatically without requiring a page refresh.
+Inputs / Stimuli:
+Analytics Payloads from the Computer Vision Engine:
+Visitor count
+Gender distribution
+Age range estimation
+Queue length detection
+Heatmap intensity grid
+Manager View Request:
+Triggered when the authenticated user navigates to the dashboard.
+Process / Function:
+The system shall:
+Receive Analytics Payloads
+Normalize Analytics. Transform raw metrics into structured fields expected by the frontend.
+Aggregate Metrics per Zone
+The system calculates:
+Total visitors
+Queue lengths
+Crowd density
+Zone congestion levels
+Push Data Over WebSocket
+Dashboard auto-updates without refresh.
+Render Dashboard Elements
+Heatmap
+Visitor counter
+Demographic distribution graph
+Queue alert bar
+Outputs / Responses:
+Live visual elements displayed on dashboard:
+Heatmaps
+Charts
+Numeric counters
+Zone overlays
+Each widget updates as new data arrives.
+FReq 3: Notification and Alert Generation
+Description:
+The system shall detect operational anomalies using predefined rules and notify the manager through real-time alert messages. The alerts must be displayed immediately on the dashboard.
+Inputs / Stimuli:
+Rule Violations from Analytics:
+Visitor count exceeding threshold
+Queue length surpassing allowed value
+Overcrowding in a specific zone
+Abnormal movement patterns detected
+Current camera analytics:
+Used by rules engine to evaluate threshold conditions.
+Process / Function:
+Receive analytics update
+Rules engine evaluates new payload.
+Compare with Predefined Thresholds
+Trigger Alert if Threshold Exceeded
+Push Alert to Dashboard
+Log Event
+System stores each generated alert for reporting.
+Outputs / Responses:
+Real-time alert messages displayed on dashboard:
+Title (e.g., “Long Queue Detected in Zone A”)
+Metric causing alert
+Timestamp
+Severity indicator
+Alert icon updates with unread alert count.
+FReq 4: AI-Generated Insights
+Description:
+The system shall analyze historical customer data and generate high-level operational insights that managers can use for decision-making.
+Inputs / Stimuli:
+Historical analytics data from the past
+Zone activity logs
+Demographic distributions
+Queue length history
+Heatmap evolution
+Process / Function:
+Collect Historical Metrics
+The system retrieves time-series data.
+Pattern Extraction
+AI engine performs:
+Trend detection
+Peak-hour identification
+Insight Generation
+Generates statements such as:
+“Peak crowding recorded between 14:00–17:00.”
+“Zone B consistently underutilized.”
+LLM Summarization
+Converts numeric patterns into human-readable text.
+Send Insights to Dashboard
+​​Displayed in the insights panel.
+Outputs / Responses:
+Insight list including:
+Manager can scroll through insights.
+Use Case Diagram(s)
+
+
+Figure 1 Use Case Diagram
+Mapping of Functional Requirements
+Table 1 Cross Referencing Functional Requirements to Use Cases
+
+Non-Functional Requirements
+6.1 Usability Requirements
+Ease of Learning (NFREQ1):
+The system interface shall be designed so that a new managerial user can learn and perform essential operations—logging in, viewing analytics, switching visualization modes, and exporting reports—without requiring external training. The interface shall support ease of learning through a built-in onboarding tutorial and clearly labeled visual icons that facilitate quick understanding and navigation. 
+Consistency and Feedback (NFREQ2):	
+The system shall provide instant visual feedback for critical dashboard operations, including camera connection status, analytics refresh events, and report generation. This ensures that managers receive clear feedback during key interactions without requiring full-system coverage for every user action. 
+6.2 Software System Requirements
+ 
+Maintainability (NFREQ3):
+ObservAI shall employ a modular, layered architecture separating:
+Presentation Layer (React frontend)
+Logic Layer (Node.js controllers)
+Data Layer (PostgreSQL and TimescaleDB)
+Each component shall be updatable independently.
+Version control shall be managed through GitHub with branch-based reviews.
+Portability (NFREQ4):
+It shall be deployable on Windows and macOS servers without code modification.
+6.3 Other Non-Functional Requirements
+Localization (NFREQ5): Interface language shall switch between English and Turkish; numeric and date formats shall adapt to locale.
+6.4 Error-Handling Requirements
+AI Detection Failures: If a camera feed stops or frames become unreadable, the inference service shall retry within 5 seconds and log the incident.
+Database Errors: Failed write operations should be queued for retries; duplicates should be avoided by implementing a primary key.
+Critical Exceptions: Unrecoverable backend errors shall generate structured logs for the admin.
+User Errors: The interface shall display non-technical, plain-language messages rather than stack traces.
+
+
+
+
+Logical Database Requirements
+
+In a structured database environment, ObservAI keeps track of user credentials, camera settings, analytics information, alert logs, and insights produced by artificial intelligence. The system makes use of SQLite for short-term edge caching and PostgreSQL with the TimescaleDB extension for long-term time-series data. To guarantee consistency and effective data retrieval, relationships between users, sites, cameras, analytics records, alerts, and insights are established, and each table has well-defined attributes.
+The database handles several categories of information:
+User Accounts: Contain login credentials, email verification data, and access permissions for café and restaurant managers.
+Camera and Site Configurations: Define café locations, associated cameras, and alert thresholds for each area.
+Analytics and Heatmaps: Store real-time visitor counts, occupancy metrics, queue lengths, and spatial density maps generated by the AI engine.
+Alerts and Notifications: Record unusual activity or crowding events detected by the system.
+AI Insights: Contain natural-language summaries and recommendations produced by the integrated Gemini LLM model.
+Different data types are accessed at varying frequencies.
+Analytics and heatmap data are written frequently (every few seconds) by the AI engine, while configuration and user data are modified less often. Dashboard queries for visualizations occur periodically as managers interact with the interface.
+Access control is managed through a role-based model.
+Managers can view analytics, alerts, and insights for their own cafés, while system administrators have broader privileges for configuration and maintenance. Direct access to the database is limited to backend services and authorized developers.
+Key entities include User, Site, Camera, AnalyticsRecord, Alert, and Insight.
+Each analytics record references a valid camera and site to maintain data integrity. Constraints ensure that data such as visitor counts and queue lengths are non-negative, and time-stamped analytics remain unique for each camera. Alerts and insights are linked to corresponding analytics records for traceability.
+Data integrity is maintained through primary and foreign keys, validation rules, and referential constraints. Deletion of a site automatically cascades to related cameras and analytics only when explicitly approved by an administrator. Audit logs record all major data modifications.
+Data retention policies balance operational utility and privacy.
+Short-term analytics and heatmap data are retained for up to seven days to support recent trend visualization. Aggregated summaries and AI insights are kept for up to three months for managerial analysis, as this period aligns with typical café and restaurant operational cycles and provides enough historical depth to identify meaningful behavioral trends without retaining unnecessary data. Keeping the retention window at three months also complies with KVKK/GDPR data-minimization principles and prevents outdated patterns from negatively affecting AI insight quality. User accounts and configuration data are preserved as long as the system remains active, unless deleted by an authorized administrator. All stored information complies with KVKK and GDPR data protection principles, ensuring anonymization, limited retention, and privacy by design.
+Verification
+
+This section outlines how the ObservAI software will be verified to ensure that it fully satisfies all of the functional and non-functional requirements mentioned in the previous sections. Verification activities include simulation-based validation, requirement-based testing, and a combination of automated and manual checks. These techniques ensure that ObservAI’s real-time analytics, visualization, alerting, and AI insight features operate reliably and safely in practical restaurant and café environments.
+Verification Strategy
+ObservAI follows an incremental verification approach aligned with agile development. To confirm that each implemented feature meets its corresponding functional and non-functional requirements, requirement-based testing will occur at the end of every development increment.
+Verification will proceed in the following order:
+Backend verification: API endpoints, analytics ingestion, rules-engine, session handling, and database operations.
+Frontend verification: React dashboard components, real-time visualizations, interaction flows, and localization.
+System-level verification: End-to-end testing confirming proper communication, synchronization, and data integrity across the entire pipeline.
+Continuous Integration (CI): Automated build tests, linting, and backend unit tests on every commit to prevent regressions.
+Most testing will be manual, supported by automated checks for key APIs, analytics pipeline functionality, and rules-engine threshold validation.
+Functional Requirements Verification
+FReq1: Manager Authentication and Dashboard Access
+Goal: Verify that authentication works correctly and only valid managers can access the dashboard.
+Method:
+Submit valid and invalid credential combinations through the login API.
+Check session token generation and redirection behavior.
+Validate account status rules (active, locked, suspended).
+Confirm secure input transmission using HTTPS.
+Attempt unauthorized dashboard access without a session token.
+Tools: Node.js scripts, Postman, Chrome DevTools.
+FReq2: Real-Time Dashboard Data Display
+Goal: Ensure real-time analytics (visitor count, demographics, queue length, heatmap intensity) update continuously without refresh.
+Method:
+Stream synthetic analytics payloads to the backend via WebSocket or REST.
+Observe real-time UI updates for:
+Visitor counters
+Heatmaps
+Demographic graphs
+Queue indicators
+Compare displayed metrics with the injected payloads to verify numerical accuracy.
+Disconnect and reconnect analytics streams to check resilience.
+Tools: Manual browser testing (Chrome, Edge, Firefox), Node.js simulation scripts, WebSocket testing tool, Chrome DevTools.
+FReq3: Notification and Alert Generation
+Goal: Validate that rule-based alerts are triggered immediately when thresholds are exceeded.
+Method:
+Inject synthetic payloads where:
+Visitor count surpasses threshold
+Queue length exceeds allowed maximum
+A zone reaches overcrowding
+Confirm:
+Alert card appears instantly on dashboard
+Timestamp and severity are correct
+Alerts are logged in the backend
+Test unread alert counter updates.
+Tools: Postman, Node.js threshold simulation, browser UI inspection.
+FReq4: AI-Generated Insights
+Goal: Verify that the LLM-generated insights (Gemini 2.0 Flash) are relevant, accurate, and easily understandable.
+Method:
+Use predefined analytics scenarios (e.g., peak hours, low occupancy zones).
+Compare generated recommendations against expected outcomes.
+Conduct a brief expert or managerial evaluation of insight clarity.
+Tools: Node.js test harness, LLM API integration logs.
+Non-Functional Requirements Verification
+NFReq1: Ease of Learning
+Approach:
+Conduct onboarding usability tests with first-time managerial users.
+Measure how long it takes for a new user to:
+Log in
+Navigate the dashboard
+Switch visualization modes
+Export a report
+Verify visibility and clarity of built-in onboarding tutorial.
+Check that visual icons (heatmap toggle, export button, demographic view, etc.) are easily interpretable without documentation.
+Record whether users can complete tasks without external training.
+NFReq2: Consistency and Feedback
+Approach:
+Interact with all dashboard modules and verify consistent layout structure across pages.
+Trigger operations that require instant feedback and confirm UI responds immediately:
+Camera connection status updates
+Analytics refresh events
+Report generation progress indicators
+Use Chrome DevTools performance panel to confirm the UI does not delay visual feedback.
+Observe whether all major interactions produce predictable, consistent UI states.
+NFReq3: Maintainability
+Approach:
+Inspect the project structure and confirm 3-layer modular separation:
+Presentation (React)
+Logic (Node.js controllers)
+Data (PostgreSQL/TimescaleDB)
+Update or replace a single module (e.g., a React dashboard component) and ensure other modules function without modification.
+Review GitHub branch-based workflow:
+Pull requests
+Code reviews
+Branch isolation
+Run static code analysis tools (ESLint, TypeScript type checks if used) to validate maintainability quality.
+NFReq4: Portability
+Approach:
+Deploy the full ObservAI backend and frontend on both Windows and macOS servers.
+Perform identical API calls on each environment and confirm identical responses.
+Ensure no OS-specific configuration or code modification is required.
+Validate frontend builds (React) on both environments without dependency issues.
+NFReq5: Localization
+Approach:
+Switch application language between English ↔ Turkish and verify all text elements update accordingly.
+Validate that numeric formatting (e.g., thousands separators, currency symbols) and date formats adapt to locale.
+Test all dashboard components, modal dialogs, alerts, and charts for missing translations.
+Confirm that insights, alerts, and analytics labels also switch language correctly.
+Tools and Continuous Verification
+To ensure continuous compliance with requirements, the following tools and techniques will be employed:
+Table 2 Test Tools & Purposes
+
+
+Discussions
+
+In this part, we describe the issues encountered by our team in preparing its "ObservAI" project's System Requirements Specification document. In preparing the document, members undertook a series of analyses to achieve coordination in requirements. These problems encountered are classified into:
+1. Limitations and Constraints
+In preparing our SRS, some limitations are faced for our scholarly productivity:
+Time Constraints: The preparation for the SRS was happening simultaneously with mid-term exams for various courses. It was difficult to manage both academic responsibilities and paperwork for projects. Time management helped to address both requirements.
+Limited Documentation Experience: Although all members have a technical background, preparing a detailed and IEEE-compliant SRS document required understanding new standards and formal documentation methods, which initially slowed down progress.
+Tool Limitations: The team relied primarily on freely available software tools such as Google Docs, Draw.io, and GitHub for collaborative editing and diagram creation. While effective, these tools had certain limitations in advanced formatting and UML diagram standardization.
+2. Health and Safety Issues
+No direct health or safety issues were encountered during the preparation of this document. However, extended screen time and late-night online meetings during the midterm period contributed to fatigue and reduced concentration in some team sessions.
+3. Legal Issues
+There are no legal issues related to the preparation for SRS. But since ObservAI uses camera analytics and image processing analysis, future compliance with data protection legislation like KVKK or GDPR will become important later.
+4. Economic Issues and Constraints
+As a student-led project without external funding, we operated under financial limitations:
+No Dedicated Budget:  Lack of budget makes it harder to use commercial AI or UML design tools.
+Resource Dependence: We exclusively relied on open-source resources that are freely available to use for our AI modeling. Although we conformed to sustainability principles in our project, there was a limitation in functionality.
+5. Sustainability
+During SRS development, sustainability was not emphasized. The major aim was to define requirements. In subsequent developments of ObservAI, sustainability will nonetheless be ensured since there will be optimization in computational resources used in camera analytics. 
+6. Ethical Issues
+There are no ethical considerations that came up in the entire documentation phase. The development team was aware of ethical issues related to using AI. These are related to anonymization of data processing in ObservAI. The solution does not involve face recognition to meet privacy-related ethical requirements.
+7. Multidisciplinary Collaboration
+All team members are students within the CTIS Department, sharing similar technical backgrounds. While this ensured alignment in terminology and communication, it limited interdisciplinary perspectives (e.g., design, psychology, or business management).
+ Despite this, internal collaboration was strong, and roles were distributed efficiently among documentation, understanding AI model, and architectural design tasks.
+8. Additional General Challenges
+In addition to these specific limitations, there are some general issues that are encountered:
+Communication and Coordination: Scheduling online team sessions was sometimes made challenging because team members' schedules conflicted due to courses or exam schedules. Online resources like Discord, Notion, Zoom and Whatsapp helped in asynchronous coordination.
+Requirement Elicitation: ObservAI’s users (café managers) are hypothetical. Requirements are derived using assumptions made, prior research, or interviewing local café owners. There was a slight uncertainty involved in some user requirements concerning ObservAI’s user interface.
+Technical Depth: Certain requirements like processing limits related to performance or AI inference speed limits demanded additional research to achieve realistic values. These values had to be verified to correctly represent computer vision processing requirements.
+Formatting and Standardization: Aligning the document format with the official IEEE SRS template required additional review cycles, particularly for section numbering, heading consistency, and terminology alignment.
+
+
+
+References
+
+
+
+
+[TABLE 1]
+File Name | Document Type | Deliverable | Version | Submission Date
+Team12_SRS_V1 | MS Word 2013 | 2A | 1 | 10.11.2025
+Team12_SRS_V2 | MS Word 2013 | 2A | 2 | 01.12.2025
+
+[TABLE 2]
+Project Name | An Eye
+Software Product Name | ObservAI
+Company Name | No sponsor company
+Academic Advisor | Leyla Sezer
+Github URL | https://github.com/observaianeye/ObservAI
+WEB page | 
+Software Product Information | ObservAI is an AI-powered analytics system designed to help café and restaurant managers better understand their customers and optimize their spaces. Using camera-based analysis, the system observes how people move within the area, identifies crowded zones, estimates basic demographics such as age and gender ranges, and visualizes customer activity through live heatmaps. These insights are presented on an intuitive web dashboard where managers can monitor customer flow, compare different time periods, and make data-informed decisions about layout or service improvements. The system’s purpose is to transform everyday visual data into clear and actionable information that supports smarter management and smoother operations. ObservAI also prioritizes user privacy and ethical use of AI by processing all data anonymously and without storing personal or identifying visuals.
+
+[TABLE 3]
+Name, Surname | Bilkent e-mail | Alternative e-mail
+Faik Emre Partal | emre.partal@ug.bilkent.edu.tr | femrepartal@gmail.com
+Halil İbrahim Atalay | ibrahim.atalay@ug.bilkent.edu.tr | atalayhalil155@gmail.com
+Mevlüt Yılmaz | mevlut.yilmaz@ug.bilkent.edu.tr | yilmazmevlut397@gmail.com
+Semih Şengül | semih.sengul@ug.bilkent.edu.tr | semihyahama@gmail.com
+Uğur Ayberk Karakış | ayberk.karakis@ug.bilkent.edu.tr | ayberkarakis@hotmail.com
+
+[TABLE 4]
+Name, Surname | Summary of Contributions to the SRS Document
+Faik Emre Partal | Main responsible of the Document Formatting
+Contributed to Executive Summary, Functional Requirements and Verification
+Main responsible of all Gen AI usage
+Halil İbrahim Atalay | Prepared the non-functional requirements and user interface sections. Assisted in defining product scope and technical descriptions.
+Mevlüt Yılmaz | Worked on software interfaces and system architecture descriptions. Contributed to camera integration and AI module explanation.
+Semih Şengül | Prepared the user characteristics and product perspective sections. Assisted with diagrams and figures in the SRS document.
+Uğur Ayberk Karakış | Contributed to database requirements and assumptions/dependencies. Supported proofreading and consistency checks across all sections.
+
+[TABLE 5]
+AI
+API
+AWS
+CI
+CSS
+CTIS
+CPU
+DBMS
+FREQ
+GDPR
+GPU
+GTX
+HTTPS
+IEEE
+IP
+JSON
+KVKK
+LLM
+NFREQ
+RTSP
+SRS
+SSL | Artificial Intelligence
+Application Programming Interface
+Amazon Web Services
+Continuous Integration
+Cascading Style Sheets
+Information Systems and Technologies
+Central Processing Unit
+Database Management System
+Functional Requirement
+General Data Protection Regulation
+Graphics Processing Unit
+Giga Texel Shader eXtreme
+Hypertext Transfer Protocol Secure
+Institute of Engineers Everyone Else
+Internet Protocol
+JavaScript Object Notation
+Kişisel Verilerin Korunma Kanunu
+Large Language Model
+Non-Functional Requirement
+Real-Time Streaming Protocol
+Software Requirements Specification
+Secure Sockets Layer
+SQL
+TLS | Structured Query Language
+Transport Layer Security
+UI | User Interface
+UML | Unified Modeling Language
+YOLO | You Only Look Once (Object Detection Model)
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+[TABLE 6]
+Functional Requirement ID from Section 5.1 | Use Case ID from Section 5.2 | Initial Plan Functional Requirement ID [1]
+FReq1:  Manager Authentication and Dashboard Access | UC-01: Authenticate Manager
+UC-02: View Operations Dashboard | FReq1: 
+Operations Dashboard showing AI-driven customer activity & heatmaps
+FReq2: Real-Time Dashboard Data Display | UC-03: Switch Visualization Mode
+UC-02: View Operations Dashboard
+UC-06: Analyze Customer Activity | FReq2:
+Interactive Data Visualization
+FReq3: Notification and Alert Generation | UC-04: Receive Operational Alerts
+UC-07: Generate Alert | FReq3:           
+Real-Time Notifications and Alerts
+FReq4: AI-Generated Insights | UC-05: View AI Insights
+UC-06: Analyze Customer Activity | FReq4:
+AI Insight Engine (Decision Support)
+
+[TABLE 7]
+Verification Area | Tool / Method | Purpose
+Backend Testing | Node.js scripts, Postman | Validate API endpoints and analytics ingestion
+Frontend Testing | Manual browser tests | Confirm live updates, charts, heatmaps, and UI responsiveness
+AI & Insight Validation | LLM logs, scenario datasets | Ensure relevance and correctness of insight generation
+Error Handling | Controlled backend simulations | Confirm retry, logging, and user-friendly messages
+Security Verification | HTTPS inspection, TLS checks | Verify encrypted communication
+CI & Automation | GitHub Actions | Run build tests and regression checks automatically
+Real-time Data Pipeline | WebSocket simulators | Validate continuous streaming and rendering
+
+[TABLE 8]
+[1] | F.E.Partal, H.İ.Atalay, M.Yılmaz, S.Şengül, and U.A.Karakış, “Initial Plan of Team 12,” Bilkent University, Department of Computer Technology and Information Systems, Ankara, Türkiye, October 2025.
+ | 

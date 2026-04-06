@@ -1,0 +1,502 @@
+
+
+
+Software Design Description
+SDD
+An Eye
+Team 12
+
+
+
+
+
+Faik Emre Partal, 22203786
+Halil İbrahim Atalay, 22103092
+Mevlüt Yılmaz, 22201947
+Semih Şengül, 22202588
+Uğur Ayberk Karakış, 22201725
+
+
+
+
+Bilkent University
+Department of Information Systems and Technologies
+
+05.01.2026
+Change History
+
+
+
+Project Details
+
+Team 12
+
+Individual Contributions Overview
+
+
+Executive Summary
+This Software Design Description (SDD) document presents the architectural and design-level specification of the ObservAI system, an AI-based customer analytics platform developed to support data-driven decision making in cafés and restaurants. The document describes how the system is structured, how its major components interact, and how the selected requirements are realized through software design models. The SDD covers the overall software architecture using a layered block diagram, detailing the responsibilities of the frontend dashboard, backend services, database, and AI processing components. It also includes a deployment view illustrating how the software components are physically distributed across client devices, application servers, databases, and external camera sources. In addition, the document provides analysis-level UML models—activity diagrams, system sequence diagrams, and class diagrams—focused on the use cases implemented in the first increment, namely manager authentication, real-time operations dashboard visualization, and zone labeling. The database design is specified through an Entity-Relationship model and relational schema, defining entities, attributes, primary keys, foreign keys, and integrity constraints required to support authentication and analytics visualization. Furthermore, the document explains how design decisions align with non-functional concerns such as security, data integrity, performance, and extensibility, ensuring that the system can evolve without major architectural changes. Design assumptions and constraints are explicitly stated to clarify system limitations and implementation expectations. Traceability between architectural elements and functional requirements is maintained through the document. Error handling and data validation are incorporated at the design level to reduce runtime failures. Through these design artifacts, the SDD demonstrates that the system requirements defined in the Software Requirements Specification are traceable to concrete design decisions and that the selected architecture supports modularity, scalability, and maintainability. The findings of this design effort indicate that the proposed architecture and data model are sufficient to implement the first increment functionality while providing a foundation for future extensions such as advanced analytics, historical reporting, and AI-driven insights in increments.
+Table of Contents
+Page Number
+List of Tables
+Page Number
+
+List of Figures
+Page Number
+
+Abbreviations
+
+
+High-Level Design (Architecture)
+
+Figure 1 Use Case Diagram
+Figure 1 presents the overall Use Case Diagram of the ObservAI system with increment-based color coding consistent with SPMP v2. The diagram illustrates how different actors interact with the system and how the functionalities are gradually delivered across increments.
+In the 1st Increment Prototype, the core foundation of the system is implemented. First, UC-01 Authenticate Manager enables managers to securely log in to the system and access authorized functionalities. After successful authentication, UC-02 View Operations Dashboard provides a basic dashboard structure where managers can view initial operational information and system placeholders. In addition, UC-08 Zone Labeling allows managers to define and label entrance, exit, and activity zones, which is a critical prerequisite for later analytics and alert mechanisms. These use cases together form a demonstrable and functional baseline for the system.
+UC-03 Switch Visualization Mode enhances dashboard usability by allowing different visualization types. UC-04 Receive Operational Alerts and UC-07 Generate Alert support real-time monitoring by notifying managers about abnormal conditions. UC-05 View AI Insights provides AI-generated recommendations and summaries, while UC-06 Analyze Customer Activity represents the core analytics functionality based on camera input and zone data. These advanced use cases build upon the capabilities introduced in the first increment and progressively extend the system toward full functionality.
+ Selected Architecture
+For ObservAI, we selected a Layered (3-tier) Web Architecture augmented with a separate AI Processing component. Concretely, the system is organized as:
+Presentation Layer (Frontend): React-based web dashboard (UI + visualization + interaction).
+Application Layer (Backend API): Node.js/Express service exposing HTTPS/JSON REST endpoints for authentication, configuration (sites/cameras/zones), dashboard data retrieval, and alert/insight delivery.
+Data Layer (Database): PostgreSQL (with TimescaleDB for time-series analytics data) and a lightweight local cache layer (SQLite) where applicable.
+AI Processing Component (Computer Vision & Analytics): A Python-based module (YOLOv8/OpenCV/PyTorch) responsible for consuming camera streams (RTSP), generating anonymized/aggregated analytics outputs (e.g., counts, distributions, heatmaps), and persisting results through the backend/data layer interface.
+This architecture intentionally keeps the AI pipeline isolated from the web/API concerns, while still supporting a coherent end-to-end flow from camera stream → analytics generation → storage → dashboard visualization.
+Justification Based on Non-Functional Requirements
+Maintainability (Layered Design / Modularity)
+A layered structure enforces separation of concerns: UI changes remain in the frontend, business rules and security remain in the backend API, and data persistence remains in the database layer.
+The AI Processing component is logically separated, allowing its models and preprocessing logic to evolve without forcing disruptive changes in the dashboard code.
+Portability
+Using web technologies for the presentation layer keeps the client portable across devices (desktop and mobile browsers).
+The backend and AI processing can be deployed independently (e.g., on a single server for early increments, or on separate nodes later) without changing the overall design.
+Learnability, Feedback, and Consistency
+Centralizing authentication, authorization, and data access in the backend API reduces duplicated logic and enables consistent behavior across UI screens.
+Clear API contracts enable predictable and consistent UI feedback patterns (errors, loading states, notifications), which supports learnability.
+Localization (TR/EN)
+Localization is naturally handled in the presentation layer (and, when needed, supported by backend-delivered message keys), keeping language concerns out of the AI and database layers.
+Privacy & Compliance (KVKK/GDPR-oriented constraints)
+The separation of AI Processing helps enforce a strict boundary where only anonymized/derived analytics are propagated forward.
+The backend/data layer acts as a controlled gate for what is persisted and exposed to the dashboard, supporting “privacy-by-design” decisions (e.g., not storing identifying visuals).
+Advantages of the Selected Architecture
+Clear separation of responsibilities: UI, API/business logic, AI analytics, and data storage can be developed and tested in parallel.
+Better change isolation: Updating AI models or improving analytics does not require redesigning the frontend; UI changes do not endanger AI correctness.
+Scalable evolution path: Early increments can run as a tightly integrated deployment, while later increments can scale AI processing and analytics storage independently.
+Improved testability: Layer boundaries support unit testing (frontend components, backend services, AI modules) and structured integration/system testing through stable interfaces.
+Disadvantages / Trade-offs
+Higher integration effort: Separating AI processing introduces additional integration points and requires careful interface definition (data formats, latency expectations, failure handling).
+Operational complexity: Multiple components can increase deployment and monitoring complexity compared to a single monolithic application.
+Real-time expectations vs. stream variability: Camera stream instability (RTSP interruptions, lighting/angle changes) can affect the freshness and reliability of analytics updates, requiring defensive design and clear user-facing feedback.
+Impact on the Development Process
+We will follow a contract-first mindset for the interfaces between layers (especially frontend ↔ backend ↔ AI processing), so different sub-teams can progress without blocking.
+Increment development will prioritize a stable backend API and database schema for the 1st Increment use cases (Authentication, Dashboard Viewing, Zone Labeling), while keeping AI-related interfaces extensible for future analytics features.
+The architecture supports incremental refinement: early increments validate end-to-end data flow and dashboard usability; later increments deepen AI capability and insight generation without restructuring the entire system.
+ Logical View
+
+Figure 2 Block Diagram
+The software architecture of ObservAI follows a modular, layered design that separates concerns between presentation, application logic, data management, and AI processing.
+The Manager Panel provides the primary interaction point for café or restaurant managers. Through this interface, users authenticate themselves, configure zones, monitor analytics, and view AI-generated insights.
+The Web Dashboard acts as the presentation layer and communicates with the backend using secure RESTful APIs. It displays real-time metrics, charts, heatmaps, and alerts based on processed analytics data.
+The Backend API Server is responsible for business logic, request handling, authentication, authorization, and orchestration of data flow. It processes incoming requests from the dashboard, queries the database, and coordinates with the AI Analytics Engine.
+The Database System stores persistent data including users, cameras, zones, analytics records, and heatmap data. It ensures data integrity and supports historical analytics queries.
+The AI Analytics Engine performs computer vision and AI-based processing. It consumes live video streams from IP Cameras, runs detection and tracking algorithms, and generates structured analytics outputs. These results are sent back to the Backend API Server for storage and visualization.
+This architecture enables scalability, maintainability, and clear separation of responsibilities, ensuring that each component can evolve independently while supporting real-time analytics and decision support.
+
+
+Figure 3 EER Diagram
+The Enhanced Entity-Relationship (EER) diagram models the core data structures of the ObservAI system and the relationships between them by using Chen’s notation. The main purpose of the database is to support user authentication, camera-based analytics, zone definitions, and AI-generated insights.
+The User entity represents managers who access the ObservAI dashboard. Each user is identified by a unique user_id and has attributes such as email, password_hash, created_at, and last_login. A user can view multiple Analytics_Records, establishing a one-to-many (1:M) relationship between User and Analytics_Record. Participation of User in this relationship is partial, since analytics records may exist even if they are not actively viewed.
+The Camera entity represents IP cameras installed in the monitored environment. Each camera is uniquely identified by camera_id and includes attributes such as location_name, rtsp_url, and status. A camera produces multiple Analytics_Records, forming a one-to-many relationship. This relationship has total participation on the Analytics_Record side, as each analytics record must originate from a camera.
+The Zone entity models logical regions such as entrances, exits, or activity areas defined by the manager. Each zone has a unique zone_id, along with attributes like zone_name, coordinates, and camera_id. A camera may define multiple zones, while each zone is associated with exactly one camera, resulting in a one-to-many (1:M) relationship.
+The Analytics_Record entity stores processed analytics outputs generated by the AI pipeline. It includes attributes such as record_id, timestamp, people_count, avg_age_range, and gender_distribution. Each analytics record is associated with exactly one camera and one zone, ensuring traceability of analytical results.
+The Heatmap_Data entity represents aggregated density information over time windows. Attributes such as heatmap_id, time_window, density_matrix, and camera_id capture spatial crowd distributions. Each camera can generate multiple heatmaps, while each heatmap belongs to exactly one camera.
+Overall, the EER diagram ensures data consistency by enforcing appropriate cardinalities, participation constraints, and attribute definitions, while supporting scalable analytics, zone-based monitoring, and AI-driven insights within ObservAI.
+ Physical View
+
+Figure 4 Deployment Diagram
+The UML Deployment Diagram illustrates the physical deployment of the ObservAI system components and their communication paths at runtime.
+The Manager Device represents end-user devices such as laptops or tablets used by managers. These devices access the system via a web browser and communicate with the Web Application Server over secure HTTPS connections.
+The Web Application Server hosts the frontend application and exposes RESTful APIs. It acts as the central hub for request handling, forwarding analytics queries to the backend services and persisting data to the database.
+The Database Server stores all persistent system data and communicates with the Web Application Server using SQL-based connections. This separation improves data security and performance.
+The AI Processing Server is responsible for executing computationally intensive AI workloads. It receives real-time video streams from Camera Devices using RTSP and processes them independently from the web server to ensure system responsiveness.
+Camera Devices continuously stream video data to the AI Processing Server, which extracts analytics and forwards results to the Web Application Server. This deployment structure ensures efficient real-time processing, fault isolation, and scalability of AI components.
+ Design Quality
+Explain for each Non-Functional Requirement that you specified in SRS A v2, how your design will meet them, and how you are going to verify and validate that your design actually meets them. 
+NFReq1 – Ease of Learning
+Design Approach: The UI is designed as a manager-only dashboard with a consistent navigation structure and minimal steps for common tasks (login → dashboard → visualization switch → export). We use familiar dashboard patterns (clear charts, recognizable icons, concise labels) and provide lightweight onboarding/help cues where needed.
+Verification & Validation: Conduct onboarding usability tests with first-time managerial users and measure time-to-complete for core tasks (log in, navigate dashboard, switch visualization modes, export report). Collect qualitative feedback on the clarity of icons/labels and whether the user can operate the system without external documentation.
+NFReq2 – Consistency and Feedback
+Design Approach: We enforce a shared layout and reusable UI components across all pages (same structure, spacing, and interaction patterns). A unified feedback mechanism (loading states, success/error toasts, progress indicators, status badges) ensures users always see immediate and predictable responses to actions (e.g., camera status, analytics refresh, report generation).
+Verification & Validation: Perform a full UI walkthrough using a consistency checklist (layout, buttons, dialogs, error handling). Trigger actions that require instant feedback (camera connect/disconnect, refresh, export) and confirm the UI responds immediately and consistently. Use browser dev tools/performance checks to ensure feedback is not delayed.
+NFReq3 – Maintainability
+Design Approach: The system follows a layered structure (Presentation: React, Logic: Node.js/Express API, Data: PostgreSQL/TimescaleDB) with clear module boundaries and stable interfaces. AI processing is isolated as a separate component so model/analytics changes do not force large refactors in the UI or API. We also rely on a branch-based workflow with PR reviews to keep code quality consistent.
+Verification & Validation: Inspect the repository structure to confirm separation of concerns. Perform a controlled change (e.g., replace/update a dashboard component or an API endpoint) and verify unrelated modules remain unaffected. Use static analysis and quality gates (linting, type checks if applicable) plus PR review records to validate maintainability in practice.
+NFReq4 – Portability
+Design Approach: The frontend is browser-based and the backend exposes standard HTTPS/JSON APIs; configuration is environment-based (no OS-specific assumptions). This supports deployment across different environments (development machines and servers) without code changes.
+Verification & Validation: Build and deploy the frontend/backend on at least two environments (e.g., Windows and macOS/Linux server setups) and run the same smoke tests/API calls to confirm identical behavior. Verify that installation/build steps do not require OS-specific code modifications.
+NFReq5 – Localization
+Design Approach: All user-facing text is handled through localization keys and translation files (TR/EN). Charts, alerts, and dashboard labels are generated using localized strings to avoid mixed-language UI. User language preference is supported at the UI level (and can be persisted if needed).
+Verification & Validation: Switch the application language between Turkish and English and verify that all screens update correctly (menus, dialogs, alerts, chart labels). Check for missing translations and validate locale-dependent formatting (dates/numbers) where applicable.
+2. Test Case Design
+This section describes the approaches that will be used to design test cases for ObservAI, as well as the formatting rules that will be followed when documenting these test cases. Unit testing, software integration testing, system testing, and acceptance testing are all included in the testing strategy, which is in line with the incremental development model.
+2.1. Unit Tests
+Approach:
+Unit tests will be designed to verify the correctness of individual software components in isolation. Unit testing in ObservAI will primarily concentrate on data-handling logic, AI processing modules, and backend services. Using predetermined inputs and expected outputs, each unit test will verify a single function or class against its anticipated behavior.
+The following techniques will be used:
+White-box testing based on source code logic
+Equivalence partitioning for input validation functions
+Boundary value analysis for threshold-based logic
+External dependencies such as camera streams, databases, and APIs (Gemini LLM API, notification services) will be mocked to ensure isolation.
+Formatting Rules:
+Each unit test case will be documented using the following structure:
+Test ID
+Test Objective
+Input Data
+Expected Output
+Actual Output
+Test Result (Pass/Fail)
+2.2. Software Integration Tests
+Approach:
+After unit-level validation, software integration tests will be created to confirm how integrated components interact. Integration testing in ObservAI will concentrate on:
+Communication between the frontend dashboard and backend services
+The proper transmission of AI inference results to analytics and visualization components
+Camera input integration with the AI pipeline
+Interaction with external services like LLM-based insight generation and notification
+A bottom-up integration strategy will be used, with frontend integration coming after backend and AI components.
+Formatting Rules:
+Each integration test case will include:
+Test Case ID
+Integrated Components
+Preconditions
+Expected System Behavior
+Actual Result
+Test Status (Pass/Fail)
+2.3. System Tests
+Approach:
+System testing will validate that the entire ObservAI system satisfies the requirements outlined in SRS A v2 and SRS B v2. Black-box testing will be used in the design of these tests, with an emphasis on system-level functionality rather than internal implementation specifics.
+System test cases will be derived directly from:
+Functional Requirements (FReq IDs)
+Use Cases (UC-01 to UC-08)
+Performance under concurrent usage and accuracy of analytics outputs will be tested in both normal operation scenarios and error conditions.
+Formatting Rules:
+Each system test case will follow this format:
+Test case ID (e.g., ST-01)
+Related Requirement / Use Case
+Test Scenario Description
+Expected Result
+Actual Result
+Test Outcome (Pass/Fail)
+2.4. Acceptance Tests
+Approach:
+From the standpoint of the café/restaurant manager, acceptance tests will confirm whether ObservAI meets user expectations and project goals. User stories and acceptance criteria established during Agile estimation and requirements analysis will serve as the foundation for these tests.
+Acceptance testing will simulate real-world usage scenarios, such as:
+Logging into the system
+Monitoring live visitor analytics
+Receiving alerts for overcrowding
+Interpreting AI-generated insights for decision-making
+Acceptance tests will be carried out during final system validation as well as at the conclusion of each major increment.
+Formatting Rules:
+Acceptance test cases will be documented as follows:
+Test Case ID (e.g., AT-01)
+User Story / Use Case Reference
+Acceptance Criteria
+Test Steps
+Expected Outcome
+Observed Outcome
+Acceptance Status (Accepted / Not Accepted)
+Summary:
+All test cases will follow a consistent and structured format to ensure traceability, clarity, and reproducibility. Test case identifiers will clearly indicate the test level (UT, IT, ST, AT), and each test case will be traceable to related requirements or use cases. This approach ensures systematic validation of ObservAI at component, integration, system, and user acceptance levels.
+3. Low Level Design 
+3.1. Pseudocode
+Manager Authentication
+Authenticate Manager:
+The manager enters their email and password into the login form. The system validates these credentials against the database to grant access to the dashboard.
+Pseudocode:
+
+Figure 5 Manager Authentication Pseudocode
+Explanation:
+The frontend captures user input and sends a secure POST request. The backend validates the hash, establishes a session, and the frontend redirects the user upon success.
+Operations Dashboard
+View Real-Time Dashboard:
+The system initializes the dashboard components and establishes a connection to the data service to display live metrics like visitor counts and heatmaps.
+Pseudocode:
+
+Figure 6 Operations Dashboard Pseudocode
+Explanation:
+When the dashboard loads, it subscribes to a data service (WebSocket or polling). Incoming data automatically updates the state, refreshing the charts and camera overlay without a page reload.
+Zone Labeling
+Define Analytics Zone:
+The manager draws rectangular areas on a camera snapshot to define specific zones (e.g., Entrance, Exit) for the AI to monitor.
+Pseudocode:
+
+Figure 7 Zone Labeling Pseudocode
+Explanation: 
+The system captures mouse coordinates.
+3.2. Process View
+UC-01: User Login & Authentication
+
+Figure 8 UC-01 Communication Diagram
+This use case is realized through the interaction between the Manager actor, the LoginUI boundary object, the AuthController control object, and the UserRepository entity. The Manager initiates the process by entering login credentials via the LoginUI. The LoginUI forwards the credentials to the AuthController, which is responsible for validating authentication logic. The AuthController queries the UserRepository to verify the credentials. Based on the validation result, the AuthController informs the LoginUI, which then displays the authentication result to the Manager. This realization separates user interaction, control logic, and data access responsibilities.
+
+UC-02: Real-Time Analytics Dashboard Flow
+
+Figure 9 UC-02 Communication Diagram
+This use case is realized by the interaction between the Manager, DashboardUI, DashboardController, and AnalyticsRepository. The Manager requests to view the operational dashboard through the DashboardUI. The DashboardController retrieves real-time analytics data from the AnalyticsRepository and processes it for visualization. The processed data is then sent back to the DashboardUI, which presents live metrics and visual analytics to the Manager. This realization supports real-time monitoring functionality within the first increment.
+
+UC-08: Zone Labeling & Configuration Flow
+
+Figure 10 UC-08 Communication Diagram
+This use case is realized through the collaboration of the Manager actor, ZoneLabelUI boundary, ZoneController control, and ZoneRepository entity. The Manager defines entrance and exit zones using the ZoneLabelUI. The ZoneController processes and validates the zone information and persists it via the ZoneRepository. Upon successful storage, confirmation is returned and the Manager is informed. This functionality enables accurate zone-based analytics in later increments.
+3.3. Detailed Design Diagrams
+UC-01: User Login & Authentication
+Figure 11 UC-01 Class Diagram
+The class diagram presents the authentication-related components, including LoginPage, AuthContext, AuthController, AuthService, UserRepository, and SessionRepository. These classes collaboratively manage user authentication, session creation, and access control.
+
+Figure 12 UC-01 Activity Diagram
+This activity diagram shows the decision flow of the login process. The system validates user inputs, checks credentials, creates a session for valid users, and redirects them to the dashboard, while invalid attempts result in error messages.
+
+Figure 13 UC-01 Sequence Diagram
+This sequence diagram illustrates the authentication flow for the manager. The manager submits login credentials via the Login Page, which are validated by the AuthController and AuthService. Upon successful authentication, a session is created and the manager is redirected to the operations dashboard; otherwise, an error response is returned.
+
+UC-02: Real-Time Analytics Dashboard Flow
+
+Figure 14 UC-02 Class Diagram
+This class diagram models the dashboard-related components, including DashboardController, AnalyticsService, MetricsWidget, CameraFeedWidget, and HeatmapToggle. These components support real-time data visualization and interactive dashboard functionality.
+
+Figure 15 UC-02 Activity Diagram
+This activity diagram represents how a manager accesses the operations dashboard. After authentication is verified, the system loads initial metrics and heatmaps, subscribes to real-time analytics updates, and allows the manager to toggle between different visualization modes such as heatmap and demographic views.
+
+Figure 16 UC-02 Sequence Diagram
+The sequence diagram shows the interaction between the dashboard UI, backend controllers, analytics service, and camera adapter. Real-time metrics and heatmaps are fetched and continuously pushed to the dashboard, while visualization mode changes are communicated back to the analytics service.
+
+UC-08: Zone Labeling & Configuration Flow
+
+Figure 17 UC-08 Class Diagram
+The class diagram illustrates the structure of zone labeling, including ZoneLabelingPage, ZoneCanvas, ZoneController, ZoneService, ZoneRepository, and AnalyticsService. It defines how zones, coordinates, and zone types are managed and linked to cameras.
+
+Figure 18 UC-08 Activity Diagram
+This activity diagram describes the zone labeling workflow. The manager captures a camera snapshot, draws and names zones on the canvas, and optionally saves them. Saved zones are validated, persisted, and activated for analytics processing.
+
+Figure 19 UC-08 Sequence Diagram
+The sequence diagram details how zone data is captured and stored. Zone definitions are sent from the Zone Labeling Page to the backend, persisted via the ZoneService and ZoneRepository, and then propagated to the AnalyticsService to reload zone configurations.
+3.4. Test Cases
+UT-01 – Password Hash Verification
+Table 1 UT-01
+UT-02 – Invalid Password Rejection
+Table 2 UT-02
+UT-03 – Dashboard Analytics Data Aggregation
+Table 3 UT-03
+UT-04 – Zone Coordinate Validation
+Table 4 UT-04
+UT-05 – Zone Overlap Detection
+Table 5 UT-05
+AT-01 – Manager Successfully Logs In (UC-01)
+Table 6 AT-01
+AT-02 – Invalid Login Attempt (UC-01)
+Table 7 AT-02
+AT-03 – View Gender & Age Analytics (UC-02)
+Table 8 AT-03
+AT-04 – Switch Visualization Modes (UC-02)
+Table 9 AT-04
+AT-05 – Define Entrance Zone (UC-08)
+Table 10 AT-05
+AT-06 – Prevent Invalid Zone Definition (UC-08)
+Table 11 AT-06
+4. GitHub Access
+Repository Link: The ObservAI project is hosted in our GitHub repository (private): https://github.com/observaianeye/ObservAI
+Create/Use GitHub Accounts: The Project Advisor (Leyla Sezer) and CTIS 411 Instructor (Oumout Chouseinoglou) should create a GitHub account (if they do not already have one) and send their GitHub username to Team 12.
+Grant Access: Team 12 will add them as collaborators to the repository with at least Read permission; they should accept the GitHub invitation from their email/GitHub notifications to gain access.
+Access & Review the Repository: After accepting the invitation, they can log in and access the repository to view the code, documentation, commits, Issues, Pull Requests, Projects/Milestones, and Releases.
+Check Work for the 1st Increment: They can review merged Pull Requests under the increment-1 label/milestone (or the Increment-1 branch/tag/release if used) to see authors, reviews, files changed, and commit history; additionally, Insights → Contributors/Pulse can be used for the 1st-increment time window.
+Check Work for the Overall Project: They can use Insights → Contributors for all-time contribution summaries, Insights → Pulse for overall activity, and the complete Pull Request/Issue history to evaluate contributions across the full project timeline.
+
+5. Discussions
+Document Consistency & Traceability
+Maintaining alignment across the Initial Plan, SRS-A, SRS-B (Prototype), and SPMP was a key challenge.
+We repeatedly cross-checked scope statements, terminology, and FReq/NFReq mappings so that design decisions in the SDD reflect the same source of truth.
+Increment Scope vs. Full Product Vision
+The 1st Increment focuses on a limited use-case set (Authentication, Viewing the Operations Dashboard, Zone Labeling), while the SRS documents describe the broader end-product vision.
+Therefore, we explicitly separated “implemented in this increment” vs. “planned for future increments” in the design narrative.
+AI/CV Pipeline Variability & Testability
+RTSP camera streams are inherently variable (lighting, angle, occlusions, crowd density, connectivity), which can affect the stability of AI-driven outputs.
+This required clear component boundaries (frontend–backend–AI processing) and early thinking about measurable verification criteria for system outputs.
+Privacy / KVKK–GDPR Constraints
+Privacy constraints (anonymous processing and avoiding storage of identifying visuals) directly shaped the system design.
+These constraints influenced what data is stored vs. derived, as well as logging, retention assumptions, and how analytics results are represented.
+Data Design & Retention Decisions
+Decisions about analytics granularity (aggregated/derived records), retention periods, and table relationships needed to balance performance, scalability, and privacy.
+The database design was structured to support incremental expansion in later increments (e.g., additional analytics types and insights).
+Template-Driven Expectations
+The template’s required structure (High-Level vs. Low-Level separation, mandatory sections, and explicit V&V mapping for NFReqs) required strict formatting discipline.
+A previously high-scoring SDD was used as a structural reference—especially for the HLD/LLD organization—while adapting content to our project scope and template rules.
+Process Observations
+Keeping artifacts synchronized required disciplined version control, regular reviews, and consistent meeting/sprint routines.
+We also noted that some numerical details (e.g., cost totals) can diverge across documents unless explicitly reconciled in the final version.
+Next Steps
+Finalize Low-Level Design for 1st Increment use cases with pseudocode and clear endpoint/database impacts.
+Complete NFReq verification mapping using the SDD test-case formatting rules and finalize the remaining diagram set.
+
+6. References
+
+
+
+[TABLE 1]
+File Name | Document Type | Deliverable | Version | Submission Date
+Team12_SDD_V1 | MS Word 2013 | 4 | 1 | 05.01.2026
+ |  |  |  | 
+
+[TABLE 2]
+Project Name | An Eye
+Software Product Name | ObservAI
+Company Name | No sponsor company
+Academic Advisor | Leyla Sezer
+Github URL | https://github.com/observaianeye/ObservAI
+WEB page | 
+Software Product Information | ObservAI is an AI-powered analytics system designed to help café and restaurant managers better understand their customers and optimize their spaces. Using camera-based analysis, the system observes how people move within the area, identifies crowded zones, estimates basic demographics such as age and gender ranges, and visualizes customer activity through live heatmaps. These insights are presented on an intuitive web dashboard where managers can monitor customer flow, compare different time periods, and make data-informed decisions about layout or service improvements. The system’s purpose is to transform everyday visual data into clear and actionable information that supports smarter management and smoother operations. ObservAI also prioritizes user privacy and ethical use of AI by processing all data anonymously and without storing personal or identifying visuals.
+
+[TABLE 3]
+Name, Surname | Bilkent e-mail | Alternative e-mail
+Faik Emre Partal | emre.partal@ug.bilkent.edu.tr | femrepartal@gmail.com
+Halil İbrahim Atalay | ibrahim.atalay@ug.bilkent.edu.tr | atalayhalil155@gmail.com
+Mevlüt Yılmaz | mevlut.yilmaz@ug.bilkent.edu.tr | yilmazmevlut397@gmail.com
+Semih Şengül | semih.sengul@ug.bilkent.edu.tr | semihyahama@gmail.com
+Uğur Ayberk Karakış | ayberk.karakis@ug.bilkent.edu.tr | ayberkarakis@hotmail.com
+
+[TABLE 4]
+Name, Surname | Summary of Contributions to the SDD Document
+Faik Emre Partal | Responsible for overall document formatting and GenAI-assisted content preparation.
+Halil İbrahim Atalay | Responsible for the High-Level Design (Architecture) and its justification based on non-functional requirements.
+Mevlüt Yılmaz | Responsible for the design of unit, integration, system, and acceptance test cases.
+Semih Şengül | Responsible for the design quality section focusing on non-functional requirements and their verification.
+Uğur Ayberk Karakış | Responsible for the Low-Level Design of the 1st increment, including pseudocode and use-case realization.
+
+[TABLE 5]
+AI | Artificial Intelligence
+API | Application Programming Interface
+CTIS | Information Systems and Technologies
+CV | Computer Vision
+EER | Enhanced Entity-Relationship
+FReq | Functional Requirement
+GDPR | General Data Protection Regulation
+HLD | High-Level Design
+HTTPS | Hypertext Transfer Protocol Secure
+JSON | JavaScript Object Notation
+KVKK | Kişisel Verilerin Korunması Kanunu
+LLD | Low-Level Design
+NFReq | Non-Functional Requirement
+PR | Pull Request
+REST | Representational State Transfer
+RTSP | Real Time Streaming Protocol
+SDD | Software Design Description
+SPMP | Software Project Management Plan
+SRS | Software Requirements Specification
+UC | Use Case
+UI | User Interface
+UML | Unified Modeling Language
+V&V | Verification and Validation
+WBS | Work Breakdown Structure
+YOLO | You Only Look Once
+
+[TABLE 6]
+Test ID | UT-01
+Test Objective | Verify that the password hashing and comparison logic correctly validates user credentials
+Input Data | email = admin@observai.com, password = demo1234
+Expected Output | Password hash comparison returns true
+Actual Output | Password hash comparison returns true
+Test Result | Pass
+
+[TABLE 7]
+Test ID | UT-02
+Test Objective | Ensure incorrect passwords are rejected during authentication
+Input Data | email = admin@observai.com, password = wrongpass
+Expected Output | Authentication fails, error flag returned
+Actual Output | Authentication fails
+Test Result | Pass
+
+[TABLE 8]
+Test ID | UT-03
+Test Objective | Verify correct aggregation of gender and age distribution analytics
+Input Data | Sample analytics records for a camera (visitor counts by age/gender)
+Expected Output | Aggregated percentages sum to 60%
+Actual Output | Percentages sum to 60%
+Test Result | Pass
+
+[TABLE 9]
+Test ID | UT-04
+Test Objective | Validate that zone coordinates stay within floor plan boundaries
+Input Data | Zone rectangle outside floor plan bounds
+Expected Output | Validation error returned
+Actual Output | Validation error returned
+Test Result | Pass
+
+[TABLE 10]
+Test ID | UT-05
+Test Objective | Ensure overlapping entrance/exit zones are detected
+Input Data | Two zones with intersecting coordinates
+Expected Output | Overlap detected, save blocked
+Actual Output | Overlap detected
+Test Result | Pass
+
+[TABLE 11]
+Test Case ID | AT-01
+User Story / Use Case | UC-01 – Authenticate Manager
+Acceptance Criteria | Manager can log in with valid credentials and access dashboard
+Test Steps | 1. Open login page
+2. Enter valid email and password
+3. Click “Sign in”
+Expected Outcome | User is redirected to Operations Dashboard
+Observed Outcome | User is redirected successfully
+Acceptance Status | Accepted
+
+[TABLE 12]
+Test Case ID | AT-02
+User Story / Use Case | UC-01 – Authenticate Manager
+Acceptance Criteria | Invalid credentials must not grant access
+Test Steps | 1. Enter invalid password
+2. Click “Sign in”
+Expected Outcome | Error message displayed, no access
+Observed Outcome | Error message displayed
+Acceptance Status | Accepted
+
+[TABLE 13]
+Test Case ID | AT-03
+User Story / Use Case | UC-02 – View Operations Dashboard
+Acceptance Criteria | Dashboard shows real-time gender and age charts
+Test Steps | 1. Log in
+2. Open Analytics Dashboard
+Expected Outcome | Gender doughnut and age bar charts rendered correctly
+Observed Outcome | Charts displayed correctly
+Acceptance Status | Accepted
+
+[TABLE 14]
+Test Case ID | AT-04
+User Story / Use Case | UC-02 – View Operations Dashboard
+Acceptance Criteria | Manager can switch between dashboard visualizations
+Test Steps | 1. Click different visualization tabs
+Expected Outcome | Dashboard updates without page reload
+Observed Outcome | Visualizations switch correctly
+Acceptance Status | Accepted
+
+[TABLE 15]
+Test Case ID | AT-05
+User Story / Use Case | UC-08 – Zone Labeling
+Acceptance Criteria | Manager can define and save entrance zones
+Test Steps | 1. Open Zone Labeling
+2. Draw entrance zone
+3. Click Save
+Expected Outcome | Zone saved and displayed
+Observed Outcome | Zone saved successfully
+Acceptance Status | Accepted
+
+[TABLE 16]
+Test Case ID | AT-06
+User Story / Use Case | UC-08 – Zone Labeling
+Acceptance Criteria | Invalid or overlapping zones must be rejected
+Test Steps | 1. Draw overlapping zones
+2. Click Save
+Expected Outcome | Validation error shown
+Observed Outcome | Error message displayed
+Acceptance Status | Accepted
+
+[TABLE 17]
+[1] | F.E.Partal, H.İ.Atalay, M.Yılmaz, S.Şengül, and U.A.Karakış, “Initial Plan of Team 12,” Bilkent University, Department of Computer Technology and Information Systems, Ankara, Türkiye, October 2025.
+[2] | F.E.Partal, H.İ.Atalay, M.Yılmaz, S.Şengül, and U.A.Karakış, “Software Specification Document of Team 12,” Bilkent University, Department of Computer Technology and Information Systems, Ankara, Türkiye, December 2025.
+[3] | F.E.Partal, H.İ.Atalay, M.Yılmaz, S.Şengül, and U.A.Karakış, “First Increment Prototype of Team 12,” Bilkent University, Department of Computer Technology and Information Systems, Ankara, Türkiye, December 2025.
+[4] | F.E.Partal, H.İ.Atalay, M.Yılmaz, S.Şengül, and U.A.Karakış, “Software Project Management Plan of Team 12,” Bilkent University, Department of Computer Technology and Information Systems, Ankara, Türkiye, December 2025.

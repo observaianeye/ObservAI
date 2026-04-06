@@ -1,0 +1,240 @@
+
+
+
+First Increment Prototype
+An Eye
+Team 12
+
+
+
+
+
+Faik Emre Partal, 22203786
+Halil İbrahim Atalay, 22103092
+Mevlüt Yılmaz, 22201947
+Semih Şengül, 22202588
+Uğur Ayberk Karakış, 22201725
+
+
+
+
+
+Bilkent University
+Department of Information Systems and Technologies
+
+01.12.2025
+Change History
+Change List
+Use case diagram changed and selected use cases given with color indicator.
+Sequence diagrams changed as analysis level diagrams.
+The class diagram was updated as an analysis level diagram.
+FReq naming changed according to SRS A document.
+Some figures mentioned in the written parts.
+
+
+Use Cases and Functionalities Selected for First Increment Prototype
+
+For the first increment prototype, three Use Cases have been selected that collectively represent approximately 20% of the overall system functionality. These Use Cases were chosen to establish the system’s foundational features—authentication, real-time analytics visualization, and spatial labeling for behavioral analysis.
+The selection was made in consultation with the Project Advisor, and has received explicit approval for inclusion in the First Increment Product to be presented on January 7, 2026.
+Selected Use Cases
+
+Figure 1 Selected Use Cases
+UC-01: Authenticate Manager
+This Use Case ensures that only authorized personnel can access the system’s operations dashboard. Upon successful authentication, the system validates user credentials and grants access to real-time analytics features.
+UC-02: View Operations Dashboard 
+This Use Case enables store managers to view a real-time operations dashboard displaying key performance metrics derived from in-store customer activity.
+It allows managers to monitor visitor counts, demographic breakdowns, and live occupancy heatmaps generated from camera feeds.
+UC-08: Zone Labeling
+This Use Case enables the manager to manually define or adjust entrance and exit zones on the dashboard interface. These labeled zones assist the analytics engine in accurately categorizing traffic flow and generating behavior-based insights.
+This functionality represents a subset of the broader UC-06 “Analyze Customer Activity” Use Case.
+Corresponding Functional Requirements
+The selected Use Cases directly correspond to the following Functional Requirements from the Software Requirements Specification (SRS):
+FReq 1: Manager Authentication and Dashboard Access
+Description:
+Validate that the user is authenticated and that customer analytics (visitor counts, demographics, heatmaps) are correctly displayed and updated in real time.
+Relevant to: UC-01 Authenticate Manager, UC-08 Zone Labeling
+FReq 2: Real-Time Dashboard Data Display
+Description:
+The system shall allow the manager to interactively switch between visualization modes and view AI-generated analytics without leaving the dashboard.
+Relevant to: UC-02: View Operations Dashboard
+FReq 4: AI-Generated Insights
+Description:
+The system shall analyze behavioral and occupancy data to produce decision-support insights for management.
+Relevant to: UC-08 Zone Labeling
+Advisor Approval Statement
+The selection of UC-01 (Authenticate Manager), UC-02 (View Operations Dashboard), and UC-08 (Zone Labeling) as the foundation for the Requirements Prototype and First Increment Product has been explicitly approved by the Project Advisor following a review meeting with the development team.
+
+First Increment Prototype
+
+UC-01: Authenticate Manager
+Overview:
+The Authenticate Manager Use Case represents the system’s initial access control mechanism. It ensures that only authorized users can log into the platform and access the Operations Dashboard. This step forms the security foundation of the ObservAI system, guaranteeing that sensitive customer analytics data is only available to verified managers.
+Visual Reference:
+
+Figure 2 Manager Authentication Screen
+
+Functional Requirement Reference:
+FReq1: The system shall authenticate store managers through secure credential verification before granting access to the Operations Dashboard.
+Use Case: UC1 – Authenticate Manager
+Description and Interaction Steps:
+System Display:
+The system presents the ObservAI Login Screen as in Figure 2 to the user upon startup or when authentication is required.
+User Input – Email Address:
+The manager enters their registered email (e.g., admin@observai.com) in the “Email address” field.
+User Input – Password:
+The manager types their password into the “Password” field (The password characters are masked for security reasons).
+Optional Step – Remember Me:
+The user may check “Remember me for 30 days” to enable persistent login for future sessions.
+Authentication Action:
+Clicking “Sign in” sends the credentials to the authentication service.
+The system validates the input against stored credentials.
+If valid, access is granted to the Operations Dashboard (UC2).
+If invalid, an error message appears (“Incorrect email or password”).
+Alternative Option – Forgot Password:
+If the user clicks “Forgot password?”, the system redirects to the password recovery workflow.
+Alternative Option – Demo Login:
+By clicking “Use Demo Account”, a test account is automatically loaded using the demo credentials displayed at the bottom:
+Email: admin@observai.com
+Password: demo1234
+This allows new users or stakeholders to explore the platform without real credentials.
+
+Sign-up Option:
+If the user does not have an account, they can click “Sign up” to initiate the registration process.
+Expected Outcome:
+Successful login authenticates the manager and transitions the interface to the Operations Dashboard (UC2).
+UC-02: View Operations Dashboard
+Overview:
+ The View Operations Dashboard Use Case allows authenticated store managers to access a real-time analytics interface displaying customer behavior insights derived from in-store camera feeds. The dashboard aggregates live video analytics—visitor counts, demographic summaries, and movement heatmaps—into a unified visualization panel.
+
+Visual Reference:
+Figure 3 Gender Distribution Dashboard Screen
+
+Figure 4 Age Distribution Dashboard Screen
+Functional Requirement Reference:
+FReq2: The system shall allow the manager to interactively switch between visualization modes and view AI-generated analytics without leaving the dashboard.
+Use Case: UC-02 – View Operations Dashboard
+Description and Interaction Steps:
+Access Dashboard:
+The Administrator/Analyst logs in successfully (per UC1) and selects the "Analytics Dashboard" from the main navigation.
+Gender Distribution Chart:
+The system queries the user database for gender data.
+A Doughnut Chart renders showing the percentage split between Male (blue segment) and Female (pink segment).
+The legend displays the exact percentages (e.g., Male: 65%, Female: 35%).
+Hovering over a segment reveals a tooltip with the absolute number of users in that category (e.g., “Male: 65 users”).
+Age Distribution Chart:
+Below the gender chart, the system displays a Bar Chart for age distribution.
+Users are grouped into four brackets:
+2-17 (Children/Teens)
+18-34 (Young Adults)
+35-54 (Middle-Aged Adults)
+55+ (Seniors)
+Each age group is represented by a blue bar showing the percentage of total users (e.g., 29% for 35-54).
+The Y-axis indicates percentage (0% to 30%), and the X-axis lists age groups with icons for clarity.
+The highest bar (35-54) highlights the dominant demographic segment.
+Data Verification:
+The administrator can verify data completeness by confirming the sum of age group percentages equals 100%.
+Preconditions:
+User is authenticated as Administrator or Analyst with dashboard access.
+Postconditions:
+Demographic charts are rendered and displayed correctly on the screen.
+Expected Outcome:
+The administrator views a clear, interactive visual summary of user demographics, aiding data-driven decision making.
+UC-08: Zone Labeling
+Overview:
+The Label Entrance/Exit Zones Use Case allows store managers to manually define, edit, or confirm the physical entry and exit regions within the store layout displayed on the Operations Dashboard.
+Accurate labeling of these zones improves the AI analytics engine’s ability to categorize customer flow, measure occupancy by zone, and generate behavior-based insights such as queue density and peak movement periods.
+Visual Reference:
+
+Figure 5 Zone Labeling Interface on Operations Dashboard
+
+Functional Requirement Reference:
+FReq1: Manager Authentication and Dashboard Access – Display real-time store layout and analytics.
+FReq4: AI-Generated Insights – Improve accuracy of customer flow and occupancy data through accurate zone labeling.
+Use Case: UC8 – Zone Labeling
+Description and Interaction Steps:
+Access Zone Labeling Interface:
+The Store Manager logs into the Operations Dashboard and selects the “Label Zones” feature from the menu.
+Display Store Layout:
+The system presents the store floor plan with existing or default entrance and exit zones highlighted by translucent rectangles.
+Define or Edit Zones:
+The manager can click and drag on the floor plan to create new rectangular zones representing physical entrances or exits.
+Existing zones can be resized, repositioned, or deleted by direct manipulation.
+Confirm Zones:
+After labeling, the manager confirms the entrance and exit zones by clicking “Save” or “Confirm.”
+The system validates that zones do not overlap incorrectly or fall outside the floor plan boundaries.
+Integration with AI Analytics:
+Accurately labeled zones improve the AI analytics engine’s ability to track customer flow, occupancy by zone, queue density, and peak movement times.
+Feedback and Updates:
+The system provides immediate visual feedback on the zones and displays a success message confirming the update.
+Labeled zones are stored and used in real-time customer monitoring and reporting.
+Preconditions:
+The manager must be logged into the Operations Dashboard with permissions to label zones.
+Postconditions:
+Entrance and exit zones are accurately defined and saved for use by AI analytics and live monitoring.
+Expected Outcome:
+The manager successfully defines or updates physical entrance and exit zones on the store layout, enabling more accurate real-time analytics and operational insights.
+
+
+System Model
+
+The ObservAI system's analysis-level models for the chosen Use Cases that were specified in Section 1 and prototyped in Section 2 are shown in this section. The models consist of an analysis-level class diagram, system sequence diagrams, activity diagrams with partitions (swim-lanes), and the database design for the first increment.
+3.1 Activity Diagrams
+3.1.1 UC-01: Authenticate Manager
+The Authenticate Manager Use Case's control flow is depicted in this activity diagram, which also demonstrates how a manager logs in and how the system verifies the credentials before allowing access.
+Partitions: Manager | ObservAI System | Database
+
+Figure 6 Activity Diagram of Authenticate Manager
+3.1.2 UC-02: View Operations Dashboard
+This diagram models the workflow when the manager views real-time analytics on the operations dashboard.
+Partitions: Manager | ObservAI System | Analytics Data Store
+
+Figure 7 Activity Diagram of View Operations Dashboard
+3.1.3 UC-08: Zone Labeling
+This diagram shows how the manager defines new labeled regions (entrance/exit) to support traffic analysis.
+Partitions: Manager | ObservAI System | Database
+
+Figure 8 Activity Diagram of Label Entrance / Exit Zones
+3.2 System Sequence Diagrams
+System Sequence Diagrams model the dynamic interaction between actors and the system, focusing on message flow and order in time.
+3.2.1 UC-01: Authenticate Manager
+This System Sequence Diagram illustrates the messages exchanged between the manager, and the system during the login process.
+Objects: Manager (actor), ObservAI System (System)
+
+Figure 9 System Sequence Diagram of Authenticate Manager
+3.2.2 UC-02: View Operations Dashboard
+This System Sequence Diagram shows how the manager requests the dashboard, how the system retrieves the latest analytics from the data store, and how the dashboard periodically refreshes the metrics.
+Objects:  Manager (actor), ObservAI System (System)
+
+Figure 10 System Sequence Diagram of View Operations Dashboard
+3.2.3 UC-08: Zone Labeling
+This System Sequence Diagram describes the interaction when the manager opens the zone-labeling view.
+Objects:  Manager (actor), ObservAI System (System)
+
+Figure 11 System Sequence Diagram of Label Entrance / Exit Zones
+3.3 Analysis-Level Class Diagram
+This diagram shows the main analysis-level classes of the first increment, grouped into boundary, control, and entity stereotypes. It reflects the core concepts used in UC-01, UC-02, and UC-08, without including implementation-specific details.
+
+Figure 12 Analysis Level Class Diagram
+3.4 Database Design 
+With an emphasis on the information required to support dashboard visualization, entrance/exit zone labeling, and authentication, this subsection explains the relational database tables and their relationships for the First Increment.
+3.4.1 Tables and Keys
+
+Table 1 Database Design
+3.4.2 Constraints and Integrity
+Foreign-key integrity ensures valid site ↔ camera ↔ zone relationships.
+visitor_count ≥ 0 and unique (camera_id, timestamp) enforce analytics accuracy.
+Cascading deletes occur only when explicitly approved by administrators.
+Data retention aligns with the Logical Database Requirements defined in the SRS (short-term analytics 7 days, insights 3 months).
+
+[TABLE 1]
+File Name | Document Type | Deliverable | Version | Submission Date
+Team12_Prototype_V1 | MS Word 2013 | 2B | 1 | 10.11.2025
+Team12_Prototype_V2 | MS Word 2013 | 2B | 2 | 01.12.2025
+
+[TABLE 2]
+Table | Primary Key | Key Attributes | Relationships
+Users | user_id | email, password_hash, role | One user → many sites
+Sites | site_id | name, address, user_id (FK) | One site → many cameras
+Cameras | camera_id | site_id (FK), rtsp_url, status | One camera → many zones / analytics
+Zones | zone_id | camera_id (FK), zone_type, coordinates | Linked to camera
+AnalyticsRecords | record_id | camera_id (FK), timestamp, visitor_count, occupancy_level | Linked to camera

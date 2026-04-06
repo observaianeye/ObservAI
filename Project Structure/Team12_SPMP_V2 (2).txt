@@ -1,0 +1,641 @@
+
+
+
+Software Project Management Plan
+SPMP
+An Eye
+Team 12
+
+
+
+
+
+Faik Emre Partal, 22203786
+Halil İbrahim Atalay, 22103092
+Mevlüt Yılmaz, 22201947
+Semih Şengül, 22202588
+Uğur Ayberk Karakış, 22201725
+
+
+
+
+Bilkent University
+Department of Information Systems and Technologies
+
+29.12.2025
+Change History
+
+Change List
+Updated the Executive Summary to include effort estimations (values) and the total project cost.
+Corrected the order of abbreviations to follow the required format.
+Fixed the formatting issue in the Individual Contributions Overview table.
+Every work package is explained in a detailed way.
+Added the missing NPV cost calculation to the cost analysis section.
+WBS on section 2.1 was changed according to WBS at section 1.
+Text was added to Section 4.
+
+
+Project Details
+
+Team 12
+
+Individual Contributions Overview
+
+
+Executive Summary
+The Software Project Management Plan for ObservAI provides a comprehensive roadmap for managing, estimating, scheduling, monitoring, and controlling the development of an AI-powered real-time customer analytics platform for cafés and restaurants. It adopts the Incremental Development Model and structures the project into three major increments aligned with academic milestones, supported by a detailed Work Breakdown Structure with clear dependencies, and milestone-driven progression. Resource planning, expected expenditures, Net Present Value analysis confirm the project’s feasibility. The total estimated direct expenditure is 13,500 TL and 140 USD, with costs minimized through reliance on open-source software, personal hardware, and lightweight AI models. Effort estimation is conducted through WBS-based estimation, Use Case Points, and Agile Story Points, with calculations presented transparently to ensure traceability and alignment with the project scope. The SPMP also outlines a rigorous monitoring and measurement framework, including weekly team meetings, structured two-week sprints, GitHub-based task tracking, mandatory peer-reviewed pull requests, and bi-weekly progress reports. Progress is evaluated through project metrics such as schedule variance and velocity, product metrics including AI accuracy, system latency, and visualization performance, and process metrics such as bug density, issue resolution rate, and test coverage. These metrics are systematically collected through GitHub Insights, Notion dashboards, and internal reports to support data-driven decisions and early detection of delays or quality risks. The plan includes a structured catalog of the complete software development environment covering programming languages, frameworks, AI libraries, databases, deployment tools, testing environments, and communication platforms to ensure consistency across all development stages. Reflections on the preparation process highlight challenges such as coordinating team schedules, interpreting estimation methodologies, and adapting AI-centric system characteristics to classical project management structures. Ethical and legal considerations, especially GDPR/KVKK compliance due to video analytics, were addressed in defining system constraints and planning workflows. Overall, the SPMP establishes a coherent and realistic strategy for executing ObservAI, ensuring orderly progress and alignment with academic objectives while supporting predictable, development across all increments.
+Table of Contents
+Page Number
+List of Tables
+Page Number
+
+List of Figures
+
+Abbreviations
+
+Project Schedule
+This section presents the overall project schedule of ObservAI by defining the work packages, their dependency relationships, required resources, and the allocation of budget and responsibilities among team members. The schedule prepared herein is in complete agreement with the Incremental Development Model described in the Initial Plan and is fully consistent with the milestones, use cases, and functional scope defined in the SRS and First Increment Prototype documents. The project covers two academic semesters and progresses through three major increments: First Increment (20%), Second Increment (an additional 40%), and Final Increment (an additional 40%).
+The work packages are derived directly from the Work Breakdown Structure defined in the Initial Plan and ordered to reflect logical and technical dependencies between activities. Every work package is uniquely identified, associated with specific use cases wherever applicable, and assigned to team members in a balanced manner based on prior contribution areas defined in the Initial Plan and SRS documents.
+1.1. Work Packages & Dependencies
+Table 1 enumerates the entire set of major work packages that are necessary to fulfill the project contract along with their predecessor relationships and assigned team members. These predecessor relationships are based on an obvious workflow, starting with the planning phase followed by the definition of the respective requirements, followed by design, development, and integration. Several work packages correspond directly to use cases defined in the SRS (e.g., UC-01 Authentication, UC-02 Dashboard Skeleton, UC-08 Zone Labeling), and all other work packages support these use cases through design, integration, and testing activities.
+WP1: Initial Plan Preparation
+Description:
+This work package involves preparing the Initial Project Plan, including defining project objectives, scope, preliminary schedule, risk identification, and selecting the Incremental Development Model. It lays the foundation for all subsequent project activities.
+Dates: October 2025 (Week 1) – October 2025 (Week 2)
+Assigned To: Faik Emre Partal, Halil İbrahim Atalay
+WP2: Initial Plan Review & Refinement
+Description:
+ WP2 focuses on reviewing the Initial Plan for consistency, feasibility, and alignment with academic requirements. Feedback is incorporated, dependencies are clarified, and the plan is refined to ensure clarity and completeness.
+Dates: October 2025 (Week 3)
+Assigned To: Mevlüt Yılmaz, Semih Şengül
+WP3: Requirements Elicitation (SRS)
+Description:
+ This work package involves eliciting and documenting functional and non-functional requirements of the ObservAI system. Use cases, actors, system constraints, and high-level functional flows are defined in the Software Requirements Specification (SRS).
+Dates: October 2025 (Week 4) – November 2025 (Week 2)
+Assigned To: Halil İbrahim Atalay, Semih Şengül
+WP4: Requirements Structuring & Verification
+Description:
+ WP4 refines and verifies the requirements defined in the SRS. Requirements are structured, checked for completeness, consistency, and traceability, and validated against project objectives and ethical constraints.
+Dates: November 2025 (Week 3) – November 2025 (Week 5)
+Assigned To: Faik Emre Partal, Uğur Ayberk Karakış
+WP5: SPMP Preparation
+Description:
+ This work package covers the preparation of the Software Project Management Plan (SPMP), including scheduling, effort estimation, cost analysis, monitoring strategy, and development environment definition.
+Dates: December 2025 (Week 1) – December 2025 (Week 2)
+Assigned To: Faik Emre Partal, Mevlüt Yılmaz
+WP6: System Architecture & Design (SDD)
+Description:
+ WP6 defines the overall system architecture of ObservAI. It includes architectural decisions, component interactions, data flow design, and technology selection, documented in the Software Design Description (SDD).
+Dates: December 2025 (Week 3) – December 2025 (Week 5)
+Assigned To: Mevlüt Yılmaz, Uğur Ayberk Karakış
+WP7: UI Design & Dashboard Mockups
+Description:
+ This work package focuses on designing the user interface of the ObservAI dashboard. Wireframes, mockups, and layout designs are created to ensure usability, clarity, and alignment with functional requirements.
+Dates: December 2025 (Week 5) – January 2026 (Week 1)
+Assigned To: Halil İbrahim Atalay, Semih Şengül
+WP8: First Increment – Authentication (UC-01)
+Description:
+ WP8 implements the authentication functionality, allowing managers to securely log in to the system. This includes backend authentication logic, basic security measures, and frontend integration.
+Dates: January 2026 (Week 1) – January 2026 (Week 2)
+Assigned To: Faik Emre Partal
+WP9: First Increment – Dashboard Skeleton (UC-02)
+Description:
+ This work package implements the initial dashboard skeleton, including basic layout, navigation, and placeholder visual components required for future analytics integration.
+Dates: January 2026 (Week 2) – January 2026 (Week 4)
+Assigned To: Halil İbrahim Atalay
+WP10: First Increment – Zone Labeling (UC-08)
+Description:
+ WP10 enables managers to define and label entrance, exit, and activity zones within the monitored area. This functionality supports later analytics and alert mechanisms.
+Dates: January 2026 (Week 2) – January 2026 (Week 3)
+Assigned To: Uğur Ayberk Karakış
+M1: Milestone-1 – First Increment (20%)
+Description:
+ This milestone represents the completion of the first functional increment, including authentication, dashboard skeleton, and zone labeling. The system becomes demonstrable at a basic level.
+Dates: January 8, 2026
+Assigned To: All Team Members
+WP11: Camera AI Integration (YOLOv12 Nano)
+Description:
+ WP11 integrates real-time camera streams with the AI inference pipeline. YOLOv12 Nano is configured for person detection and basic tracking from live video input.
+Dates: February 2026 (Week 1) – February 2026 (Week 3)
+Assigned To: Mevlüt Yılmaz
+WP12: Demographic Estimation & Heatmaps
+Description:
+ This work package extends the AI pipeline to estimate basic demographic attributes and generate heatmaps that visualize customer density and movement patterns.
+Dates: February 2026 (Week 3) – March 2026 (Week 1)
+Assigned To: Faik Emre Partal
+WP13: Zone-Based Analytics
+Description:
+ WP13 develops analytics based on predefined zones, enabling comparisons between zones, time-based analysis, and aggregated insights for managerial decision-making.
+Dates: March 2026 (Week 1) – March 2026 (Week 3)
+Assigned To: Semih Şengül
+M2: Milestone-2 – Second Increment (+20%)
+Description:
+ This milestone marks the completion of AI integration and analytics features, delivering a substantially functional analytics system.
+Dates: March 2026
+Assigned To: All Team Members
+WP14: AI Insight Engine Development
+Description:
+ WP14 develops the AI-driven insight engine that transforms analytics data into natural-language recommendations and operational insights using LLM-based services.
+Dates: March 2026 (Week 4) – April 2026 (Week 2)
+Assigned To: Faik Emre Partal, Halil İbrahim Atalay
+WP15: Alert & Notification System
+Description:
+ This work package implements real-time alerts and notifications, informing managers about critical conditions such as overcrowding or long queues via web notifications.
+Dates: April 2026 (Week 2) – April 2026 (Week 3)
+Assigned To: Semih Şengül
+WP16: System-Wide Testing & Bug Fixing
+Description:
+ WP16 focuses on integration testing, performance testing, bug fixing, and overall system stabilization across frontend, backend, and AI components.
+Dates: April 2026 (Week 3) – May 2026 (Week 1)
+Assigned To: Mevlüt Yılmaz, Uğur Ayberk Karakış
+WP17: Deployment & Demonstration
+Description:
+ This final work package covers system deployment, preparation of demonstration materials, and delivery of the final project presentation.
+Dates: May 2026 (Week 2)
+Assigned To: All Team Members
+M3: Milestone-3 – Final Increment (+60%)
+Description:
+ This milestone represents the full completion of ObservAI, including all functional requirements, testing, deployment, and final demonstration.
+Dates: May 2026
+Assigned To: All Team Members
+
+Table 1 Work Packages and Dependencies
+
+The work packages include milestone work packages M1, M2, and M3, which correspond to the three increments of the project. M1 represents the completion of the first 20% of the system, M2 represents an additional 20%, and M3 represents the final 60% required for full system delivery.
+Milestone Dates
+Milestone-1 (1st Increment – 20%): January 8, 2026 (fixed)
+Milestone-2 (2nd Increment – additional 20%): March 2026 (estimated)
+Milestone-3 (Final Increment – additional 60%): May 2026 (estimated)
+1.2. Resource Requirements
+The ObservAI project is developed primarily using the existing personal computing resources of the team members. Each student uses their own personal laptop to conduct various development and testing activities. During the early stages, experiments and AI model evaluations are done locally; however, the final system would be remotely accessible by café or restaurant managers using a standard web browser.
+No cloud-based GPU services will be used due to high operational costs; however, limited cloud hosting may be used for short-term backend testing purposes, as reflected in Table 2. All AI computations will be done on local machines, using lightweight models of computer vision.
+Resource utilization follows the incremental schedule of the project. During the first semester, resources are primarily used for planning, requirement elicitation, and initial UI and backend development. In the second semester, computational and testing resources become more prominent as AI integration, analytics, and system-wide testing activities intensify.
+Primary Resource Requirements
+Personnel:
+ Five undergraduate students are working part-time alongside academic coursework
+Development Hardware:
+ Existing personal laptops (no additional development hardware cost)
+Cameras:
+ One standard café-grade IP camera is planned for testing and demonstration purposes
+Software & Tools:
+Open-source libraries (YOLOv12 Nano, OpenCV)
+Google Gemini API (usage-based cost expected)
+GitHub (free academic usage)
+Facilities:
+ Personal study environments and university facilities (no additional cost)
+The cost items associated with these resources are detailed in Table 2 under Section 1.3.
+1.3. Cost Estimation, Net Present Value, Budget, and Resource Allocation
+The project incurs minimal direct costs due to reliance on open-source technologies and personal hardware. However, certain expenses are either planned or expected throughout the project lifecycle and are summarized in Table 2.
+Table 2 Project Expenditures
+
+
+Figure 1 Cash Flow Diagram of Project
+
+All expenses have been tracked on an end-of-month basis and spread across the two semesters. A consolidated cash flow diagram has been created to reflect realized and expected expenditures over time.
+Project expenditures occur across the academic year. IP camera purchase and printing materials represent one-time costs during the fall semester, while transportation and meeting expenses repeat throughout both semesters. Optional cloud hosting and API usage occur intermittently, depending on testing needs. All expenditures were grouped by month and placed at the end of each month according to the End-of-Month accounting rule.
+The Net Present Value (NPV) of project expenditures is computed using the standard formula:
+
+where CFₜ represents the cash flow at month t, r is the applicable monthly discount rate (3% for TL expenditures and 0.1% for USD expenditures), and t is the number of months after September 1, 2025 (Point 0). Based on the expenditures listed in Table 2, the total undiscounted cost of the project corresponds to the sum of all TL and USD items before discounting.
+Using the provided monthly discount rates (3% for TL, 0.1% for USD) and September 1, 2025 as the reference point (Point 0), a Net Present Value (NPV) analysis was conducted. The results of this test indicate that ObservAI remains a low-cost and financially viable academic project. The fact that it does not use cloud GPU reduces financial risk; likewise, the dependence on open-source tools and personal equipment keeps costs predictable.
+Overall, the total undiscounted direct expenditure for the project is 13,500 TL and 120 USD. Based on the monthly cash flow schedule (Sep: -1000 TL; Nov: -1000 TL; Dec: -1000 TL; Jan: -7500 TL, -20 USD; Feb: -30 USD; Mar: -1000 TL, -30 USD; Apr: -2000 TL, -40 USD), and using the monthly discount rates (3% for TL and 0.1% for USD, with Sep 1, 2025 as the reference point, $t=0$), the calculated Net Present Value (NPV) of the direct costs is 11,639.49 TL and 119.19 USD. The cost structure supports the completion of the project within normal academic limits without sacrificing technical quality or scope. 
+Project Effort Estimation
+This section estimates the total effort required to complete the ObservAI project by using three different estimation techniques:
+WBS Decomposition-Based Estimation
+Use Case–Based Estimation (Use Case Points – UCP)
+Agile Estimation (Story Points)
+The goal is to obtain comparable effort figures from different perspectives and to discuss their convergence and differences.
+WBS Decomposition-Based Estimation
+We assumed on average 4–5 productive hours per day per person due to the course load. Effort was computed as Effort = #TeamMembers × Duration(days) × AvgDailyHours. Based on the Work Packages defined in the Project Schedule (Section 1), effort values were assigned to each Work Package in person-hours, together with the planned number of team members and the approximate calendar duration. Table 3 summarizes the WBS-based effort estimation.
+Table 3 WBS Effort Estimation
+Milestones (M1, M2, M3) are management checkpoints and do not introduce additional effort.
+Therefore, they are not included as separate effort items in Table 3.
+The total WBS-based effort sums up to approximately 1,530 person-hours for the entire project.
+Use Case Based Estimation
+
+Figure 2 Use Case Diagram
+This subsection applies the Use Case Points (UCP) method using the Use Case Diagram defined in the SRS (UC-01, UC-02, UC-03, UC-04, UC-05, UC-06, UC-08) and the actors interacting with ObservAI.
+
+
+2.2.1. Unadjusted Actor UCP (UAW)
+Table 4 Unadjusted Actor UCP
+2.2.2. Unadjusted Use Case UCP (UUCW)
+Use cases were classified by the estimated number of transactions (main flow + alternative flows).
+Simple (1–3 transactions, weight = 5)
+UC-01: Authenticate Manager
+UC-03: Switch Visualization Mode
+Average (4–7 transactions, weight = 10)
+UC-02: View Operations Dashboard
+UC-04: Receive Operational Alerts
+UC-05: View AI Insights
+UC-08: Label Entrance/Exit Zones
+Complex (8+ transactions, weight = 15)
+UC-06: Analyze Customer Activity
+Table 5 Unadjusted Use Cases UCP
+
+2.2.3. Technical Factor Table (TCF)
+Table 6 Technical Factor Table
+Technical Complexity Factor:
+ 
+2.2.4. Environmental Factor Table (ECF)
+Table 7 Environmental Factor Table
+Environmental Complexity Factor:
+
+2.2.5. Total UCP and Effort Conversion
+Unadjusted Use Case Points:
+
+Adjusted Use Case Points:
+
+To convert UCP into effort, we adopt a typical productivity factor of 20 person-hours per UCP:
+
+Agile Estimation
+In this approach, the Functional Requirements from SRS A v2 and SRS B v2 are converted into User Stories. Each User Story is estimated using Story Points (SP). The team’s average velocity and SP-to-effort conversion are aligned with the monitoring section:
+Average velocity: ≈ 6 SP per sprint (2 weeks)
+Approximate effort per Story Point: ≈ 35–40 hours (we use 37.5 hours/SP as an average)
+Table 8 User Stories
+
+Total Story Points:
+
+Effort conversion (using 37.5 hours per SP):
+
+Sprint estimation:
+Team velocity ≈ 6 SP/sprint
+Required sprints: 39 / 6 ≈ 6.5 sprints
+This corresponds to about 6–7 sprints of focused development work for the core functionality, which fits within the academic calendar.
+Thus, the Agile-based effort estimate is approximately 1,450–1,500 person-hours.
+Discussion
+The three estimation approaches yield the following total effort ranges:
+WBS Decomposition-Based Estimation:
+≈ 1,530 person-hours
+Use Case Point (UCP) Estimation:
+≈ 1,488 person-hours
+Agile Estimation (Story Points):
+≈ 1,460–1,500 person-hours
+Although the methods are conceptually different, all three converge to a very similar effort range (≈ 1,450–1,550 person-hours). The small variations can be explained as follows:
+The WBS estimate is slightly higher because it explicitly includes management tasks, documentation (Initial Plan, SRS, SPMP), and integration/testing overhead.
+The UCP estimate focuses on functional effort based on actors and use cases, and is sensitive to the assignment of technical and environmental factors.
+The Agile estimate is driven by user stories and team velocity, and is more flexible; actual values will be refined as sprints are completed and empirical velocity is observed.
+Given that all three estimation techniques converge within a narrow range, the Agile estimate is particularly useful for day-to-day planning because it can be continuously refined based on real sprint performance data. However, for establishing a stable and realistic baseline, the WBS estimate is the most appropriate for our project. This is because the WBS model directly reflects CTIS academic timelines, defined Work Packages, and the deliverable-oriented workload structure of ObservAI. In contrast, the UCP and Agile results serve as consistency checks that validate the WBS outcome, as both methods fall naturally within the expected variation band and confirm that the overall effort aligns with the functional size and complexity of the system.
+3. Project Monitoring and Measuring
+This section describes how the ObservAI project will be monitored throughout its lifecycle to ensure that development progresses according to schedule, and to identify whether the team is moving too fast or too slow relative to planned milestones. Progress will be evaluated through structured meetings, sprint-based tracking, task management tools, and well-defined quantitative metrics. These mechanisms collectively allow the team to maintain transparency, detect deviations early, and ensure that the system’s development aligns with the academic timeline and deliverable expectations.
+3.1 Monitoring Progress
+3.1.1 Weekly Team Meetings
+Frequency: Once per week
+Duration: Approximately 1 hour
+Purpose:
+Review completed and ongoing tasks
+Identify obstacles in the AI pipeline, backend services, or dashboard integration
+Coordinate upcoming work and adjust priorities
+Ensure all members are synchronized regarding sprint goals
+These meetings provide continuous alignment and reduce the risk of unnoticed delays.
+3.1.2 Sprint Planning and Sprint Review
+Sprint Duration: 2 weeks
+Sprint Planning:
+Held at the beginning of each sprint (approx. 2 hours)
+Define sprint goals and assign tasks based on functional requirements
+Prioritize critical work such as camera → AI engine integration, dashboard rendering, and zone labeling
+Sprint Review:
+Conducted at the end of each sprint (approx. 1 hour)
+Demonstrate completed features
+Gather internal and advisor feedback
+Evaluate compliance with planned objectives
+This rhythm ensures that the project remains predictable and adaptable.
+3.1.3 Task Tracking
+Task management is performed through GitHub Projects and a supplementary internal Notion board.
+Tasks move through a defined workflow:
+ To-Do → In Progress → Review → Done
+Every task has a designated owner and a clear deadline
+Requirements are decomposed into incremental deliverables to match sprint timelines
+This structure ensures visibility of responsibilities and prevents bottlenecks.
+3.1.4 Version Control and Code Review
+Platform: GitHub
+Branching Strategy: Feature-based branching
+Pull Request Workflow:
+All changes require at least one peer approval
+Code reviews focus on maintainability, architectural consistency, and correctness
+Special attention is given to AI inference modules, backend API endpoints, and dashboard visualization logic
+Regular reviews maintain quality standards and prevent regression issues.
+3.1.5 Progress Reports
+Frequency: Every two weeks
+Content:
+Summary of completed work
+Identified challenges
+Updated estimates and next sprint objectives
+Audience: Team members and academic advisor
+These reports ensure transparency and make progress easy to evaluate over time.
+3.2 Metrics Collection
+ObservAI uses three categories of metrics—project, product, and process metrics. These metrics guide decision-making, highlight risks, and validate whether development remains healthy and aligned with expectations.
+3.2.1 Project Metrics
+Schedule Variance (SV)
+Definition: The difference between planned and completed tasks during a sprint
+Formula:
+ SV = Planned Tasks – Completed Tasks
+Purpose: Detect delays early and re-allocate resources if necessary
+Frequency: Evaluated weekly and at each sprint review
+Any non-zero variance triggers corrective action.
+Team Velocity
+Team velocity is estimated from early increments and refined throughout development.
+Average velocity: ~6 story points per sprint
+Approximate effort per story point: 35–40 hours
+Used to forecast milestone completion dates, especially the first increment demo
+Velocity trends help determine if the team is ahead of or behind schedule.
+3.2.2 Product Metrics
+AI Model Accuracy
+Definition: Accuracy of person detection and demographic estimation (age/gender)
+Method: Precision/recall calculation using test video datasets
+Target: ≥ 80% detection accuracy
+Purpose: Ensure reliability of analytics displayed on the dashboard
+System Latency (End-to-End Pipeline Delay)
+Definition: Time from camera input → AI inference → backend processing → dashboard update
+Target: ≤ 1.5 seconds
+Measurement Tools: Backend logs, Chrome DevTools performance tracking
+Heatmap Rendering Performance
+Definition: Smoothness and responsiveness of heatmap visualization
+Target: ~30 FPS for fluid user experience
+These metrics ensure that ObservAI’s real-time capabilities meet functional expectations.
+3.2.3 Process Metrics
+Bug Density
+Definition: Number of bugs found per sprint relative to newly added code
+Purpose: Identify modules with higher defect rates and prioritize refactoring
+Target: Reduce critical bugs to zero by sprint end
+GitHub Activity Metrics
+Commit frequency
+Pull request review time
+Issue resolution rate
+Test Coverage
+Focus on backend APIs and AI inference service
+Target: ≥ 70% overall (≥ 40% minimum for the first increment)
+Helps ensure sufficient testing depth and reduces regression failures.
+These indicators reflect team engagement and workflow stability.
+3.2.4 How, When, and Where Metrics Are Stored
+Storage:
+GitHub Insights (commits, PRs, issues)
+Notion Metric Dashboard (velocity, SV, bug counts, accuracy scores)
+Internal progress report documents
+Collection Frequency:
+Project metrics → weekly and per sprint
+Product metrics → after each major feature implementation
+Process metrics → continuously via GitHub automation
+3.2.5 Purpose of Collecting Metrics
+Metrics are collected to:
+Monitor project health and detect deviations from schedule early.
+Improve team productivity through data-driven sprint planning.
+Maintain product quality, especially in real-time AI components.
+Support decision-making for prioritization and resource allocation.
+Provide transparency to the advisor and stakeholders through quantifiable indicators.
+These metrics collectively ensure that ObservAI progresses predictably and meets academic and technical expectations.
+
+4. Software Development Environment
+
+This section provides a detailed catalog of the entire software development environment for the ObservAI project. It specifies all the necessary tools, technologies, frameworks, and platforms
+Table 9 Software Development Environment
+
+
+
+5. Discussions
+This section summarizes the challenges, difficulties, and reflections experienced by the ObservAI team during the preparation of the Software Project Management Plan (SPMP). While the document served as an essential guideline for structuring project execution, its preparation presented several organizational, technical, and time-related constraints that influenced the overall process. The following subsections outline these challenges and provide insight into how the team adapted and improved throughout the development of this deliverable.
+5.1 Limitations and Constraints
+Time Constraints
+The SPMP preparation coincided with academic deadlines, quizzes, and ongoing work for the Initial Plan and SRS. Balancing these tasks with the rigorous requirements of the management plan created significant time pressure, particularly when compiling detailed estimation tables and cross-referencing data between deliverables. Coordinating the development of multiple sections under tight deadlines required additional effort and resulted in occasional delays in task completion.
+Complexity of Estimation Techniques
+The SPMP required the application of three distinct estimation methods (WBS, UCP, Agile). Although these methodologies provided valuable insight, their theoretical complexity and extensive calculation steps posed a challenge. Converting ObservAI’s functionality—especially AI-related components—into quantifiable estimation units required the team to invest extra time in understanding formulas, analyzing use case complexity, and establishing realistic conversion criteria.
+5.2 Team Coordination and Communication Challenges
+Scheduling synchronous meetings was occasionally difficult due to conflicting course loads and examination periods. As a result, some discussions had to be postponed or conducted asynchronously through messaging platforms. Additionally, aligning the writing style and structure across different SPMP subsections required iterative revisions to ensure consistency. Despite these challenges, the team adapted by increasing communication frequency and distributing responsibilities more clearly during the later stages.
+5.3 Requirement Interpretation and Document Structuring
+Ensuring that the SPMP fully complied with the instructor’s expectations and template guidelines required careful interpretation of the deliverable instructions. Certain parts—such as cost modeling, NPV analysis, and resource allocation—demanded detailed clarification from external references and example documents. Designing the project monitoring and measuring framework for a real-time AI-based system (involving camera streams, inference latency, and dashboard responsiveness) required the team to translate technical metrics into project management terminology, which was initially challenging.
+5.4 Technical Expertise Constraints
+Some team members had limited prior experience with project management concepts such as scheduling dependencies, effort estimation, and metrics-driven monitoring. This made the early phases of preparation slower as the team spent additional time learning best practices, identifying appropriate metrics, and modeling realistic workflows. Similarly, integrating ObservAI’s AI-centric characteristics into classical SPMP structures required careful adaptation to ensure accuracy without over-technicalizing the document.
+5.5 Reflections on the SPMP Preparation Process
+Preparing the SPMP improved the team’s understanding of structured project management and the importance of planning before implementation. Several key insights were gained:
+The necessity of incremental planning, especially for AI-related components that evolve through experimentation.
+The value of consistent communication and shared documentation tools to maintain alignment.
+The importance of metrics-based monitoring clarified how progress and quality will be evaluated throughout development.
+The benefit of establishing clear role distribution, particularly when working with multi-component systems such as ObservAI (AI engine, backend services, dashboard UI).
+Overall, despite the challenges faced, the SPMP preparation strengthened the team’s organizational capabilities and improved their ability to predict, manage, and justify effort allocation for a complex real-time analytics system.
+5.6 Ethical and Legal Considerations
+While preparing the document, the team acknowledged the importance of adhering to privacy principles due to ObservAI’s use of video-based analytics. Although SPMP preparation itself did not involve direct ethical dilemmas, the team remained aware of the significance of GDPR/KVKK-compliant data handling practices and incorporated relevant constraints into project planning.
+5.7 Multidisciplinary Aspects
+The preparation primarily involved software engineering, project management, and AI system design perspectives. Although external multidisciplinary contributions were not required for this deliverable, the process highlighted the relevance of combining technical and managerial competencies to produce a coherent and realistic project plan.
+
+
+6. References
+
+
+
+
+[TABLE 1]
+File Name | Document Type | Deliverable | Version | Submission Date
+Team12_SPMP_V1 | MS Word 2013 | 3 | 1 | 8.12.2025
+Team12_SPMP_V2 | MS Word 2013 | 3 | 2 | 29.12.2025
+
+[TABLE 2]
+Project Name | An Eye
+Software Product Name | ObservAI
+Company Name | No sponsor company
+Academic Advisor | Leyla Sezer
+Github URL | https://github.com/observaianeye/ObservAI
+WEB page | 
+Software Product Information | ObservAI is an AI-powered analytics system designed to help café and restaurant managers better understand their customers and optimize their spaces. Using camera-based analysis, the system observes how people move within the area, identifies crowded zones, estimates basic demographics such as age and gender ranges, and visualizes customer activity through live heatmaps. These insights are presented on an intuitive web dashboard where managers can monitor customer flow, compare different time periods, and make data-informed decisions about layout or service improvements. The system’s purpose is to transform everyday visual data into clear and actionable information that supports smarter management and smoother operations. ObservAI also prioritizes user privacy and ethical use of AI by processing all data anonymously and without storing personal or identifying visuals.
+
+[TABLE 3]
+Name, Surname | Bilkent e-mail | Alternative e-mail
+Faik Emre Partal | emre.partal@ug.bilkent.edu.tr | femrepartal@gmail.com
+Halil İbrahim Atalay | ibrahim.atalay@ug.bilkent.edu.tr | atalayhalil155@gmail.com
+Mevlüt Yılmaz | mevlut.yilmaz@ug.bilkent.edu.tr | yilmazmevlut397@gmail.com
+Semih Şengül | semih.sengul@ug.bilkent.edu.tr | semihyahama@gmail.com
+Uğur Ayberk Karakış | ayberk.karakis@ug.bilkent.edu.tr | ayberkarakis@hotmail.com
+
+[TABLE 4]
+Name, Surname | Summary of Contributions to the SPMP Document
+Faik Emre Partal | Responsible for the Document Formatting, Executive Summary, and Project Effort Estimation.
+Halil İbrahim Atalay | Responsible for the Work Packages & Dependencies, including the WBS table.
+Mevlüt Yılmaz | Responsible for the Resource Requirements and Cost Estimation, Net Present Value, Budget, and Resource Allocation.
+Semih Şengül | Responsible for Project Monitoring and Measuring, and Product Verification and Validation.
+Uğur Ayberk Karakış | Responsible for the Software Development Environment and Discussions.
+
+[TABLE 5]
+AI | Artificial Intelligence
+API | Application Programming Interface
+AWS | Amazon Web Services
+CTIS | Information Systems and Technologies
+CV | Computer Vision
+DB | Database
+DBMS | Database Management System
+FCM | Firebase Cloud Messaging
+FPS | Frames Per Second
+GUI | Graphical User Interface
+HTTPS | Hypertext Transfer Protocol Secure
+IDE | Integrated Development Environment
+IP | Internet Protocol
+LLM | Large Language Model
+M1 | Milestone 1
+M2 | Milestone 2
+M3 | Milestone 3
+ML | Machine Learning
+NPV | Net Present Value
+PDF | Portable Document Format
+PR | Pull Request
+REST | Representational State Transfer
+RTSP | Real-Time Streaming Protocol
+SDLC | Software Development Lifecycle
+SPMP | Software Project Management Plan
+SQL | Structured Query Language
+SRS | Software Requirements Specification
+SSL | Secure Sockets Layer
+TLS | Transport Layer Security
+UC | Use Case
+UCP | Use Case Points
+UI | User Interface
+UML | Unified Modeling Language
+VS Code | Visual Studio Code
+WBS | Work Breakdown Structure
+WP | Work Package
+YOLO | You Only Look Once (Object Detection Model)
+
+[TABLE 6]
+Work Package ID | Work Package Name | Predecessor Work Package IDs | Team Member(s) Assigned
+WP1 | Initial Plan Preparation | – | Faik Emre Partal, Halil İbrahim Atalay
+WP2 | Initial Plan Review & Refinement | WP1 | Mevlüt Yılmaz, Semih Şengül
+WP3 | Requirements Elicitation (SRS) | WP2 | Halil İbrahim Atalay, Semih Şengül
+WP4 | Requirements Structuring & Verification | WP3 | Faik Emre Partal, Uğur Ayberk Karakış
+WP5 | SPMP Preparation | WP4 | Faik Emre Partal, Mevlüt Yılmaz
+WP6 | System Architecture & Design (SDD) | WP5 | Mevlüt Yılmaz, Uğur Ayberk Karakış
+WP7 | UI Design & Dashboard Mockups | WP6 | Halil İbrahim Atalay, Semih Şengül
+WP8 | First Increment – Authentication (UC-01) | WP7 | Faik Emre Partal
+WP9 | First Increment – Dashboard Skeleton (UC-02) | WP8 | Halil İbrahim Atalay
+WP10 | First Increment – Zone Labeling (UC-08) | WP8 | Uğur Ayberk Karakış
+M1 | Milestone-1: 1st Increment (20%) | WP8, WP9, WP10 | All Team Members
+WP11 | Camera AI Integration (YOLOv12 Nano) | M1 | Mevlüt Yılmaz
+WP12 | Demographic Estimation & Heatmaps | WP11 | Faik Emre Partal
+WP13 | Zone-Based Analytics | WP11 | Semih Şengül
+M2 | Milestone-2: 2nd Increment (+20%) | WP11–WP13 | All Team Members
+WP14 | AI Insight Engine Development | M2 | Faik Emre Partal, Halil İbrahim Atalay
+WP15 | Alert & Notification System | WP14 | Semih Şengül
+WP16 | System-Wide Testing & Bug Fixing | WP15 | Mevlüt Yılmaz, Uğur Ayberk Karakış
+WP17 | Deployment & Demonstration | WP16 | All Team Members
+M3 | Milestone-3: Final Increment (+60%) | WP14–WP17 | All Team Members
+
+[TABLE 7]
+Expenditure ID | Explanation | Cost
+C1 | IP Camera Purchase (planned) | 6,500 TL
+C2 | Google Gemini API Usage (estimated, usage-based) | 100 USD
+C3 | Cloud Hosting (optional, short-term testing) | 20 USD
+C4 | Transportation & Meeting Expenses | 5000 TL
+C5 | Printing & Presentation Materials | 2000 TL
+
+[TABLE 8]
+Work Package ID | Work Package Name | Estimated Effort | Assigned # of Team Members | Estimated Duration | Projected Start Date | Projected End Date
+WP1 | Initial Plan Preparation | 50 | 2 | 2 weeks | Oct 2025 (W1) | Oct 2025 (W2)
+WP2 | Initial Plan Review & Refinement | 30 | 2 | 1 week | Oct 2025 (W3) | Oct 2025 (W3)
+WP3 | Requirements Elicitation (SRS) | 80 | 2 | 3 weeks | Oct 2025 (W4) | Nov 2025 (W2)
+WP4 | Requirements Structuring & Verification | 80 | 2 | 3 weeks | Nov 2025 (W3) | Nov 2025 (W5)
+WP5 | SPMP Preparation | 70 | 2 | 2 weeks | Dec 2025 (W1) | Dec 2025 (W2)
+WP6 | System Architecture & Design (SDD) | 110 | 2 | 3 weeks | Dec 2025 (W3) | Dec 2025 (W5)
+WP7 | UI Design & Dashboard Mockups | 70 | 2 | 2 weeks | Dec 2025 (W5) | Jan 2026 (W1)
+WP8 | First Increment – Authentication (UC-01) | 70 | 1 | 2 weeks | Jan 2026 (W1) | Jan 2026 (W2)
+WP9 | First Increment – Dashboard Skeleton (UC-02) | 110 | 1 | 3 weeks | Jan 2026 (W2) | Jan 2026 (W4)
+WP10 | First Increment – Zone Labeling (UC-08) | 70 | 1 | 2 weeks | Jan 2026 (W2) | Jan 2026 (W3)
+WP11 | Camera AI Integration (YOLOv12 Nano) | 150 | 1–2 | 3 weeks | Feb 2026 (W1) | Feb 2026 (W3)
+WP12 | Demographic Estimation & Heatmaps | 130 | 1–2 | 3 weeks | Feb 2026 (W3) | Mar 2026 (W1)
+WP13 | Zone-Based Analytics | 110 | 1–2 | 3 weeks | Mar 2026 (W1) | Mar 2026 (W3)
+WP14 | AI Insight Engine Development | 130 | 2 | 3 weeks | Mar 2026 (W4) | Apr 2026 (W2)
+WP15 | Alert & Notification System | 90 | 1–2 | 2 weeks | Apr 2026 (W2) | Apr 2026 (W3)
+WP16 | System-Wide Testing & Bug Fixing | 130 | 2 | 3 weeks | Apr 2026 (W3) | May 2026 (W1)
+WP17 | Deployment & Demonstration | 50 | 5 | 1 week | May 2026 (W2) | May 2026 (W2)
+
+[TABLE 9]
+Actor Classification | Type of Actor | Weight | Number | Total
+Simple | External system via a well-defined API | 1 | 0 | 0
+Average | External system via standard protocol (Camera, Google Gemini API, FCM) | 2 | 3 | 6
+Complex | Human actor using a GUI (Café/Restaurant Manager) | 3 | 1 | 3
+Total Unadjusted Actor UCP (UAW) | Total Unadjusted Actor UCP (UAW) | Total Unadjusted Actor UCP (UAW) | Total Unadjusted Actor UCP (UAW) | 9
+
+[TABLE 10]
+Use Case Classification | No. of Transactions | Weight | Number | Total
+Simple | 1 to 3 transactions | 5 | 2 | 10
+Average | 4 to 7 transactions | 10 | 4 | 40
+Complex | 8 or more transactions | 15 | 1 | 15
+Total Unadjusted Use Case UCP | Total Unadjusted Use Case UCP | Total Unadjusted Use Case UCP | Total Unadjusted Use Case UCP | 65
+
+[TABLE 11]
+Factor | Description | Weight | Assigned Value | Weight x Assigned Value
+T1 | Distributed system | 2.0 | 4 | 8.0
+T2 | Response time/performance objectives | 1.0 | 4 | 4.0
+T3 | End-user efficiency | 1.0 | 4 | 4.0
+T4 | Internal processing complexity | 1.0 | 4 | 4.0
+T5 | Code reusability | 1.0 | 3 | 3.0
+T6 | Easy to install | 0.5 | 3 | 1.5
+T7 | Easy to use | 0.5 | 4 | 2.0
+T8 | Portability to other platforms | 2.0 | 3 | 6.0
+T9 | System maintenance | 1.0 | 3 | 3.0
+T10 | Concurrent/parallel processing | 1.0 | 4 | 4.0
+T11 | Security features | 1.0 | 4 | 4.0
+T12 | Access for third parties | 1.0 | 2 | 2.0
+T13 | End-user training | 1.0 | 2 | 2.0
+Total Technical Factors: | Total Technical Factors: | Total Technical Factors: | Total Technical Factors: | 47.5
+
+[TABLE 12]
+Factor | Description | Weight | Assigned Value | Weight x Assigned Value
+E1 | Familiarity with the development process used | 1.5 | 3 | 4.5
+E2 | Application experience | 0.5 | 2 | 1.0
+E3 | Object-oriented experience of the team | 1.0 | 4 | 4.0
+E4 | Lead analyst capability | 0.5 | 4 | 2.0
+E5 | Motivation of the team | 1.0 | 4 | 4.0
+E6 | Stability of requirements | 2.0 | 3 | 6.0
+E7 | Part-time staff | -1.0 | 4 | -4.0
+E8 | Difficult programming language | -1.0 | 2 | -2.0
+Total Environmental Factor: | Total Environmental Factor: | Total Environmental Factor: | Total Environmental Factor: | 15.5
+
+[TABLE 13]
+Functional Requirement
+ID | User
+Story
+ID | User Story description | Estimated SP
+FReq1 | US1 | As a manager, I want to log in with my email and password so that I can securely access the ObservAI dashboard. | 3
+FReq2 | US2 | As a manager, I want to see live visitor counts and basic analytics on the dashboard so that I can monitor activity. | 5
+FReq2 | US3 | As a manager, I want to switch between chart types (bar, line, heatmap) without losing data to better understand trends. | 5
+FReq3 | US4 | As a manager, I want to receive real-time alerts when queues are long or crowds form so that I can react quickly. | 5
+FReq4 | US5 | As a manager, I want to read AI-generated insights about peak hours and zone usage to support my decisions. | 5
+FReq2, FReq3, FReq4 | US6 | As a manager, I want to define entrance/exit zones and thresholds so that analytics and alerts match my café layout. | 8
+FReq2 | US7 | As a manager, I want to connect camera streams so that the dashboard can show real-time analytics. | 8
+
+[TABLE 14]
+Name | Type | Version | Description
+JavaScript | Programming Language | ES2022 (Latest Stable) | Primary programming language used for both frontend (React) and backend (Node.js) development.
+Python | Programming Language | 3.10+ | Used for AI model execution, computer vision processing, and LLM integration services.
+React | Frontend Framework | 18.x | Used to develop the web-based interactive dashboard for real-time visualization.
+Material UI | UI Framework | Latest Stable | Provides reusable UI components for a consistent and responsive interface design.
+Tailwind CSS | CSS Framework | 3.x | Utility-first CSS framework used for styling the frontend interface.
+Node.js | Backend Runtime | 20.x (LTS) | Runtime environment for executing server-side JavaScript and handling API logic.
+Express.js | Backend Framework | 4.x | Web framework used for RESTful API implementation and backend routing.
+PostgreSQL | Database | 15.x | Primary relational database used for storing analytics, users, alerts, and configuration data.
+TimescaleDB | Time-Series Extension | 2.x | PostgreSQL extension used for efficient storage and querying of time-series analytics data.
+SQLite | Local Cache Database | 3.x | Used for short-term local caching of analytics on edge devices.
+YOLOv12-nano | AI Model | Latest Stable | An object detection model used for real-time person detection from video streams.
+OpenCV | Computer Vision Library | 4.x | Used for video frame processing, heatmap generation, and video stream handling.
+PyTorch | Deep Learning Framework | 2.x | Used for running and managing YOLOv12 inference and AI computations.
+Gemini 2.0 Flash | Large Language Model API | Latest Stable | Used to generate natural-language AI insights and managerial recommendations from analytics data.
+Firebase Cloud Messaging (FCM) | Notification Service | Latest Stable | Used to send real-time web notifications and alerts to managers.
+Web Push API | Notification API | Latest Stable | Browser-based push notification service for real-time alerts.
+HTTPS (TLS/SSL) | Communication Protocol | TLS 1.3 | Provides encrypted frontend–backend communication for all APIs.
+REST API (JSON) | Web API Standard | Latest Stable | Used for structured data exchange between frontend, backend, and AI modules.
+RTSP | Streaming Protocol | 1.0 | Used to receive real-time video streams from IP cameras for AI processing.
+Docker | Containerization | 24.x | Used to package and deploy all services consistently across environments.
+AWS | Cloud Platform | Latest Stable | Provides a scalable cloud hosting option for backend, database, and AI services.
+Render | Cloud Hosting | Latest Stable | Alternative cloud hosting provider for backend deployment.
+Vercel | Cloud Hosting | Latest Stable | Frontend deployment platform for the React application.
+GitHub | Version Management | Latest Stable | Used for source-code version control, branching, and collaboration.
+GitHub Actions | CI/CD Tool | Latest Stable | Used for automated build verification and continuous integration.
+Postman | API Testing Tool | Latest Stable | Used for backend API verification and request simulation.
+Chrome DevTools | Debugging & V&V Tool | Latest Stable | Used for frontend debugging, performance testing, and network inspection.
+WebSocket Simulator | Real-Time Testing Tool | Latest Stable | Used to test real-time analytics streaming to the dashboard.
+Visual Studio Code | IDE | Latest Stable | Main development environment for frontend and backend development.
+PyCharm | IDE | Latest Stable | Used mainly for AI model and Python-based development.
+Discord | Project Communication Tool | Latest Stable | Used for team communication and meetings.
+Notion | Project Documentation Tool | Latest Stable | Used for task tracking and internal documentation.
+Zoom | Meeting Platform | Latest Stable | Used for online project meetings and reviews.
+WhatsApp | Communication Tool | Latest Stable | Used for quick team coordination.
+
+[TABLE 15]
+[1] | F.E.Partal, H.İ.Atalay, M.Yılmaz, S.Şengül, and U.A.Karakış, “Initial Plan of Team 12,” Bilkent University, Department of Computer Technology and Information Systems, Ankara, Türkiye, October 2025.
+[2] | F.E.Partal, H.İ.Atalay, M.Yılmaz, S.Şengül, and U.A.Karakış, “Software Specification Document of Team 12,” Bilkent University, Department of Computer Technology and Information Systems, Ankara, Türkiye, December 2025.
+[3] | F.E.Partal, H.İ.Atalay, M.Yılmaz, S.Şengül, and U.A.Karakış, “First Increment Prototype of Team 12,” Bilkent University, Department of Computer Technology and Information Systems, Ankara, Türkiye, December 2025.
