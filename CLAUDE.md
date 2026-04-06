@@ -2,6 +2,8 @@
 
 ObservAI - Cafe/restoran icin gercek zamanli kamera analitik platformu. Ziyaretci sayimi, demografi (yas/cinsiyet), bolge takibi. Dil: Turkce.
 
+> **ROADMAP:** Gelistirme yol haritasi ve gorev takibi icin `ROADMAP.md` dosyasini oku. Her oturum basinda ROADMAP'i kontrol et ve uzerinde calistigin adimi `IN PROGRESS` olarak guncelle.
+
 ## Servisler
 
 | Servis | Port | Teknoloji |
