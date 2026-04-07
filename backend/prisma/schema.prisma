@@ -27,6 +27,17 @@ model User {
   updatedAt     DateTime  @updatedAt
   lastLoginAt   DateTime?
 
+  // Notification settings
+  telegramChatId        String?   // Telegram bot chat ID
+  telegramNotifications Boolean   @default(false)
+  emailNotifications    Boolean   @default(true)
+  notifySeverity        String    @default("high") // min severity: low | medium | high | critical
+  quietHoursEnabled     Boolean   @default(false)
+  quietHoursStart       String?   // "22:00"
+  quietHoursEnd         String?   // "08:00"
+  dailySummaryEnabled   Boolean   @default(false)
+  dailySummaryTime      String?   // "09:00"
+
   // Relations
   cameras       Camera[]
   zones         Zone[]

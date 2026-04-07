@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Settings, Camera, Bell, Globe, Shield, User, Save, RotateCcw,
   Eye, EyeOff, Sliders, Monitor, Wifi, WifiOff, AlertTriangle,
-  CheckCircle, ChevronDown, ChevronUp, Volume2, VolumeX, Sun, Moon
+  CheckCircle, ChevronDown, ChevronUp, Volume2, VolumeX, Sun, Moon,
+  Send, Mail, MessageSquare
 } from 'lucide-react';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -314,6 +315,22 @@ export default function SettingsPage() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState(false);
 
+  // Notification channels state (synced with backend)
+  const [channels, setChannels] = useState({
+    telegramChatId: '',
+    telegramNotifications: false,
+    emailNotifications: true,
+    notifySeverity: 'high' as string,
+    dailySummaryEnabled: false,
+    dailySummaryTime: '09:00',
+  });
+  const [channelStatus, setChannelStatus] = useState<{
+    telegram: { configured: boolean; botValid: boolean; botName: string | null };
+    email: { configured: boolean; connected: boolean };
+  } | null>(null);
+  const [testingTelegram, setTestingTelegram] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
+
   // Track changes
   useEffect(() => {
     setHasChanges(true);
@@ -324,9 +341,35 @@ export default function SettingsPage() {
     const unsubscribe = cameraBackendService.onBackendStatus((health) => {
       setBackendHealth(health);
     });
-    // Also poll once
     cameraBackendService.checkHealth();
     return unsubscribe;
+  }, []);
+
+  // Load notification channel settings from backend
+  useEffect(() => {
+    async function loadChannels() {
+      try {
+        const [settingsRes, statusRes] = await Promise.all([
+          fetch(`${API_URL}/api/notifications/settings`, { credentials: 'include' }),
+          fetch(`${API_URL}/api/notifications/channels/status`, { credentials: 'include' }),
+        ]);
+        if (settingsRes.ok) {
+          const data = await settingsRes.json();
+          setChannels({
+            telegramChatId: data.telegramChatId || '',
+            telegramNotifications: data.telegramNotifications ?? false,
+            emailNotifications: data.emailNotifications ?? true,
+            notifySeverity: data.notifySeverity || 'high',
+            dailySummaryEnabled: data.dailySummaryEnabled ?? false,
+            dailySummaryTime: data.dailySummaryTime || '09:00',
+          });
+        }
+        if (statusRes.ok) {
+          setChannelStatus(await statusRes.json());
+        }
+      } catch { /* backend may not be running */ }
+    }
+    loadChannels();
   }, []);
 
   // Update profile when auth changes
@@ -356,6 +399,7 @@ export default function SettingsPage() {
         await fetch(`${API_URL}/api/users/profile`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({
             firstName: profile.firstName,
             lastName: profile.lastName,
@@ -363,6 +407,25 @@ export default function SettingsPage() {
         });
       } catch {
         // Profile save to backend is optional
+      }
+
+      // Save notification channels to backend
+      try {
+        await fetch(`${API_URL}/api/notifications/settings`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            telegramChatId: channels.telegramChatId || null,
+            telegramNotifications: channels.telegramNotifications,
+            emailNotifications: channels.emailNotifications,
+            notifySeverity: channels.notifySeverity,
+            dailySummaryEnabled: channels.dailySummaryEnabled,
+            dailySummaryTime: channels.dailySummaryTime,
+          }),
+        });
+      } catch {
+        // Notification save to backend is optional
       }
 
       setHasChanges(false);
@@ -692,6 +755,143 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* ── Notification Channels ── */}
+          <div className="border-t border-white/10 mt-3 pt-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Notification Channels</p>
+
+            {/* Minimum Severity */}
+            <div className="mb-4">
+              <label className="block text-sm text-gray-300 mb-1">Minimum Alert Severity</label>
+              <p className="text-xs text-gray-500 mb-2">Only alerts at or above this level trigger Telegram/Email</p>
+              <select
+                value={channels.notifySeverity}
+                onChange={(e) => setChannels(prev => ({ ...prev, notifySeverity: e.target.value }))}
+                className="w-full px-3 py-2 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="low">Low (all alerts)</option>
+                <option value="medium">Medium+</option>
+                <option value="high">High+ (recommended)</option>
+                <option value="critical">Critical only</option>
+              </select>
+            </div>
+
+            {/* Telegram */}
+            <div className="bg-white/5 rounded-lg p-4 mb-3">
+              <div className="flex items-center gap-2 mb-3">
+                <MessageSquare className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-medium text-white">Telegram</span>
+                {channelStatus?.telegram.botValid && (
+                  <span className="text-xs text-emerald-400 ml-auto">@{channelStatus.telegram.botName}</span>
+                )}
+                {channelStatus && !channelStatus.telegram.configured && (
+                  <span className="text-xs text-gray-500 ml-auto">Bot token not set</span>
+                )}
+              </div>
+              <Toggle
+                label="Enable Telegram Notifications"
+                description="Receive alerts via Telegram bot"
+                checked={channels.telegramNotifications}
+                onChange={(v) => setChannels(prev => ({ ...prev, telegramNotifications: v }))}
+              />
+              {channels.telegramNotifications && (
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-400 mb-1">Telegram Chat ID</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={channels.telegramChatId}
+                      onChange={(e) => setChannels(prev => ({ ...prev, telegramChatId: e.target.value }))}
+                      placeholder="e.g. 123456789"
+                      className="flex-1 px-3 py-2 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 placeholder-gray-600"
+                    />
+                    <button
+                      onClick={async () => {
+                        setTestingTelegram(true);
+                        try {
+                          const res = await fetch(`${API_URL}/api/notifications/test/telegram`, {
+                            method: 'POST', credentials: 'include',
+                          });
+                          const data = await res.json();
+                          showToast(data.success ? 'success' : 'error', data.success ? 'Test message sent!' : (data.error || 'Failed'));
+                        } catch { showToast('error', 'Connection error'); }
+                        setTestingTelegram(false);
+                      }}
+                      disabled={!channels.telegramChatId || testingTelegram}
+                      className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                    >
+                      <Send className="w-3 h-3" />
+                      {testingTelegram ? '...' : 'Test'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-600 mt-1">Send /start to the bot, then enter your chat ID here</p>
+                </div>
+              )}
+            </div>
+
+            {/* Email */}
+            <div className="bg-white/5 rounded-lg p-4 mb-3">
+              <div className="flex items-center gap-2 mb-3">
+                <Mail className="w-4 h-4 text-orange-400" />
+                <span className="text-sm font-medium text-white">Email</span>
+                {channelStatus?.email.connected && (
+                  <span className="text-xs text-emerald-400 ml-auto">SMTP connected</span>
+                )}
+                {channelStatus && !channelStatus.email.configured && (
+                  <span className="text-xs text-gray-500 ml-auto">SMTP not configured</span>
+                )}
+              </div>
+              <Toggle
+                label="Enable Email Notifications"
+                description="Receive critical alerts via email"
+                checked={channels.emailNotifications}
+                onChange={(v) => setChannels(prev => ({ ...prev, emailNotifications: v }))}
+              />
+              {channels.emailNotifications && (
+                <div className="mt-2">
+                  <button
+                    onClick={async () => {
+                      setTestingEmail(true);
+                      try {
+                        const res = await fetch(`${API_URL}/api/notifications/test/email`, {
+                          method: 'POST', credentials: 'include',
+                        });
+                        const data = await res.json();
+                        showToast(data.success ? 'success' : 'error', data.success ? 'Test email sent!' : (data.error || 'Failed'));
+                      } catch { showToast('error', 'Connection error'); }
+                      setTestingEmail(false);
+                    }}
+                    disabled={testingEmail}
+                    className="px-3 py-2 bg-orange-600 text-white rounded-lg text-xs hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    <Send className="w-3 h-3" />
+                    {testingEmail ? 'Sending...' : 'Send Test Email'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Daily Summary */}
+            <div className="bg-white/5 rounded-lg p-4">
+              <Toggle
+                label="Daily Summary Email"
+                description="Receive a daily analytics summary at a set time"
+                checked={channels.dailySummaryEnabled}
+                onChange={(v) => setChannels(prev => ({ ...prev, dailySummaryEnabled: v }))}
+              />
+              {channels.dailySummaryEnabled && (
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-400 mb-1">Summary Time</label>
+                  <input
+                    type="time"
+                    value={channels.dailySummaryTime}
+                    onChange={(e) => setChannels(prev => ({ ...prev, dailySummaryTime: e.target.value }))}
+                    className="px-2 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </SettingsSection>

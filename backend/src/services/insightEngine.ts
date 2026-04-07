@@ -17,6 +17,7 @@
 import { prisma } from '../lib/db';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { callOllama } from '../routes/ai';
+import { dispatchBatch } from './notificationDispatcher';
 
 // ─── Weather Helper ───────────────────────────────────────────────────────────
 
@@ -632,6 +633,26 @@ export async function generateInsights(cameraId: string): Promise<{
 
   // Save all alerts to DB
   const saved = await saveInsights(alerts);
+
+  // Dispatch notifications (Telegram + Email) for high/critical alerts
+  try {
+    // Resolve camera name for notification messages
+    let cameraName: string | undefined;
+    try {
+      const cam = await prisma.camera.findUnique({ where: { id: cameraId }, select: { name: true } });
+      cameraName = cam?.name || undefined;
+    } catch { /* camera lookup optional */ }
+
+    const dispatchable = alerts
+      .filter(a => a.severity === 'high' || a.severity === 'critical' || a.severity === 'medium')
+      .map(a => ({ ...a, cameraName }));
+
+    if (dispatchable.length > 0) {
+      await dispatchBatch(dispatchable);
+    }
+  } catch (dispatchErr) {
+    console.error('[InsightEngine] Notification dispatch error:', dispatchErr instanceof Error ? dispatchErr.message : dispatchErr);
+  }
 
   return { alerts, trends, saved };
 }

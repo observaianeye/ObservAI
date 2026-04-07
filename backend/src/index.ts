@@ -16,6 +16,7 @@ import aiRouter from './routes/ai';
 import exportRouter from './routes/export';
 import insightsRouter from './routes/insights';
 import branchesRouter from './routes/branches';
+import notificationsRouter from './routes/notifications';
 import { pythonBackendManager } from './lib/pythonBackendManager';
 import { getKafkaConsumer } from './lib/kafkaConsumer';
 import cookieParser from 'cookie-parser';
@@ -62,6 +63,7 @@ app.use('/api/ai', aiRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/branches', branchesRouter);
+app.use('/api/notifications', notificationsRouter);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
