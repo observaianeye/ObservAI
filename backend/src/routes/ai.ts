@@ -125,7 +125,10 @@ async function getAvailableOllamaModel(ollamaUrl: string): Promise<string | null
   }
 }
 
-export async function callOllama(prompt: string): Promise<{ response: string; model: string }> {
+export async function callOllama(
+  prompt: string,
+  opts?: { maxTokens?: number; temperature?: number }
+): Promise<{ response: string; model: string }> {
   const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
   const model = await getAvailableOllamaModel(OLLAMA_URL);
 
@@ -140,7 +143,11 @@ export async function callOllama(prompt: string): Promise<{ response: string; mo
       model,
       prompt,
       stream: false,
-      options: { temperature: 0.5, num_predict: 1024 }
+      options: {
+        temperature: opts?.temperature ?? 0.4,
+        num_predict: opts?.maxTokens ?? 1024,
+        num_gpu: parseInt(process.env.OLLAMA_NUM_GPU || '999', 10),
+      }
     })
   });
 
@@ -195,7 +202,7 @@ router.post('/chat', async (req: Request, res: Response) => {
     // Try Ollama first (default), fall back to Gemini
     if (AI_PROVIDER === 'ollama') {
       try {
-        const { response: aiResponse, model: modelName } = await callOllama(contextPrompt);
+        const { response: aiResponse, model: modelName } = await callOllama(contextPrompt, { maxTokens: 512, temperature: 0.4 });
         return res.json({
           message: aiResponse,
           timestamp: new Date().toISOString(),
@@ -635,37 +642,41 @@ async function getZoneInsights(): Promise<string | null> {
 
 /**
  * Build the full context prompt for the AI model (Ollama or Gemini).
- * Provides structured analytics data and bilingual instructions.
+ * Optimized for speed, data accuracy, and bilingual quality.
  */
 function buildContextPrompt(userMessage: string, analyticsContext: string): string {
-  return `You are an AI assistant for ObservAI, a real-time camera analytics platform for cafes and restaurants.
-Your role is to help cafe/restaurant managers understand their visitor data and make informed business decisions.
+  // Detect language from user message (simple heuristic)
+  const turkishChars = /[çğıöşüÇĞİÖŞÜ]/;
+  const turkishWords = /\b(merhaba|nasıl|nedir|kaç|kişi|bugün|şu an|müşteri|ziyaretçi|analiz|durum|hava|kuyruk|bekleme|yoğun|saat|cinsiyet|yaş|kadın|erkek|öneri|rapor|kafe)\b/i;
+  const isTurkish = turkishChars.test(userMessage) || turkishWords.test(userMessage);
 
-IMPORTANT LANGUAGE RULE:
-- Detect the language of the user's question below.
-- If the user writes in Turkish, respond ENTIRELY in Turkish.
-- If the user writes in English, respond ENTIRELY in English.
-- Do NOT mix languages.
+  const langInstruction = isTurkish
+    ? `DİL: Tamamen Türkçe yanıt ver. Doğal, akıcı Türkçe kullan.`
+    : `LANGUAGE: Respond entirely in English. Use natural, fluent English.`;
 
-You have access to the following REAL-TIME analytics data from the venue:
+  const roleInstruction = isTurkish
+    ? `Sen ObservAI platformunun kafe/restoran analitik asistanısın. Yöneticilere verilere dayalı, uygulanabilir öneriler sunuyorsun.`
+    : `You are ObservAI's cafe/restaurant analytics assistant. You provide data-driven, actionable advice to managers.`;
 
+  return `${roleInstruction}
+
+${langInstruction}
+
+ANALYTICS DATA:
 ${analyticsContext}
+---
 
-=== END OF DATA ===
+QUESTION: ${userMessage}
 
-User Question: ${userMessage}
+RULES:
+- Use ONLY the data above. Quote exact numbers (e.g. "23 visitors", "4.2 min wait").
+- Maximum 4 sentences. Be direct, no filler.
+- If data is insufficient, say what IS available.
+- Suggest 1 concrete action when relevant (staffing, queue, layout, marketing).
+- Correlate weather with traffic if weather data exists.
+- For demographics: suggest targeted actions based on dominant group.
 
-Response Guidelines:
-1. Answer based ONLY on the analytics data provided above.
-2. Be concise and actionable (3-5 sentences).
-3. Use specific numbers and metrics from the data (e.g., "12 visitors entered", "average wait 4.2 min").
-4. If the data doesn't contain enough info for the question, explain what data IS available and suggest what to track.
-5. Focus on actionable insights: staffing decisions, queue management, marketing timing, layout optimization.
-6. When weather data is available, correlate it with visitor patterns (e.g., rain -> fewer visitors).
-7. When demographic data is available, suggest targeted marketing or product placement.
-8. For queue alerts, suggest concrete actions (open new register, redirect traffic, etc.).
-
-Answer:`;
+ANSWER:`;
 }
 
 export default router;

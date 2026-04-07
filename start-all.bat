@@ -84,6 +84,75 @@ if not exist "packages\camera-analytics\venv" (
 echo %GREEN%✓ All dependencies installed%NC%
 echo.
 
+REM ══════════════════════════════════════════════════════════════
+REM  OLLAMA — Check, Start, and Ensure Model is Ready
+REM ══════════════════════════════════════════════════════════════
+
+echo %BLUE%Checking Ollama AI service...%NC%
+
+REM Read preferred model from backend/.env or fallback
+set "OLLAMA_MODEL=llama3.1:8b"
+if exist "backend\.env" for /f "tokens=2 delims==" %%M in ('findstr /I "^OLLAMA_MODEL=" "backend\.env" 2^>nul') do set "OLLAMA_MODEL=%%M"
+
+REM Check if ollama is installed
+where ollama >nul 2>&1
+if errorlevel 1 (
+    echo %YELLOW%  Ollama not found. AI chatbot will not work. Install from: https://ollama.ai%NC%
+    goto :skip_ollama
+)
+
+REM Check if Ollama is already running
+curl -s -o nul http://localhost:11434/ >nul 2>&1
+if not errorlevel 1 (
+    echo       %GREEN%Ollama is already running.%NC%
+    goto :ollama_check_model
+)
+
+REM Ollama is not running — start it
+echo       %YELLOW%Ollama is not running. Starting...%NC%
+start "ObservAI Ollama" /min cmd /c "ollama serve > "%SCRIPT_DIR%logs\ollama.log" 2>&1"
+
+REM Wait for Ollama to become ready - max 15 seconds
+set "OLLAMA_READY=0"
+:ollama_wait_loop
+if !OLLAMA_READY! GEQ 15 goto :ollama_wait_done
+curl -s -o nul http://localhost:11434/ >nul 2>&1
+if not errorlevel 1 goto :ollama_started_ok
+timeout /t 1 /nobreak >nul
+set /a OLLAMA_READY+=1
+goto :ollama_wait_loop
+
+:ollama_started_ok
+echo       %GREEN%Ollama started successfully.%NC%
+goto :ollama_check_model
+
+:ollama_wait_done
+echo %RED%Ollama failed to start within 15 seconds.%NC%
+echo %YELLOW%   AI chatbot and insights will not work.%NC%
+goto :skip_ollama
+
+:ollama_check_model
+REM Check if the required model is available
+ollama list 2>nul | findstr /I "!OLLAMA_MODEL!" >nul 2>&1
+if not errorlevel 1 (
+    echo       %GREEN%Model !OLLAMA_MODEL! is ready.%NC%
+    goto :ollama_done
+)
+
+echo       %YELLOW%Model !OLLAMA_MODEL! not found. Downloading - this may take a few minutes...%NC%
+ollama pull !OLLAMA_MODEL!
+if errorlevel 1 (
+    echo %RED%Failed to download model !OLLAMA_MODEL!.%NC%
+    goto :skip_ollama
+)
+echo       %GREEN%Model !OLLAMA_MODEL! downloaded successfully.%NC%
+
+:ollama_done
+echo %GREEN%Ollama AI ready%NC%
+echo.
+
+:skip_ollama
+
 REM Start services
 echo %CYAN%╔════════════════════════════════════════════════════════════╗%NC%
 echo %CYAN%║                  Starting Services...                      ║%NC%
@@ -162,12 +231,14 @@ echo %CYAN%║                 ✅ All Services Started                    ║%N
 echo %CYAN%╚════════════════════════════════════════════════════════════╝%NC%
 echo.
 echo %GREEN%📍 Service URLs:%NC%
+echo    %BLUE%Ollama AI:       %NC%http://localhost:11434
 echo    %BLUE%Frontend:        %NC%http://localhost:5173
 echo    %BLUE%Backend API:     %NC%http://localhost:3001
 echo    %BLUE%Camera AI:       %NC%ws://0.0.0.0:5001
 echo    %BLUE%Prisma Studio:   %NC%http://localhost:5555
 echo.
 echo %GREEN%📝 Logs:%NC%
+echo    %BLUE%Ollama AI:       %NC%type logs\ollama.log
 echo    %BLUE%Frontend:        %NC%type logs\frontend.log
 echo    %BLUE%Backend API:     %NC%type logs\backend-api.log
 echo    %BLUE%Camera AI:       %NC%type logs\camera-ai.log

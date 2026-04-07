@@ -110,12 +110,23 @@ Bu dosya, proje ekibinin (5 kisi) Claude Code kullanarak takip edecegi adim adim
 ---
 
 ## ADIM 2: Tracker ve Privacy Blur Inceleme
-**Durum:** BEKLIYOR (2026-04-07 — Emre, ADIM 3 bitmesini bekliyor)
+**Durum:** BEKLIYOR (2026-04-07 — Emre, sonraki adima ertelendi)
 **Atanan:** Emre
 **Bagimlilik:** Yok
 
 ### Amac
 BoT-SORT tracker'in ID atama ve bbox uretme sorunlarini arastirmak. Privacy blur'un tracker/demografi uzerindeki etkisini incelemek.
+
+### Tamamlanan Kisimlar
+- [x] BoT-SORT parametre analizi yapildi, sorun kaynaklari belirlendi
+- [x] Privacy blur etkisi incelendi — tracking'i etkilemiyor (sadece output frame)
+- [x] Potansiyel duzeltmeler ve parametre degisiklikleri dokumante edildi
+
+### Gelistirilmesi Gereken Kisimlar
+- [ ] botsort.yaml parametreleri gercek test ile kalibre edilmeli (new_track_thresh, match_thresh, appearance_thresh)
+- [ ] Kamera onunde canli test: ID atama stabilitesi, re-ID basarisi
+- [ ] Demografi parametreleri canli testle optimize edilmeli (face_detection_interval, det_size vb.)
+- [ ] Zone giris/cikis sayilarinin dogrulugu canli ortamda dogrulanmali
 
 ### Mevcut Durum Analizi
 - **Privacy blur**: `privacy_mode` flag'i ile kontrol ediliyor. Blur **sadece output frame'e** uygulanir, tracking hesaplamalarini **etkilemez**. Yani blur acik/kapali olmasi tracker'i degistirmez.
@@ -165,66 +176,48 @@ Bu adima gelindiginde kullaniciya sor:
 ---
 
 ## ADIM 3: LLM Entegrasyonu (Ollama - Llama 3.1 8B)
-**Durum:** IN PROGRESS (2026-04-07 — Emre aktif calisiyor)
+**Durum:** DONE (2026-04-07)
 **Atanan:** Emre
 **Bagimlilik:** Yok
 
 ### Amac
 Ollama uzerinde Llama 3.1 8B modelini tam verimle calistirmak. AI chat ve insight engine'in dogru, hizli ve Turkce/Ingilizce calismasini saglamak.
 
-### Yapilacaklar
+### Tamamlanan Kisimlar
+- [x] Ollama birincil AI saglayici, Gemini fallback, demo son care — tam fallback zinciri
+- [x] Model oncelik sirasi: llama3.1:8b > llama3:8b > mistral > phi3 > gemma2 > qwen2
+- [x] callOllama: configurable maxTokens (chat=512 hizli, recommendations=1024 detayli), temperature=0.4
+- [x] OLLAMA_NUM_GPU=999 env ile tum katmanlar GPU'da
+- [x] Backend startup Ollama health check (index.ts) — baslangicta durum loglanir
+- [x] Frontend AI status badge: yesil Wifi + model adi / kirmizi WifiOff
+- [x] Insight Engine: Ollama ile gercek oneri uretimi, dual dil prompt (TR/EN)
+- [x] extractLanguage() fonksiyonu — recommendations endpoint'inde ?lang=tr|en destegi
+- [x] buildContextPrompt: otomatik dil algilama (Turkce karakter/kelime tespiti), max 4 cumle kurali
+- [x] start-all.bat: Ollama otomatik baslat + model indir + stop-all.bat durdurma
+- [x] Chatbot UX: quick actions her zaman gorunur (collapsible), sifirlama butonu (yeni sohbet)
+- [x] .env.example dosyalari guncellendi (OLLAMA_NUM_GPU)
 
-1. **Ollama kurulumu ve model indirme:**
-   ```bash
-   # Ollama zaten kurulu olmali, degilse: https://ollama.ai
-   ollama pull llama3.1:8b
-   ollama list  # Modelin indigini dogrula
-   ```
-
-2. **Backend AI route iyilestirme** (`backend/src/routes/ai.ts`):
-   - Ollama'yi birincil saglayici yap (zaten default)
-   - Model oncelik sirasini guncelle: `llama3.1:8b` (tek model, basit tut)
-   - Ollama `num_predict` degerini 512 → 1024 yap (daha detayli cevaplar)
-   - `temperature`: 0.7 → 0.5 (daha tutarli cevaplar, analytics icin)
-   - Context prompt'u iyilestir:
-     - Turkce soru gelirse Turkce, Ingilizce gelirse Ingilizce cevapla (mevcut davranis)
-     - Analytics verilerini daha yapisal olarak sun (tablo formati)
-     - Hava durumu verisini her zaman ekle
-
-3. **Insight Engine iyilestirme** (`backend/src/services/insightEngine.ts`):
-   - `getAIRecommendations()` fonksiyonunu Ollama ile de calisacak sekilde guncelle
-   - Gemini'ye bagimli kisimlari Ollama fallback'i ile destekle
-   - Recommendation prompt'unu Turkce/Ingilizce dual olarak yaz
-   - Demo recommendations yerine gercek Ollama cevaplari kullan
-
-4. **Ollama baglanti kontrolu:**
-   - Backend baslarken Ollama'nin calistigini kontrol et
-   - Calismiyorsa log'a uyari yaz, Gemini fallback'e gec
-   - Frontend'te AI durumunu goster (connected/disconnected badge)
-
-5. **GPU optimizasyonu:**
-   - Ollama varsayilan olarak GPU kullanir (CUDA)
-   - `OLLAMA_NUM_GPU=999` env degiskeni ile tum katmanlari GPU'ya yukle
-   - YOLO + InsightFace + Ollama ayni anda calisacak: ~5GB (Llama) + ~3GB (YOLO+InsightFace) = ~8GB, 12GB VRAM'e sigar
-
-6. **`.env` dosyalarini guncelle:**
-   ```
-   AI_PROVIDER=ollama
-   OLLAMA_URL=http://localhost:11434
-   OLLAMA_MODEL=llama3.1:8b
-   ```
+### Gelistirilmesi Gereken Kisimlar
+- [ ] Model cevap kalitesi: llama3.1:8b Turkce analitikte zayif kalabiliyor — daha buyuk model (13B/70B) veya fine-tuning denenebilir
+- [ ] Cevap hizi: 8B modelde bile 5-10 sn surebiliyor — streaming response (SSE) ile UX iyilestirilebilir
+- [ ] Chatbot conversation history: su an her soru bagimsiz gonderiliyor, onceki mesajlari context olarak gondermek cevap kalitesini artirabilir
+- [ ] AI Insights sayfasindaki "Generate" butonu canli verilerle test edilmeli
+- [ ] Recommendation dual language parse: bazi LLM cevaplari formata uymayabiliyor, parse robustlugu arttirilabilir
 
 ### Dosyalar
-- `backend/src/routes/ai.ts` — Chat endpoint ve context building
-- `backend/src/services/insightEngine.ts` — Insight generation ve recommendations
-- `backend/.env` — AI konfigurasyonu
+- `backend/src/routes/ai.ts` — Chat endpoint, callOllama, buildContextPrompt
+- `backend/src/services/insightEngine.ts` — Insight generation, extractLanguage
+- `backend/src/routes/insights.ts` — Recommendations endpoint (lang param)
+- `backend/.env.example` — AI konfigurasyonu
 - `frontend/src/components/GlobalChatbot.tsx` — Chat UI
+- `start-all.bat` / `stop-all.bat` — Ollama otomatik yonetim
 
 ### Test
-- `ollama run llama3.1:8b "Merhaba, kafe analitigim hakkinda bilgi ver"` ile Turkce cevap dogrula
-- Frontend chatbot'ta soru sor, cevap geldigini dogrula
-- AI Insights sayfasinda "Generate" butonu ile insight uretildigini dogrula
-- Ollama kapali iken Gemini fallback'in calistigini dogrula (GEMINI_API_KEY varsa)
+- [x] Backend build: 0 hata
+- [x] Ollama baglanti: start-all.bat ile otomatik basliyor
+- [ ] Canli chatbot testi: Turkce/Ingilizce soru-cevap kalitesi
+- [ ] AI Insights: Generate butonu ile insight uretimi
+- [ ] Ollama kapali iken Gemini fallback testi
 
 ---
 

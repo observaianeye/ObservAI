@@ -60,13 +60,22 @@ for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":3001" 2^>nul') do (
     )
 )
 
+REM Kill Ollama (Port 11434)
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":11434" 2^>nul') do (
+    set "PID=%%P"
+    if defined PID (
+        echo %GREEN%🤖 Stopping Ollama AI (Port 11434)... PID: !PID!%NC%
+        taskkill /F /PID !PID! >nul 2>&1
+    )
+)
+
 REM Wait for graceful shutdown
 timeout /t 2 /nobreak >nul
 
 REM Force kill if any process is still running
 echo %YELLOW%🔄 Verifying shutdown...%NC%
 
-for %%P in (3001 5001 5173 5555) do (
+for %%P in (3001 5001 5173 5555 11434) do (
     for /f "tokens=5" %%Q in ('netstat -ano ^| findstr ":%%P" 2^>nul') do (
         set "PID=%%Q"
         if defined PID (
@@ -82,7 +91,7 @@ echo.
 
 REM Verify ports are free
 echo %CYAN%📍 Port Status:%NC%
-for %%P in (3001 5001 5173 5555) do (
+for %%P in (3001 5001 5173 5555 11434) do (
     netstat -ano | findstr ":%%P" >nul 2>&1
     if errorlevel 1 (
         echo    %GREEN%Port %%P: FREE%NC%
