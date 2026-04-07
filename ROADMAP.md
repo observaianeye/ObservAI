@@ -222,8 +222,8 @@ Ollama uzerinde Llama 3.1 8B modelini tam verimle calistirmak. AI chat ve insigh
 ---
 
 ## ADIM 4: Bildirim Sistemi (Telegram + Email + In-App)
-**Durum:** TODO
-**Atanan:** -
+**Durum:** IN PROGRESS (2026-04-07 — Emre aktif calisiyor)
+**Atanan:** Emre
 **Bagimlilik:** ADIM 2 (tracker duzeltmesi, dogru alert verisi icin)
 
 ### Amac
