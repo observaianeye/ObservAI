@@ -110,7 +110,7 @@ Bu dosya, proje ekibinin (5 kisi) Claude Code kullanarak takip edecegi adim adim
 ---
 
 ## ADIM 2: Tracker ve Privacy Blur Inceleme
-**Durum:** IN PROGRESS (2026-04-06)
+**Durum:** BEKLIYOR (2026-04-07 — Emre, ADIM 3 bitmesini bekliyor)
 **Atanan:** Emre
 **Bagimlilik:** Yok
 
@@ -165,7 +165,7 @@ Bu adima gelindiginde kullaniciya sor:
 ---
 
 ## ADIM 3: LLM Entegrasyonu (Ollama - Llama 3.1 8B)
-**Durum:** IN PROGRESS (2026-04-06)
+**Durum:** IN PROGRESS (2026-04-07 — Emre aktif calisiyor)
 **Atanan:** Emre
 **Bagimlilik:** Yok
 
