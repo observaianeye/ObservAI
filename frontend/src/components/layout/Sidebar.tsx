@@ -9,7 +9,10 @@ import {
   HelpCircle,
   X,
   Settings,
-  Activity
+  Activity,
+  LayoutGrid,
+  BarChart3,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import HelpCenter from '../HelpCenter';
@@ -23,6 +26,9 @@ interface SidebarProps {
 
 const managerMenuItems = [
   { path: '/dashboard', label: 'Analytics Dashboard', icon: LayoutDashboard },
+  { path: '/dashboard/tables', label: 'Masa Durumu', icon: LayoutGrid },
+  { path: '/dashboard/trends', label: 'Trend Analizi', icon: BarChart3 },
+  { path: '/dashboard/staffing', label: 'Personel Planlama', icon: Users },
   { path: '/dashboard/zone-labeling', label: 'Zone Labeling', icon: Camera },
   { path: '/dashboard/camera-selection', label: 'Camera Selection', icon: Video },
   { path: '/dashboard/ai-insights', label: 'AI Insights', icon: Sparkles },
@@ -35,7 +41,8 @@ const employeeMenuItems = managerMenuItems;
 
 export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const location = useLocation();
-  const { userRole } = useAuth();
+  const { user } = useAuth();
+  const userRole = user?.role?.toLowerCase() || 'manager';
   const [showHelpCenter, setShowHelpCenter] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 

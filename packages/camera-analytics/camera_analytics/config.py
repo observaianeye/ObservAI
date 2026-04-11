@@ -77,6 +77,11 @@ class AnalyticsConfig:
   bbox_smoothing_alpha_min: float = 0.2
   bbox_smoothing_alpha_max: float = 0.9
 
+  # Table occupancy tracking
+  table_needs_cleaning_timeout: float = 60.0   # seconds after person leaves → "needs_cleaning"
+  table_empty_timeout: float = 180.0           # seconds after "needs_cleaning" → "empty"
+  table_long_occupancy_alert: float = 5400.0   # 90 min → alert "check on table"
+
 
 def _load_normalized_point(raw: Sequence[float]) -> NormalizedPoint:
   if len(raw) != 2:
@@ -164,4 +169,8 @@ def load_config(path: Path) -> AnalyticsConfig:
     # Bbox smoothing
     bbox_smoothing_alpha_min=float(data.get("bbox_smoothing_alpha_min", 0.2)),
     bbox_smoothing_alpha_max=float(data.get("bbox_smoothing_alpha_max", 0.9)),
+    # Table occupancy tracking
+    table_needs_cleaning_timeout=float(data.get("table_needs_cleaning_timeout", 60.0)),
+    table_empty_timeout=float(data.get("table_empty_timeout", 180.0)),
+    table_long_occupancy_alert=float(data.get("table_long_occupancy_alert", 5400.0)),
   )

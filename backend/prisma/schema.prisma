@@ -225,6 +225,39 @@ model Insight {
   @@map("insights")
 }
 
+// Table occupancy events (status transitions for TABLE zones)
+model TableEvent {
+  id        String   @id @default(uuid())
+  zoneId    String
+  status    String   // "occupied" | "needs_cleaning" | "empty"
+  startTime DateTime
+  endTime   DateTime?
+  occupants Int      @default(0)
+  duration  Float?   // seconds
+  cameraId  String
+  createdAt DateTime @default(now())
+
+  @@index([zoneId, startTime])
+  @@index([cameraId, createdAt])
+  @@map("table_events")
+}
+
+// Staff shift tracking for personnel optimization
+model StaffShift {
+  id         String   @id @default(uuid())
+  branchId   String
+  date       DateTime
+  hour       Int      // 0-23
+  staffCount Int
+  createdBy  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([branchId, date, hour])
+  @@index([branchId, date])
+  @@map("staff_shifts")
+}
+
 // Historical analytics aggregates (for faster queries)
 model AnalyticsSummary {
   id        String   @id @default(uuid())

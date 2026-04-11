@@ -25,6 +25,9 @@ const AIInsightsPage = lazy(() => import('./pages/dashboard/AIInsightsPage'));
 const HistoricalAnalyticsPage = lazy(() => import('./pages/dashboard/HistoricalAnalyticsPage'));
 const NotificationsPage = lazy(() => import('./pages/dashboard/NotificationsPage'));
 const SettingsPage = lazy(() => import('./pages/dashboard/SettingsPage'));
+const TableOccupancyPage = lazy(() => import('./pages/dashboard/TableOccupancyPage'));
+const TrendsPage = lazy(() => import('./pages/dashboard/TrendsPage'));
+const StaffingPage = lazy(() => import('./pages/dashboard/StaffingPage'));
 
 function App() {
   return (
@@ -96,6 +99,30 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <DashboardLayout><SettingsPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/tables"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><TableOccupancyPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/trends"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><TrendsPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/staffing"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><StaffingPage /></DashboardLayout>
                   </ProtectedRoute>
                 }
               />

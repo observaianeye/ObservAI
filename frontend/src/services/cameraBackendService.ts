@@ -61,7 +61,18 @@ export interface AnalyticsData {
     totalVisitors: number;
     avgDwellTime: number;
   }>;
+  tables?: TableData[];
   fps: number;
+}
+
+export interface TableData {
+  id: string;
+  name: string;
+  status: 'empty' | 'occupied' | 'needs_cleaning';
+  currentOccupants: number;
+  avgStaySeconds: number;
+  occupancyDuration: number;
+  turnoverCount: number;
 }
 
 export interface Zone {
@@ -71,7 +82,7 @@ export interface Zone {
   y: number;
   width: number;
   height: number;
-  type: 'entrance' | 'exit' | 'queue';
+  type: 'entrance' | 'exit' | 'queue' | 'table';
   color: string;
 }
 

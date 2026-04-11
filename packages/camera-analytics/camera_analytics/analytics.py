@@ -525,6 +525,15 @@ class CameraAnalyticsEngine:
     self.zone_active_members: Dict[str, Dict[int, float]] = defaultdict(dict)
     self.zone_completed_durations: Dict[str, list[float]] = defaultdict(list)
 
+    # Table occupancy state machine
+    self.table_status: Dict[str, str] = {}           # zone_id → "empty"|"occupied"|"needs_cleaning"
+    self.table_left_at: Dict[str, float] = {}        # zone_id → timestamp when last person left
+    self.table_turnover: Dict[str, int] = {}         # zone_id → occupy→leave cycle count
+    self.table_occupy_start: Dict[str, float] = {}   # zone_id → when current occupancy began
+    for tid in self.table_ids:
+      self.table_status[tid] = "empty"
+      self.table_turnover[tid] = 0
+
     # Zone insights tracking (track IDs that have already triggered insights)
     self.zone_insight_triggered: Dict[str, set[int]] = defaultdict(set)
     self.zone_insight_threshold = 600.0  # 10 minutes in seconds
@@ -546,12 +555,14 @@ class CameraAnalyticsEngine:
   def update_zones(self, zones_data: List[Dict]) -> None:
     """
     Update zone definitions dynamically from the frontend.
-    Thread-safe zone update.
+    Thread-safe zone update. Now respects zone type for table/queue semantics.
     """
     print(f"[INFO] Updating {len(zones_data)} zones dynamically...")
-    
+
     new_zones = {}
-    
+    new_table_ids = []
+    new_queue_id = None
+
     for zd in zones_data:
         # Frontend provides rect: x, y, width, height (normalized)
         # Backend needs polygon: [(x,y), (x+w,y), (x+w,y+h), (x,y+h)]
@@ -559,29 +570,49 @@ class CameraAnalyticsEngine:
         w, h = float(zd.get('width', 0)), float(zd.get('height', 0))
         zone_id = str(zd.get('id', 'unknown'))
         name = zd.get('name', f"Zone {zone_id}")
-        
+        zone_type = str(zd.get('type', 'entrance')).lower()
+
         polygon = [
             (x, y),
             (x + w, y),
             (x + w, y + h),
             (x, y + h)
         ]
-        
+
         new_zones[zone_id] = Zone(
             id=zone_id,
             name=name,
             polygon=polygon
         )
-        
+
+        # Route zone to correct category based on type
+        if zone_type == 'table':
+            new_table_ids.append(zone_id)
+        elif zone_type == 'queue':
+            new_queue_id = zone_id
+
     # Use frame lock to ensure we don't swap zones while processing a frame
-    # Although processing uses its own local vars mostly, it reads self.zone_definitions
     with self._frame_lock:
         self.zone_definitions = new_zones
-        # Also update table_ids and queue_id if necessary, but for now we just treat all as generic zones
-        # If we wanted to preserve "queue" or "table" semantics we'd need type info from frontend
-        self.table_ids = list(new_zones.keys())
-        
-    print(f"[INFO] ✓ Zones updated: {[z.name for z in new_zones.values()]}")
+        self.table_ids = new_table_ids
+        if new_queue_id:
+            self.queue_id = new_queue_id
+
+        # Initialize state for new tables
+        for tid in new_table_ids:
+            if tid not in self.table_status:
+                self.table_status[tid] = "empty"
+                self.table_turnover[tid] = 0
+        # Clean up removed tables
+        for old_tid in list(self.table_status.keys()):
+            if old_tid not in new_table_ids:
+                self.table_status.pop(old_tid, None)
+                self.table_turnover.pop(old_tid, None)
+                self.table_left_at.pop(old_tid, None)
+                self.table_occupy_start.pop(old_tid, None)
+
+    table_names = [new_zones[tid].name for tid in new_table_ids if tid in new_zones]
+    print(f"[INFO] ✓ Zones updated: {[z.name for z in new_zones.values()]} | Tables: {table_names}")
 
   def stop(self) -> None:
     """Stop the analytics engine"""
@@ -2336,7 +2367,8 @@ class CameraAnalyticsEngine:
       person.active_zones.pop(zone_id, None)
 
   def _check_zone_insights(self, now: float) -> List[Dict[str, object]]:
-    """Check for persons who have been in zones for >10 minutes and generate insights"""
+    """Check for persons who have been in zones for >10 minutes and generate insights.
+    Also generates table-specific alerts (long occupancy, needs cleaning)."""
     insights = []
 
     for zone_id, active_members in self.zone_active_members.items():
@@ -2371,6 +2403,48 @@ class CameraAnalyticsEngine:
               }
 
             insights.append(insight)
+
+    # Table-specific alerts
+    alert_threshold = self.config.table_long_occupancy_alert
+    for table_id in self.table_ids:
+      zone = self.zone_definitions.get(table_id)
+      if not zone:
+        continue
+      table_name = getattr(zone, 'name', table_id)
+
+      # Long occupancy alert
+      occ_start = self.table_occupy_start.get(table_id)
+      if occ_start:
+        occ_duration = now - occ_start
+        alert_key = f"table_long_{table_id}"
+        if occ_duration >= alert_threshold and alert_key not in self.zone_insight_triggered.get("__table_alerts__", set()):
+          self.zone_insight_triggered.setdefault("__table_alerts__", set()).add(alert_key)
+          insights.append({
+            "zoneId": table_id,
+            "zoneName": table_name,
+            "personId": "table_alert",
+            "duration": occ_duration,
+            "timestamp": now,
+            "type": "table_long_occupancy",
+            "message": f"{table_name} {int(occ_duration / 60)} dakikadir dolu — hesap sorulmali"
+          })
+
+      # Needs cleaning alert (3+ minutes)
+      left_at = self.table_left_at.get(table_id)
+      if left_at:
+        clean_duration = now - left_at
+        clean_key = f"table_clean_{table_id}_{int(left_at)}"
+        if clean_duration >= 180 and clean_key not in self.zone_insight_triggered.get("__table_alerts__", set()):
+          self.zone_insight_triggered.setdefault("__table_alerts__", set()).add(clean_key)
+          insights.append({
+            "zoneId": table_id,
+            "zoneName": table_name,
+            "personId": "table_alert",
+            "duration": clean_duration,
+            "timestamp": now,
+            "type": "table_needs_cleaning",
+            "message": f"{table_name} bosaldi, {int(clean_duration / 60)} dakikadir temizlenmedi"
+          })
 
     return insights
 
@@ -2682,6 +2756,42 @@ class CameraAnalyticsEngine:
     if self.frame_count % 90 == 0:
       print(f"[DEMO] Applied: {len(demo_results)} detected, {matched} applied to tracks", flush=True)
 
+  def _update_table_status(self, now: float) -> None:
+    """Update table occupancy state machine for each TABLE zone."""
+    cleaning_timeout = self.config.table_needs_cleaning_timeout
+    empty_timeout = self.config.table_empty_timeout
+
+    for table_id in self.table_ids:
+      if table_id not in self.zone_definitions:
+        continue
+      occupants = len(self.zone_active_members.get(table_id, {}))
+
+      if occupants > 0:
+        self.table_status[table_id] = "occupied"
+        if table_id not in self.table_occupy_start:
+          self.table_occupy_start[table_id] = now
+        self.table_left_at.pop(table_id, None)
+      else:
+        # Person just left — start cleanup timer
+        if table_id in self.table_occupy_start:
+          self.table_turnover.setdefault(table_id, 0)
+          self.table_turnover[table_id] += 1
+          del self.table_occupy_start[table_id]
+          self.table_left_at[table_id] = now
+
+        left_at = self.table_left_at.get(table_id)
+        if left_at is not None:
+          elapsed = now - left_at
+          if elapsed < cleaning_timeout:
+            self.table_status[table_id] = "needs_cleaning"
+          elif elapsed < empty_timeout:
+            self.table_status[table_id] = "needs_cleaning"
+          else:
+            self.table_status[table_id] = "empty"
+            self.table_left_at.pop(table_id, None)
+        else:
+          self.table_status[table_id] = "empty"
+
   def _build_metrics(self) -> CameraMetrics:
     # Decay heatmap over time
     self.heatmap *= 0.9
@@ -2746,6 +2856,9 @@ class CameraAnalyticsEngine:
       longest = float(np.max(durations)) if durations else 0.0
       metrics.queue = QueueSnapshot(active_count, avg_wait, longest)
 
+    # Update table occupancy state machine
+    self._update_table_status(now)
+
     table_snapshots: list[TableSnapshot] = []
 
     zone_snapshots: list[ZoneSnapshot] = []
@@ -2753,7 +2866,7 @@ class CameraAnalyticsEngine:
         durations = self.zone_completed_durations[zid]
         active = len(self.zone_active_members[zid])
         avg = float(np.mean(durations)) if durations else 0.0
-        
+
         zone_snapshots.append(ZoneSnapshot(
             id=zid,
             name=zone.name or zid,
@@ -2762,18 +2875,30 @@ class CameraAnalyticsEngine:
             avg_dwell_time=avg
         ))
     metrics.zones = zone_snapshots
-    for table in self.config.tables:
-      durations = self.zone_completed_durations[table.id]
-      active = len(self.zone_active_members[table.id])
+
+    # Build table snapshots from table_ids (populated by update_zones or config)
+    for table_id in self.table_ids:
+      if table_id not in self.zone_definitions:
+        continue
+      zone = self.zone_definitions[table_id]
+      durations = self.zone_completed_durations[table_id]
+      active = len(self.zone_active_members.get(table_id, {}))
       avg = float(np.mean(durations)) if durations else 0.0
       longest = float(np.max(durations)) if durations else 0.0
+
+      occ_start = self.table_occupy_start.get(table_id)
+      occ_duration = (now - occ_start) if occ_start else 0.0
+
       table_snapshots.append(
         TableSnapshot(
-          id=table.id,
-          name=table.name,
+          id=table_id,
+          name=zone.name,
           current_occupants=active,
           avg_stay_seconds=avg,
           longest_stay_seconds=longest,
+          status=self.table_status.get(table_id, "empty"),
+          occupancy_duration=occ_duration,
+          turnover_count=self.table_turnover.get(table_id, 0),
         )
       )
     metrics.tables = table_snapshots
@@ -2861,6 +2986,17 @@ class CameraAnalyticsEngine:
           "totalVisitors": _n(z.total_visitors),
           "avgDwellTime": round(float(z.avg_dwell_time), 1)
         } for z in metrics.zones
+      ],
+      "tables": [
+        {
+          "id": t.id,
+          "name": t.name,
+          "status": t.status,
+          "currentOccupants": _n(t.current_occupants),
+          "avgStaySeconds": round(float(t.avg_stay_seconds), 1),
+          "occupancyDuration": round(float(t.occupancy_duration), 1),
+          "turnoverCount": _n(t.turnover_count),
+        } for t in metrics.tables
       ],
       "fps": round(float(metrics.fps), 1),
     }

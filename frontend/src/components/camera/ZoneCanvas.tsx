@@ -250,8 +250,14 @@ export default function ZoneCanvas() {
     setZones(zones.map(z => z.id === id ? { ...z, name } : z));
   };
 
-  const updateZoneType = (id: string, type: 'entrance' | 'exit' | 'queue') => {
-    const color = type === 'entrance' ? '#3b82f6' : type === 'exit' ? '#ef4444' : '#f59e0b';
+  const updateZoneType = (id: string, type: 'entrance' | 'exit' | 'queue' | 'table') => {
+    const colorMap: Record<string, string> = {
+      entrance: '#3b82f6',
+      exit: '#ef4444',
+      queue: '#f59e0b',
+      table: '#10b981',
+    };
+    const color = colorMap[type] || '#3b82f6';
     setZones(zones.map(z => z.id === id ? { ...z, type, color } : z));
   };
 
@@ -295,7 +301,7 @@ export default function ZoneCanvas() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-400">Zone Labeling</h2>
-          <p className="text-sm text-gray-400 mt-1">Draw rectangles to define entrance and exit zones on your camera view</p>
+          <p className="text-sm text-gray-400 mt-1">Kamera görüntüsü üzerinde giriş, çıkış, kuyruk ve masa bölgeleri tanımlayın</p>
         </div>
         <div className="flex items-center space-x-3">
           <button onClick={loadZones} className="p-2 text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded-lg" title="Reload Zones">
@@ -450,6 +456,10 @@ export default function ZoneCanvas() {
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }}></div>
                 <span className="text-gray-300">Queue Zone</span>
               </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#10b981' }}></div>
+                <span className="text-gray-300">Table Zone</span>
+              </div>
             </div>
             <div className="text-xs text-gray-400">
               {zones.length} zone{zones.length !== 1 ? 's' : ''} defined
@@ -496,13 +506,14 @@ export default function ZoneCanvas() {
                     </div>
                     <select
                       value={zone.type}
-                      onChange={(e) => updateZoneType(zone.id, e.target.value as 'entrance' | 'exit' | 'queue')}
+                      onChange={(e) => updateZoneType(zone.id, e.target.value as 'entrance' | 'exit' | 'queue' | 'table')}
                       className="w-full text-xs px-2 py-1 border border-blue-500/30 bg-gray-800/50 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <option value="entrance">Entrance</option>
                       <option value="exit">Exit</option>
                       <option value="queue">Queue</option>
+                      <option value="table">Masa (Table)</option>
                     </select>
                   </div>
                 ))}

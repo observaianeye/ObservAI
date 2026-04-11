@@ -97,3 +97,11 @@ zone_exit_debounce_frames: 5
 # Bbox smoothing EMA alpha range (lower min = heavier smoothing for stationary)
 bbox_smoothing_alpha_min: 0.2
 bbox_smoothing_alpha_max: 0.9
+
+# Table occupancy tracking
+# Kişi masadan kalktıktan sonra "temizlik bekliyor" süresi (saniye)
+table_needs_cleaning_timeout: 60
+# "Temizlik bekliyor" → "boş" geçiş süresi (saniye)
+table_empty_timeout: 180
+# Uzun oturma uyarısı (saniye, 90 dakika = 5400)
+table_long_occupancy_alert: 5400
