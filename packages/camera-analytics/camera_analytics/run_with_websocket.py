@@ -152,7 +152,7 @@ class CameraAnalyticsWithWebSocket:
             def _load_estimator():
                 try:
                     estimator = EstimatorFactory.create_estimator()
-                    estimator.prepare(ctx_id=0, det_size=(960, 960))
+                    estimator.prepare(ctx_id=0, det_size=(640, 640))
                     return estimator
                 except Exception as e:
                     print(f"[WARN] Age/Gender preload failed: {e}")

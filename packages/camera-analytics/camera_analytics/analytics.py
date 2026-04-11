@@ -76,6 +76,7 @@ class TrackedPerson:
   gender_stability: float = 0.0       # How stable the gender prediction is (0-1)
   gender_locked: bool = False          # Once locked, gender no longer changes
   _gender_consecutive_same: int = 0    # Consecutive same-gender high-confidence votes
+  _gender_consecutive_opposite: int = 0  # Consecutive opposite-gender votes (for unlock)
   _gender_last_vote: str = ""          # Last voted gender for consecutive tracking
   _demo_update_count: int = 0         # Total demographic update count
   smoothed_bbox_norm: Optional[Tuple[float, float, float, float]] = None
@@ -127,9 +128,9 @@ class TrackedPerson:
     # --- Confidence-weighted EMA ---
     # Alpha scales with confidence: high-confidence updates shift the EMA more
     effective_alpha = ema_alpha * confidence
-    # Once stable, dampen alpha further to prevent display jitter
-    if self.age_stability > 0.8 and len(samples) >= 10:
-      effective_alpha *= 0.3
+    # Once stable, dampen alpha with soft transition to prevent display jitter
+    if self.age_stability > 0.5 and len(samples) >= 10:
+      effective_alpha *= max(0.3, 1.0 - self.age_stability)
     if self.age_ema is None:
       self.age_ema = float(new_age)
     else:
@@ -166,10 +167,12 @@ class TrackedPerson:
     # --- Stability score ---
     # Low variance in recent predictions = high stability
     if len(samples) >= 3:
-      recent = samples[-min(15, len(samples)):]
+      window = min(30, len(samples))
+      recent = samples[-window:]
       std_dev = float(np.std(recent))
-      # Normalize: std_dev of 0 => stability 1.0, std_dev of 10+ => stability ~0
-      self.age_stability = max(0.0, 1.0 - std_dev / 10.0)
+      # Wider window + sample_factor: prevents premature freezing with few samples
+      sample_factor = min(1.0, len(samples) / 20.0)
+      self.age_stability = max(0.0, (1.0 - std_dev / 10.0) * sample_factor)
 
   def update_gender(self, new_gender: str, confidence: float = 1.0,
                     consensus_threshold: float = 0.70,
@@ -196,9 +199,27 @@ class TrackedPerson:
     if confidence < min_confidence:
       return
 
-    # If gender is locked, skip all processing
+    # If gender is locked, check for unlock condition
     if self.gender_locked:
-      return
+      # Track consecutive high-confidence opposite-gender votes
+      if new_gender != self.gender and confidence >= 0.35:
+        self._gender_consecutive_opposite += 1
+        if self._gender_consecutive_opposite >= lock_threshold + 2:
+          # Strong evidence of misclassification — unlock and reset
+          self.gender_locked = False
+          self.gender_history.clear()
+          self.gender_confidence_history.clear()
+          self._gender_consecutive_same = 0
+          self._gender_consecutive_opposite = 0
+          self._gender_last_vote = ""
+          self.gender = "unknown"
+          self.gender_stability = 0.0
+          # Fall through to process this vote normally
+        else:
+          return
+      else:
+        self._gender_consecutive_opposite = 0
+        return
 
     # Track consecutive same-gender votes for locking
     if new_gender == self._gender_last_vote and confidence >= 0.35:
@@ -339,6 +360,9 @@ class CameraAnalyticsEngine:
     import threading
     self._frame_lock = threading.Lock()
     self._latest_frame = None
+    self._latest_raw_frame = None  # Raw capture frame (no overlay) for smooth MJPEG
+    self._latest_frame_time = 0.0       # Timestamp of last annotated frame
+    self._latest_raw_frame_time = 0.0   # Timestamp of last raw capture frame
 
     # Persistent overlay preferences (survive metric cycles)
     self._user_overlay_prefs = {
@@ -458,8 +482,7 @@ class CameraAnalyticsEngine:
     # before we return success to the frontend.
     self._validate_source_on_init()
 
-    # Initialize Age/Gender Estimator (MiVOLO or InsightFace)
-    # Use preloaded estimator if available to skip slow model initialization
+    # Initialize Age/Gender Estimator (InsightFace for face detection)
     if preloaded_estimator is not None:
         print("[INFO] Using preloaded Age/Gender estimator (no reload needed)")
         self.age_gender_estimator = preloaded_estimator
@@ -471,6 +494,14 @@ class CameraAnalyticsEngine:
         except Exception as err:
             print(f"[WARN] Age/Gender Estimator initialization failed: {err}")
             self.age_gender_estimator = None
+
+    # MiVOLO: SOTA age/gender model (face+body dual input)
+    # Initialized here, but prepare() runs on inference thread for CUDA compat
+    self.mivolo_estimator = EstimatorFactory.create_mivolo(device=str(self.device))
+    if self.mivolo_estimator is not None:
+        print("[INFO] MiVOLO estimator created (will prepare on inference thread)")
+    else:
+        print("[INFO] MiVOLO not available, using InsightFace for age/gender")
 
     self.tracks: Dict[int, TrackedPerson] = {}
     self.people_in = 0
@@ -656,9 +687,28 @@ class CameraAnalyticsEngine:
     print(f"[INFO] ✓ Video source validation successful (shape: {test_frame.shape})")
 
   def get_latest_frame_safe(self) -> Optional[np.ndarray]:
-    """Thread-safe access to latest frame for MJPEG streaming"""
+    """Thread-safe access to latest frame for MJPEG streaming.
+
+    Returns the MOST RECENT frame — either raw capture or annotated.
+    Raw frames update at capture speed (30 FPS), annotated frames update
+    at inference speed (10-15 FPS). Preferring the most recent ensures
+    smooth video even when inference can't keep up with capture.
+    """
     with self._frame_lock:
-      return self._latest_frame.copy() if self._latest_frame is not None else None
+      raw = self._latest_raw_frame
+      raw_t = self._latest_raw_frame_time
+      ann = self._latest_frame
+      ann_t = self._latest_frame_time
+
+    # Return whichever frame is most recent
+    # If raw is >50ms newer than annotated, inference hasn't caught up — show raw
+    if raw is not None and (ann is None or raw_t > ann_t + 0.05):
+      return raw.copy()
+    if ann is not None:
+      return ann.copy()
+    if raw is not None:
+      return raw.copy()
+    return None
 
   def get_snapshot(self) -> Optional[str]:
     """Capture a single frame and return as base64 string (thread-safe)"""
@@ -766,6 +816,214 @@ class CameraAnalyticsEngine:
     else:
       self._run_with_custom_capture()
 
+  def _create_pipe_capture(self):
+    """Create an ffmpeg pipe-based capture for YouTube/HLS live streams.
+
+    Uses yt-dlp ONLY to extract the direct HLS URL, then feeds it to ffmpeg
+    which handles HLS segment buffering natively.  This avoids both OpenCV's
+    HLS stalls AND the yt-dlp→pipe→ffmpeg bottleneck where yt-dlp's sequential
+    segment downloads cause 3-5s gaps in the pipe.
+
+    ffmpeg's native HLS demuxer pre-fetches segments and buffers them, providing
+    smooth constant-rate output even across segment boundaries.
+
+    Returns None if setup fails (caller should fall back to OpenCV).
+    """
+    import subprocess
+    import shutil
+
+    url = self.original_url
+    if not url:
+      return None
+
+    if not shutil.which('ffmpeg'):
+      print("[WARN] ffmpeg not found in PATH, cannot use pipe capture")
+      return None
+
+    try:
+      from .sources import _get_ytdlp_executable
+      ytdlp_exe = _get_ytdlp_executable()
+    except Exception:
+      print("[WARN] yt-dlp not available for pipe capture")
+      return None
+
+    width, height = 1280, 720
+    YTDLP_FORMAT = 'best[height<=720]/best[height<=1080]/best'
+
+    # ── Step 1: Extract direct HLS URL using yt-dlp (no download) ──
+    print(f"[INFO] Extracting direct stream URL for {url[:60]}...")
+    try:
+      extract_cmd = [
+        ytdlp_exe, '--force-ipv4', '-f', YTDLP_FORMAT,
+        '-g', '--no-warnings', url
+      ]
+      result = subprocess.run(
+        extract_cmd, capture_output=True, text=True, timeout=20
+      )
+      if result.returncode != 0:
+        print(f"[WARN] yt-dlp URL extraction failed (rc={result.returncode})")
+        return None
+      direct_url = result.stdout.strip().split('\n')[0]
+      if not direct_url:
+        print("[WARN] yt-dlp returned empty URL")
+        return None
+      print(f"[INFO] Direct HLS URL extracted ({len(direct_url)} chars)")
+    except subprocess.TimeoutExpired:
+      print("[WARN] yt-dlp URL extraction timed out (20s)")
+      return None
+    except Exception as e:
+      print(f"[WARN] yt-dlp URL extraction error: {e}")
+      return None
+
+    # ── Step 2: ffmpeg reads HLS directly with buffered reader thread ──
+    # ffmpeg's HLS demuxer blocks at segment boundaries (~5s stalls).
+    # We wrap it in a reader thread + ring buffer so the capture thread
+    # always gets frames instantly (last known frame during stalls).
+    print(f"[INFO] Starting ffmpeg HLS capture: {width}x{height}...")
+    ffmpeg_cmd = [
+      'ffmpeg',
+      # HLS reconnection & buffering
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '5',
+      '-rw_timeout', '10000000',        # 10s read/write timeout (microseconds)
+      # Start 3 segments behind live edge for buffering headroom
+      '-live_start_index', '-3',
+      # Input format handling
+      '-fflags', '+genpts+discardcorrupt',
+      '-flags', 'low_delay',
+      '-probesize', '5000000',
+      '-analyzeduration', '3000000',
+      '-i', direct_url,
+      # Output: raw BGR frames at constant 30 FPS
+      '-vf', f'scale={width}:{height}:flags=bilinear',
+      '-f', 'rawvideo', '-pix_fmt', 'bgr24',
+      '-vsync', 'cfr', '-r', '30',
+      '-an', '-loglevel', 'warning',
+      'pipe:1'
+    ]
+
+    try:
+      ffmpeg_proc = subprocess.Popen(
+        ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        bufsize=4 * 1024 * 1024  # 4MB output buffer
+      )
+
+      import threading as _th
+      import collections as _col
+
+      class _BufferedPipeCapture:
+        """Paced, buffered capture: reader thread fills ring from ffmpeg,
+        read() drains at ~30 FPS so the ring accumulates a reserve that
+        sustains output during HLS segment-boundary stalls."""
+        _RING_SIZE = 180  # 6 seconds at 30 FPS — bridges 5s HLS gaps
+        _TARGET_FPS = 30.0
+
+        def __init__(self, ff, w, h):
+          self._ff = ff
+          self._w = w; self._h = h
+          self._fsz = w * h * 3
+          self._open = True
+          self._ring = _col.deque(maxlen=self._RING_SIZE)
+          self._last_frame = None
+          self._lock = _th.Lock()
+          self._stop = _th.Event()
+          self._stall_count = 0
+          self._total_reads = 0
+          self._last_read_t = time.time()
+          self._reader = _th.Thread(target=self._read_loop, daemon=True, name='ffmpeg-reader')
+          self._reader.start()
+
+        def _read_loop(self):
+          """Continuously read frames from ffmpeg stdout into ring buffer."""
+          _fill_logged = False
+          while not self._stop.is_set() and self._ff.poll() is None:
+            raw = self._ff.stdout.read(self._fsz)
+            if len(raw) != self._fsz:
+              if len(raw) == 0:
+                self._open = False
+              break
+            frm = np.frombuffer(raw, dtype=np.uint8).reshape((self._h, self._w, 3))
+            with self._lock:
+              self._ring.append(frm)
+              self._last_frame = frm
+              _rlen = len(self._ring)
+            if not _fill_logged and _rlen >= self._RING_SIZE // 2:
+              print(f"[HLS-BUF] Ring buffer half-full ({_rlen}/{self._RING_SIZE})", flush=True)
+              _fill_logged = True
+          self._open = False
+          print("[INFO] ffmpeg reader thread exited", flush=True)
+
+        def isOpened(self):
+          return self._open or len(self._ring) > 0
+
+        def read(self):
+          # Pace reads at ~30 FPS so ring buffer can accumulate
+          now = time.time()
+          interval = 1.0 / self._TARGET_FPS
+          elapsed = now - self._last_read_t
+          if elapsed < interval:
+            time.sleep(interval - elapsed)
+          self._last_read_t = time.time()
+          self._total_reads += 1
+
+          with self._lock:
+            _rlen = len(self._ring)
+            if _rlen > 0:
+              frm = self._ring.popleft()
+              if self._stall_count > 0:
+                print(f"[HLS-BUF] Resumed from ring (was stalled {self._stall_count} reads, ring={_rlen})", flush=True)
+                self._stall_count = 0
+              return True, frm.copy()
+            elif self._last_frame is not None:
+              self._stall_count += 1
+              if self._stall_count == 1 or self._stall_count % 150 == 0:
+                print(f"[HLS-BUF] Ring empty — repeating last frame (stall #{self._stall_count})", flush=True)
+              return True, self._last_frame.copy()
+          return False, None
+
+        def get(self, prop):
+          if prop == cv2.CAP_PROP_FPS: return 30.0
+          if prop == cv2.CAP_PROP_FRAME_WIDTH: return float(self._w)
+          if prop == cv2.CAP_PROP_FRAME_HEIGHT: return float(self._h)
+          return 0.0
+        def set(self, prop, val): pass
+
+        def release(self):
+          self._stop.set()
+          self._open = False
+          try: self._ff.terminate(); self._ff.wait(timeout=3)
+          except Exception:
+            try: self._ff.kill()
+            except Exception: pass
+
+      # Wait for first frame (blocks up to 20s for initial HLS segment)
+      print("[INFO] Waiting for first frame from ffmpeg HLS pipe...", flush=True)
+      frame_size = width * height * 3
+      first_raw = ffmpeg_proc.stdout.read(frame_size)
+      if len(first_raw) != frame_size:
+        try:
+          err = ffmpeg_proc.stderr.read(500).decode(errors='replace')
+          if err:
+            print(f"[WARN] ffmpeg stderr: {err[:200]}")
+        except Exception:
+          pass
+        print("[WARN] ffmpeg HLS capture: first frame failed, falling back to OpenCV")
+        try: ffmpeg_proc.terminate()
+        except Exception: pass
+        return None
+
+      first_frame = np.frombuffer(first_raw, dtype=np.uint8).reshape((height, width, 3))
+      self._pipe_first_frame = first_frame.copy()
+
+      # Now create the buffered capture (reader thread starts consuming frames)
+      cap = _BufferedPipeCapture(ffmpeg_proc, width, height)
+      print(f"[INFO] ffmpeg HLS buffered capture ready: {width}x{height} (ring={_BufferedPipeCapture._RING_SIZE})")
+      return cap
+    except Exception as e:
+      print(f"[WARN] ffmpeg HLS capture failed: {e}, falling back to OpenCV")
+      return None
+
   def _run_with_custom_capture(self) -> None:
     """
     Run tracking with custom OpenCV capture for proper frame rate control.
@@ -774,19 +1032,18 @@ class CameraAnalyticsEngine:
     """
     source_type = "LIVE stream" if self.is_live_source else "video"
     print(f"[INFO] Using custom capture loop for {source_type} (proper frame rate)")
-    
-    # For YouTube live streams: use OpenCV directly with the already-resolved HLS URL.
-    # The HLS URL in self.source was extracted by yt-dlp and validated successfully.
-    # yt-dlp pipe mode was removed because it caused burst-and-freeze behaviour:
-    #   - yt-dlp re-runs for resolution detection (~20 s extra startup)
-    #   - 100 MB pipe buffer introduces huge latency
-    #   - HLS segments arrive in 2-6 s bursts → video freezes between segments
-    # OpenCV's FFmpeg backend handles the HLS manifest natively and keeps a smooth
-    # internal ring-buffer so frames arrive at a steady rate.
+
+    # For YouTube live streams: try yt-dlp pipe for smooth HLS delivery.
+    # yt-dlp+ffmpeg pipe avoids OpenCV's blocking HLS segment downloads.
+    # Falls back to OpenCV if pipe setup fails.
     if self.is_live_source and self.original_url:
-      print("[INFO] YouTube live stream detected - using OpenCV HLS (smooth, low-latency)")
-      # Fall through to the OpenCV capture path below — self.source already holds the HLS URL
-    
+      pipe_cap = self._create_pipe_capture()
+      if pipe_cap:
+        print("[INFO] YouTube live: using yt-dlp pipe capture (smooth, non-blocking)")
+        self._run_async_pipeline(pipe_cap)
+        return
+      print("[INFO] YouTube live: falling back to OpenCV HLS capture")
+
     # Create VideoCapture with FFMPEG backend for network streams
     if isinstance(self.source, str) and self.source.startswith('http'):
       cap = cv2.VideoCapture(self.source, cv2.CAP_FFMPEG)
@@ -803,9 +1060,7 @@ class CameraAnalyticsEngine:
     if isinstance(self.source, str) and self.source.startswith('http'):
       # Enable hardware acceleration if available
       cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
-      # Disable frame dropping for smoother playback
-      cap.set(cv2.CAP_PROP_FRAME_COUNT, -1)
-    
+
     if not cap.isOpened():
       print(f"[ERROR] Failed to open {source_type}")
       return
@@ -841,7 +1096,7 @@ class CameraAnalyticsEngine:
 
     frame_interval = 1.0 / source_fps
     print(f"[INFO] {source_type} opened: {source_fps:.1f} FPS, frame interval: {frame_interval*1000:.1f}ms")
-    
+
     # Always use 3-thread async pipeline for ALL sources (live AND recorded).
     # This ensures demographics (InsightFace) run on the inference thread
     # with proper CUDA session management for both live and recorded video.
@@ -884,8 +1139,27 @@ class CameraAnalyticsEngine:
       _consecutive_failures = 0
       _MAX_CONSECUTIVE_FAILURES = 100  # ~0.5s at 5ms sleep
 
+      # If pipe capture pre-read a test frame, inject it first
+      if hasattr(self, '_pipe_first_frame') and self._pipe_first_frame is not None:
+        _first = self._pipe_first_frame
+        self._pipe_first_frame = None
+        try: raw_frame_q.put_nowait(_first)
+        except _queue.Full: pass
+        with self._frame_lock:
+          self._latest_raw_frame = _first
+          self._latest_raw_frame_time = time.time()
+
+      _slow_read_count = [0]  # Track slow cap.read() calls for diagnostics
+
       while not stop_event.is_set():
+        _read_start = time.time()
         ret, frame = _cap_holder[0].read()
+        _read_ms = (time.time() - _read_start) * 1000
+        # Log slow reads (>500ms) — indicates HLS segment boundary stalls
+        if _read_ms > 500 and self.is_live_source:
+          _slow_read_count[0] += 1
+          if _slow_read_count[0] <= 10 or _slow_read_count[0] % 50 == 0:
+            print(f"[WARN] Slow cap.read(): {_read_ms:.0f}ms (HLS segment stall #{_slow_read_count[0]})", flush=True)
         if not ret or frame is None:
           _consecutive_failures += 1
           # Reconnect HTTP streams after sustained failures
@@ -913,24 +1187,40 @@ class CameraAnalyticsEngine:
             time.sleep(0.005)
           continue
         _consecutive_failures = 0
-        # FPS pacing for recorded videos: read frames at source FPS
-        # (live streams should read as fast as possible)
+        # Smooth playback strategy:
+        # - Keep only the LATEST frame so inference always works on fresh data
+        # - For recorded videos: pace reads to ~2x inference speed (not source FPS)
+        #   to avoid overwhelming the queue while staying responsive
         if not self.is_live_source and self.source_fps and self.source_fps > 0:
-          target_interval = 1.0 / self.source_fps
+          target_interval = max(1.0 / 30.0, 1.0 / self.source_fps)
           elapsed = time.time() - _last_capture_t
           if elapsed < target_interval:
             time.sleep(target_interval - elapsed)
           _last_capture_t = time.time()
-        # Buffer frames for smooth playback — block briefly if queue full
-        # instead of dropping frames which causes visible stuttering
+        if self.is_live_source:
+          # Live/HLS streams: keep a small buffer (max 3 frames) so inference
+          # thread has frames to process between HLS segment downloads.
+          # Only trim excess — never flush entirely (prevents starvation).
+          while raw_frame_q.qsize() > 3:
+            try: raw_frame_q.get_nowait()
+            except _queue.Empty: break
+        else:
+          # Recorded video: keep only latest frame for responsive playback
+          while not raw_frame_q.empty():
+            try: raw_frame_q.get_nowait()
+            except _queue.Empty: break
         try:
-          raw_frame_q.put(frame, timeout=0.1)
+          raw_frame_q.put_nowait(frame)
         except _queue.Full:
-          # Only drop oldest if truly stuck (backpressure from inference)
+          # Queue full — drop oldest to make room
           try: raw_frame_q.get_nowait()
           except _queue.Empty: pass
           try: raw_frame_q.put_nowait(frame)
           except _queue.Full: pass
+        # Update raw frame for MJPEG — keeps video smooth even when inference is slow
+        with self._frame_lock:
+          self._latest_raw_frame = frame
+          self._latest_raw_frame_time = time.time()
         # FPS say
         _cap_cnt[0] += 1
         now = time.time()
@@ -943,6 +1233,7 @@ class CameraAnalyticsEngine:
     # ONNX Runtime CUDA session thread-safety constraints.
     # We lazy-initialize InsightFace here on first use.
     _insightface_initialized = [False]
+    _mivolo_initialized = [False]
     _demo_frame_counter = [0]
 
     def inference_fn():
@@ -954,6 +1245,7 @@ class CameraAnalyticsEngine:
         inf_start = time.time()
         try:
           # YOLO inference
+          _t_yolo = time.time()
           results = self.model.track(
             source=frame,
             persist=True,
@@ -967,23 +1259,40 @@ class CameraAnalyticsEngine:
             half=self.inference_params.get("half", False),
             agnostic_nms=self.agnostic_nms,
           )
+          _t_yolo = time.time() - _t_yolo
 
           # InsightFace: lazy-init on this thread for CUDA compatibility
           if not _insightface_initialized[0] and self.age_gender_estimator is not None:
             try:
               print("[INFO] Re-initializing InsightFace on inference thread for CUDA compatibility...", flush=True)
-              self.age_gender_estimator.prepare(ctx_id=0, det_size=(960, 960))
+              self.age_gender_estimator.prepare(ctx_id=0, det_size=(640, 640))
               _insightface_initialized[0] = True
               print("[INFO] InsightFace ready on inference thread", flush=True)
             except Exception as e:
               print(f"[WARN] InsightFace re-init failed: {e}", flush=True)
 
-          # HYBRID demographics: full-frame detection + crop-based fallback
-          # Step 1: Full-frame finds large/close faces reliably
-          # Step 2: Match to YOLO persons with proportional tolerance
-          # Step 3: Crop-based fallback for unmatched persons
-          demo_results = {}  # {track_id: (age, gender, conf)}
+          # MiVOLO: lazy-init on inference thread (CUDA context)
+          if not _mivolo_initialized[0] and self.mivolo_estimator is not None:
+            try:
+              print("[INFO] Preparing MiVOLO on inference thread...", flush=True)
+              self.mivolo_estimator.prepare()
+              _mivolo_initialized[0] = self.mivolo_estimator.model is not None
+              if _mivolo_initialized[0]:
+                print("[INFO] MiVOLO ready on inference thread", flush=True)
+              else:
+                print("[WARN] MiVOLO prepare failed — falling back to InsightFace", flush=True)
+            except Exception as e:
+              print(f"[WARN] MiVOLO init failed: {e}", flush=True)
+
+          # HYBRID demographics: InsightFace face detection + MiVOLO age/gender
+          # Step 1: InsightFace full-frame face detection
+          # Step 2: Match faces to YOLO persons
+          # Step 3: MiVOLO batch inference (face+body dual input) for all persons
+          # Step 4: Fallback to InsightFace age/gender if MiVOLO unavailable
+          demo_results = {}  # {track_id: (age, gender, age_conf, gender_conf)}
           _demo_frame_counter[0] += 1
+          _use_mivolo = _mivolo_initialized[0] and self.mivolo_estimator is not None
+          _t_mivolo = 0  # timing: set by MiVOLO batch if it runs
           if (_insightface_initialized[0] and
               _demo_frame_counter[0] % self.face_detection_interval == 0 and
               results and results[0].boxes is not None and
@@ -993,21 +1302,22 @@ class CameraAnalyticsEngine:
               ids = boxes.id.cpu().numpy().astype(int)
               xyxys = boxes.xyxy.cpu().numpy()
               fh, fw = frame.shape[:2]
-              matched_tids = set()
 
-              # Step 1: Full-frame face detection
+              # Step 1: Full-frame face detection (InsightFace)
+              _t_face = time.time()
               full_faces = self.age_gender_estimator.detect_and_predict(frame)
+              _t_face = time.time() - _t_face
               n_full = len(full_faces) if full_faces else 0
 
-              # Step 2: Match full-frame faces to YOLO persons
+              # Step 2: Match faces to YOLO persons
+              matched_faces = {}  # {person_idx: face_obj}
+              matched_tids = set()
               if full_faces:
                 for i in range(len(ids)):
-                  tid = int(ids[i])
                   x1, y1, x2, y2 = xyxys[i]
                   pw, ph = x2 - x1, y2 - y1
                   best_face = None
                   best_overlap = 0.0
-                  # Proportional tolerance: 30% of person dimensions
                   tol_x = max(30, pw * 0.3)
                   tol_y = max(30, ph * 0.3)
                   head_y2 = y1 + ph * 0.75
@@ -1030,105 +1340,200 @@ class CameraAnalyticsEngine:
                         best_overlap = ratio
                         best_face = face
 
-                  if best_face is not None and hasattr(best_face, 'age') and best_face.age is not None:
-                    gender = None
-                    raw_gender_val = None
-                    if hasattr(best_face, 'gender') and best_face.gender is not None:
-                      raw_gender_val = float(best_face.gender)
-                      gender = "male" if round(raw_gender_val) == 1 else "female"
-                    if gender is not None:
-                      ds = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.3
-                      face_w = best_face.bbox[2] - best_face.bbox[0]
-                      face_h = best_face.bbox[3] - best_face.bbox[1]
-                      face_area = face_w * face_h
-                      frame_area = fh * fw
-                      size_factor = min(1.0, max(0.3, (face_area / max(1, frame_area)) / 0.001))
+                  if best_face is not None:
+                    matched_faces[i] = best_face
+                    matched_tids.add(int(ids[i]))
 
-                      # Determine face yaw angle for pose-based confidence
-                      yaw = 30.0  # default assumption (slight angle)
-                      if hasattr(best_face, 'pose') and best_face.pose is not None:
-                        yaw = abs(float(best_face.pose[1]))
+              # Step 3: MiVOLO batch inference — face+body dual input
+              if _use_mivolo:
+                face_crops = []
+                body_crops = []
+                batch_tids = []
+                batch_det_scores = []
+                batch_yaws = []
 
-                      # AGE confidence: lenient — age estimates from side faces are still usable
-                      age_pose = max(0.3, 1.0 - yaw / 120.0)
-                      age_conf = 0.85 * min(1.0, ds / 0.5) * size_factor * age_pose
-                      age_conf = max(0.10, min(0.95, age_conf))
+                # Matched persons: face + body crops
+                # Cap total batch size to keep inference fast on crowded scenes
+                _MAX_MIVOLO_BATCH = 6  # ~108ms at 18ms/person, keeps inference >8 FPS
+                for i, face in matched_faces.items():
+                  if len(batch_tids) >= _MAX_MIVOLO_BATCH:
+                    break
+                  tid = int(ids[i])
+                  # Skip already-classified people (locked gender + known age)
+                  existing = self.tracks.get(tid)
+                  if existing and existing.gender_locked and existing.age is not None:
+                    if existing.age_stability > 0.7:
+                      continue  # Fully classified — no need to re-process
+                  # Face crop from InsightFace bbox (with padding)
+                  fx1, fy1, fx2, fy2 = face.bbox
+                  fp = max(5, int((fx2 - fx1) * 0.15))  # 15% padding
+                  fc = frame[max(0,int(fy1)-fp):min(fh,int(fy2)+fp),
+                             max(0,int(fx1)-fp):min(fw,int(fx2)+fp)]
+                  if fc.size == 0 or fc.shape[0] < 10 or fc.shape[1] < 10:
+                    fc = None
+                  # Body crop from YOLO bbox
+                  bx1, by1, bx2, by2 = xyxys[i]
+                  bc = frame[max(0,int(by1)):min(fh,int(by2)),
+                             max(0,int(bx1)):min(fw,int(bx2))]
+                  if bc.size == 0 or bc.shape[0] < 20 or bc.shape[1] < 20:
+                    bc = None
 
-                      # GENDER confidence: strict — only near-frontal faces are reliable
-                      # Profile faces (yaw > 55°) are rejected entirely for gender voting
-                      if yaw > 55.0:
-                        gender_conf = 0.0  # skip gender for profile/rear faces
-                      else:
-                        gender_pose = max(0.1, 1.0 - yaw / 70.0)  # balanced penalty
-                        gender_conf = 0.85 * min(1.0, ds / 0.5) * size_factor * gender_pose
-                        gender_conf = max(0.0, min(0.95, gender_conf))
+                  face_crops.append(fc)
+                  body_crops.append(bc)
+                  batch_tids.append(tid)
+                  batch_det_scores.append(float(face.det_score) if hasattr(face, 'det_score') else 0.5)
+                  yaw = 30.0
+                  if hasattr(face, 'pose') and face.pose is not None:
+                    yaw = abs(float(face.pose[1]))
+                  batch_yaws.append(yaw)
 
-                      demo_results[tid] = (float(best_face.age), gender, age_conf, gender_conf)
-                      matched_tids.add(tid)
-
-                      # Diagnostic: Log raw gender values for first 300 frames
-                      if _demo_frame_counter[0] <= 300 and _demo_frame_counter[0] % 10 == 0:
-                        print(f"[GENDER-DEBUG] tid={tid} raw_gender={raw_gender_val} decoded={gender} "
-                              f"age={best_face.age:.0f} yaw={yaw:.0f}° det_score={ds:.2f} "
-                              f"gender_conf={gender_conf:.2f} face_size={face_w:.0f}x{face_h:.0f}", flush=True)
-
-              # Step 3: Crop-based fallback for unmatched persons WITHOUT demographics
-              # RTX 5070 at 35% GPU — can afford more crops per frame
-              crop_count = 0
-              for i in range(len(ids)):
-                if crop_count >= 2:  # Max 2 crops per frame (balance FPS vs coverage)
-                  break
-                tid = int(ids[i])
-                if tid in matched_tids:
-                  continue
-                # Skip persons that already have established demographics
-                existing = self.tracks.get(tid)
-                if existing and existing.gender != "unknown" and existing.age is not None:
-                  if existing.gender_locked or existing._demo_update_count >= 8:
+                # Unmatched persons: body-only (no face visible)
+                body_only_count = 0
+                _body_only_max = min(3, _MAX_MIVOLO_BATCH - len(batch_tids))
+                for i in range(len(ids)):
+                  if body_only_count >= _body_only_max:
+                    break
+                  tid = int(ids[i])
+                  if tid in matched_tids:
                     continue
-                x1, y1, x2, y2 = xyxys[i]
-                ph, pw = y2 - y1, x2 - x1
-                if ph < self.config.demo_min_bbox_height or pw < self.config.demo_min_bbox_width:
-                  continue
-                # Crop upper 70% of person bbox (head + shoulders + chest) with generous padding
-                head_y2 = y1 + ph * 0.70
-                pad_x, pad_y = pw * 0.35, ph * 0.20
-                cx1 = max(0, int(x1 - pad_x))
-                cy1 = max(0, int(y1 - pad_y))
-                cx2 = min(fw, int(x2 + pad_x))
-                cy2 = min(fh, int(head_y2 + pad_y))
-                crop = frame[cy1:cy2, cx1:cx2]
-                if crop.size == 0 or crop.shape[0] < 20 or crop.shape[1] < 20:
-                  continue
-                # Apply CLAHE for low-light enhancement on crops (helps night cameras)
-                try:
-                  lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
-                  l_ch, a_ch, b_ch = cv2.split(lab)
-                  clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-                  l_enhanced = clahe.apply(l_ch)
-                  crop = cv2.cvtColor(cv2.merge([l_enhanced, a_ch, b_ch]), cv2.COLOR_LAB2BGR)
-                except Exception:
-                  pass  # Use original crop if enhancement fails
-                age, gender, conf = self.age_gender_estimator.predict(crop)
-                if age is not None and gender is not None:
-                  # Crop-based: use same conf for both age and gender (conservative)
-                  demo_results[tid] = (age, gender, conf, conf)
-                  crop_count += 1
+                  existing = self.tracks.get(tid)
+                  if existing and existing.gender_locked and existing.age is not None:
+                    continue
+                  bx1, by1, bx2, by2 = xyxys[i]
+                  bh, bw = by2 - by1, bx2 - bx1
+                  if bh < self.config.demo_min_bbox_height or bw < self.config.demo_min_bbox_width:
+                    continue
+                  bc = frame[max(0,int(by1)):min(fh,int(by2)),
+                             max(0,int(bx1)):min(fw,int(bx2))]
+                  if bc.size == 0 or bc.shape[0] < 20 or bc.shape[1] < 20:
+                    continue
+                  face_crops.append(None)  # No face
+                  body_crops.append(bc)
+                  batch_tids.append(tid)
+                  batch_det_scores.append(0.0)
+                  batch_yaws.append(90.0)
+                  body_only_count += 1
 
-              if _demo_frame_counter[0] % 30 == 0:  # Log every 30 frames for gender debugging
-                # Diagnostic: log gender predictions for first few persons
+                # Batch MiVOLO inference
+                if batch_tids:
+                  _t_mivolo = time.time()
+                  mivolo_results = self.mivolo_estimator.predict_batch(face_crops, body_crops)
+                  _t_mivolo = time.time() - _t_mivolo
+                  for idx, (age, gender, gender_prob) in enumerate(mivolo_results):
+                    if age is None:
+                      continue
+                    tid = batch_tids[idx]
+                    ds = batch_det_scores[idx]
+                    yaw = batch_yaws[idx]
+                    has_face = face_crops[idx] is not None
+
+                    # Age confidence: high for face+body, moderate for body-only
+                    if has_face:
+                      age_conf = 0.85 * min(1.0, ds / 0.5) * max(0.3, 1.0 - yaw / 120.0)
+                    else:
+                      age_conf = 0.50  # Body-only: lower confidence (~5-8yr MAE)
+
+                    # Gender confidence: use MiVOLO's continuous probability
+                    # gender_prob is [0.5, 1.0] — map to certainty [0, 1]
+                    gender_certainty = (gender_prob - 0.5) * 2.0
+                    # Reject uncertain predictions: gprob < 0.65 → certainty < 0.3
+                    if gender_certainty < 0.30:
+                      gender_conf = 0.0  # Too uncertain — skip this vote entirely
+                    elif has_face and yaw <= 55.0:
+                      gender_conf = 0.90 * gender_certainty * min(1.0, ds / 0.5)
+                    elif has_face:
+                      gender_conf = 0.60 * gender_certainty
+                    else:
+                      # Body-only gender: much weaker vote to prevent wrong classification
+                      # before a face is detected. Face votes (0.90) will dominate quickly.
+                      gender_conf = 0.40 * gender_certainty
+
+                    age_conf = max(0.10, min(0.95, age_conf))
+                    gender_conf = max(0.0, min(0.95, gender_conf))
+                    demo_results[tid] = (age, gender, age_conf, gender_conf)
+
+                    if _demo_frame_counter[0] <= 300 and _demo_frame_counter[0] % 10 == 0:
+                      print(f"[MIVOLO] tid={tid} age={age:.1f} gender={gender} "
+                            f"gprob={gender_prob:.3f} gc={gender_conf:.2f} "
+                            f"face={'Y' if has_face else 'N'} yaw={yaw:.0f}°", flush=True)
+
+              else:
+                # Step 4: Fallback — InsightFace-only age/gender (no MiVOLO)
+                for i, face in matched_faces.items():
+                  tid = int(ids[i])
+                  if not hasattr(face, 'age') or face.age is None:
+                    continue
+                  gender = None
+                  if hasattr(face, 'gender') and face.gender is not None:
+                    gender = "male" if float(face.gender) > 0.5 else "female"
+                  if gender is None:
+                    continue
+                  ds = float(face.det_score) if hasattr(face, 'det_score') else 0.3
+                  face_w = face.bbox[2] - face.bbox[0]
+                  face_h = face.bbox[3] - face.bbox[1]
+                  face_area = face_w * face_h
+                  frame_area = fh * fw
+                  size_factor = min(1.0, max(0.3, (face_area / max(1, frame_area)) / 0.001))
+                  yaw = 30.0
+                  if hasattr(face, 'pose') and face.pose is not None:
+                    yaw = abs(float(face.pose[1]))
+                  age_conf = 0.85 * min(1.0, ds / 0.5) * size_factor * max(0.3, 1.0 - yaw / 120.0)
+                  age_conf = max(0.10, min(0.95, age_conf))
+                  if yaw > 55.0:
+                    gender_conf = 0.0
+                  else:
+                    gender_conf = 0.85 * min(1.0, ds / 0.5) * size_factor * max(0.1, 1.0 - yaw / 70.0)
+                    gender_conf = max(0.0, min(0.95, gender_conf))
+                  demo_results[tid] = (float(face.age), gender, age_conf, gender_conf)
+
+                # Crop fallback for unmatched (InsightFace only)
+                crop_count = 0
+                for i in range(len(ids)):
+                  if crop_count >= 2:
+                    break
+                  tid = int(ids[i])
+                  if tid in matched_tids:
+                    continue
+                  existing = self.tracks.get(tid)
+                  if existing and existing.gender != "unknown" and existing.age is not None:
+                    if existing.gender_locked or existing._demo_update_count >= 8:
+                      continue
+                  x1, y1, x2, y2 = xyxys[i]
+                  ph, pw = y2 - y1, x2 - x1
+                  if ph < self.config.demo_min_bbox_height or pw < self.config.demo_min_bbox_width:
+                    continue
+                  head_y2_c = y1 + ph * 0.70
+                  pad_x, pad_y = pw * 0.35, ph * 0.20
+                  cx1 = max(0, int(x1 - pad_x))
+                  cy1 = max(0, int(y1 - pad_y))
+                  cx2 = min(fw, int(x2 + pad_x))
+                  cy2 = min(fh, int(head_y2_c + pad_y))
+                  crop = frame[cy1:cy2, cx1:cx2]
+                  if crop.size == 0 or crop.shape[0] < 20 or crop.shape[1] < 20:
+                    continue
+                  age, gender, conf = self.age_gender_estimator.predict(crop)
+                  if age is not None and gender is not None:
+                    demo_results[tid] = (age, gender, conf, conf)
+                    crop_count += 1
+
+              if _demo_frame_counter[0] % 30 == 0:
+                n_matched = len(matched_faces)
+                model_name = "MiVOLO" if _use_mivolo else "InsightFace"
                 gender_debug = []
                 for _tid, _res in list(demo_results.items())[:3]:
-                  if len(_res) == 4:
-                    _a, _g, _ac, _gc = _res
-                    gender_debug.append(f"tid={_tid}:{_g}(gc={_gc:.2f})")
-                  else:
-                    _a, _g, _c = _res
-                    gender_debug.append(f"tid={_tid}:{_g}(c={_c:.2f})")
+                  _a, _g, _ac, _gc = _res
+                  gender_debug.append(f"tid={_tid}:{_g}(gc={_gc:.2f})")
                 gd_str = ", ".join(gender_debug) if gender_debug else "none"
-                print(f"[DEMO] Hybrid: {n_full} full-frame, {len(matched_tids)} matched, {crop_count} crop, {len(demo_results)} total | gender: {gd_str}", flush=True)
+                # Timing breakdown
+                _tf = _t_face * 1000
+                _tm = _t_mivolo * 1000 if '_t_mivolo' in locals() else 0
+                _ty = _t_yolo * 1000
+                print(f"[DEMO] {model_name}: {n_full} faces, {n_matched} matched, "
+                      f"{len(demo_results)} results | YOLO={_ty:.0f}ms Face={_tf:.0f}ms MiVOLO={_tm:.0f}ms "
+                      f"| {gd_str}", flush=True)
             except Exception as e:
               print(f"[WARN] Demographics error: {e}", flush=True)
+              import traceback; traceback.print_exc()
 
           if results:
             if result_q.full():
@@ -1737,6 +2142,7 @@ class CameraAnalyticsEngine:
     # Update cache with overlay (thread-safe) - every frame
     with self._frame_lock:
       self._latest_frame = frame
+      self._latest_frame_time = time.time()
 
     if self.display and annotated is not None:
       cv2.imshow("ObservAI Camera Analytics", annotated)
@@ -1801,6 +2207,7 @@ class CameraAnalyticsEngine:
             person.gender_stability = old_person.gender_stability
             person.gender_locked = old_person.gender_locked
             person._gender_consecutive_same = old_person._gender_consecutive_same
+            person._gender_consecutive_opposite = old_person._gender_consecutive_opposite
             person._gender_last_vote = old_person._gender_last_vote
             person._demo_update_count = old_person._demo_update_count
             # Transfer counting flags to prevent double-counting
@@ -2254,6 +2661,14 @@ class CameraAnalyticsEngine:
         person = self.tracks[track_id]
         matched += 1
         if age is not None:
+          # Age outlier dampening: scale down confidence for large jumps from EMA
+          # Graduated: 15-25yr = moderate penalty, >25yr = strong penalty
+          if person.age_ema is not None:
+            delta = abs(age - person.age_ema)
+            if delta > 25.0:
+              age_conf *= 0.15  # Very likely misdetection
+            elif delta > 15.0:
+              age_conf *= max(0.30, 1.0 - (delta - 10.0) / 30.0)  # Graduated penalty
           person.update_age(age, confidence=age_conf,
                             ema_alpha=age_ema_alpha,
                             min_confidence=age_voting_min_conf)

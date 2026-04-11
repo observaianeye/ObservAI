@@ -117,21 +117,42 @@ class AnalyticsWebSocketServer:
             )
             await response.prepare(request)
 
+            _last_frame_hash = [0]     # Track frame changes via pixel hash
+            _last_jpeg_bytes = [None]  # Cache last encoded JPEG for keepalive resend
+            _last_send_time = [0.0]    # Time of last frame send
+
+            def _get_and_encode():
+                """Get frame + JPEG encode off the event loop.
+                Returns (jpeg_bytes, is_new) — reuses cached JPEG for keepalive.
+                """
+                import time as _time
+                if not self.on_get_frame:
+                    return None, False
+                frame = self.on_get_frame()
+                if frame is None:
+                    return _last_jpeg_bytes[0], False  # Keepalive with last frame
+                # Quick change detection: hash a sparse sample of pixels
+                h = hash(frame[::64, ::64, 0].tobytes())
+                if h == _last_frame_hash[0]:
+                    # Frame unchanged — return cached JPEG for keepalive if >300ms since last send
+                    if _time.time() - _last_send_time[0] > 0.3:
+                        return _last_jpeg_bytes[0], False  # Keepalive resend
+                    return None, False  # Skip — recent enough
+                _last_frame_hash[0] = h
+                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                _last_jpeg_bytes[0] = buf.tobytes()
+                return _last_jpeg_bytes[0], True
+
             try:
                 import cv2
+                import time as _time
 
                 while True:
-                    # Get latest frame from analytics engine (direct access, thread-safe)
-                    frame = None
-                    if self.on_get_frame:
-                        frame = await asyncio.to_thread(self.on_get_frame)
+                    # Get frame + encode JPEG entirely off the event loop
+                    jpeg_bytes, is_new = await asyncio.to_thread(_get_and_encode)
 
-                    if frame is not None:
-                        # Encode frame to JPEG — quality 80 (good visual quality, fast encoding)
-                        _, jpeg_buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                        jpeg_bytes = jpeg_buffer.tobytes()
-
-                        # Write MJPEG frame
+                    if jpeg_bytes is not None:
+                        # Write MJPEG frame (new frame or keepalive)
                         try:
                             await response.write(
                                 b'--frame\r\n'
@@ -139,19 +160,18 @@ class AnalyticsWebSocketServer:
                                 b'Content-Length: ' + str(len(jpeg_bytes)).encode() + b'\r\n\r\n'
                                 + jpeg_bytes + b'\r\n'
                             )
+                            _last_send_time[0] = _time.time()
                         except (ConnectionResetError, BrokenPipeError, web.HTTPException):
-                            # Client disconnected, exit gracefully
                             logger.info("MJPEG client disconnected")
                             break
                         except Exception as e:
-                            # Handle other write errors
                             if "Cannot write to closing transport" in str(e):
                                 logger.info("MJPEG client disconnected (closing transport)")
                                 break
                             raise e
 
-                    # ~30 FPS (33ms delay)
-                    await asyncio.sleep(0.033)
+                    # Adaptive sleep: fast when frames change, slower when idle
+                    await asyncio.sleep(0.025 if is_new else 0.050)
             except asyncio.CancelledError:
                 logger.info("MJPEG stream cancelled")
             except Exception as e:
@@ -371,8 +391,9 @@ class AnalyticsWebSocketServer:
     async def broadcast_global_stream(self, data: Dict):
         """Broadcast GlobalStream data to all clients and publish to Kafka"""
         # Keep FPS metric updated in status
-        if "fps" in data.get("metrics", {}):
-            self._status["fps"] = data["metrics"]["fps"]
+        # _metrics_to_stream() puts fps at top-level, not under "metrics"
+        if "fps" in data:
+            self._status["fps"] = data["fps"]
         await self.sio.emit("global", data)
 
         # Publish to Kafka if enabled

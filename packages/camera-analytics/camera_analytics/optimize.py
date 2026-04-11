@@ -11,6 +11,7 @@ Target: <5ms inference latency
 
 from __future__ import annotations
 
+import os
 import platform
 import sys
 from pathlib import Path
@@ -98,17 +99,23 @@ class HardwareOptimizer:
                     # IMPORTANT: do NOT add a "_tensorrt" suffix — that was a bug causing
                     # the path check to always fail and TensorRT to be re-exported every
                     # startup, then silently skipped because the actual file had a different name.
+                    use_int8 = os.environ.get("YOLO_INT8", "0") == "1"
                     engine_path = f"{base_name}.engine"
                     if not Path(engine_path).exists():
-                        print(f"[OPTIMIZE] Exporting to TensorRT (FP16): {engine_path}")
-                        print(f"[OPTIMIZE] This may take 1-3 minutes on first run...")
-                        exported = model.export(
+                        precision = "INT8+FP16" if use_int8 else "FP16"
+                        print(f"[OPTIMIZE] Exporting to TensorRT ({precision}): {engine_path}")
+                        print(f"[OPTIMIZE] This may take 2-10 minutes on first run...")
+                        export_kwargs = dict(
                             format="engine",
                             half=True,       # FP16 for RTX — ~2× faster than FP32
                             device=0,        # GPU 0
                             simplify=True,   # ONNX simplification before TRT build
-                            workspace=4,     # 4 GB workspace for RTX 5070
+                            workspace=8,     # 8 GB workspace — RTX 5070 12GB VRAM has headroom
                         )
+                        if use_int8:
+                            export_kwargs["int8"] = True   # INT8 quantization (~2-3× faster than FP16)
+                            export_kwargs["data"] = "coco8.yaml"  # Calibration dataset
+                        exported = model.export(**export_kwargs)
                         # model.export returns the path to the created engine
                         actual_engine = str(exported) if exported else engine_path
                         if Path(actual_engine).exists():

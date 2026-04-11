@@ -44,9 +44,9 @@ confidence_threshold: 0.5
 max_detections: 100
 
 # Task 2.2.1: Demographic Prediction Improvement
-# EMA smoothing factor for age: 0.1 (very smooth) to 0.5 (responsive). Default: 0.3
-# Lower = smoother, less jumping. RTX 5070: we run every frame so can afford slower convergence
-demo_age_ema_alpha: 0.15
+# EMA smoothing factor for age: 0.1 (very smooth) to 0.5 (responsive).
+# face_detection_interval=1 provides 3x more samples — higher alpha for faster convergence
+demo_age_ema_alpha: 0.25
 
 # Minimum model confidence to accept a demographic prediction
 # Higher = reject noisy detections. Range: 0.1-0.5. Default: 0.30
@@ -55,8 +55,8 @@ demo_min_confidence: 0.40
 
 # Gender consensus threshold: fraction of weighted votes needed to assign gender
 # Higher = stronger agreement needed. Range: 0.55-0.85.
-# Balanced: 70% consensus allows distant camera faces to reach consensus.
-demo_gender_consensus: 0.70
+# 80% requires strong agreement — prevents ambiguous faces from flipping gender
+demo_gender_consensus: 0.80
 
 # Max history samples for temporal smoothing (age and gender)
 # More samples = more stable predictions over time
@@ -72,11 +72,11 @@ demo_temporal_decay: 0.85
 demo_continuous_refinement: true
 
 # Performance: Face detection frequency (her kaç frame'de bir)
-# RTX 5070 + TRT YOLO: every 3 frames, 960x960 det_size for quality
+# RTX 5070: every 3 frames — good FPS on crowded scenes while keeping demographics responsive
 face_detection_interval: 3
 
 # Gender lock: once gender has N consecutive same-gender high-confidence votes, lock it
-# Higher = more evidence needed before locking (prevents premature wrong locks)
+# With interval=1, votes arrive fast — need more evidence before locking
 demo_gender_lock_threshold: 8
 
 # Performance: Demografi minimum bbox boyutları (pixels)

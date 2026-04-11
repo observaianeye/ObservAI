@@ -146,7 +146,8 @@ export async function callOllama(
       options: {
         temperature: opts?.temperature ?? 0.4,
         num_predict: opts?.maxTokens ?? 1024,
-        num_gpu: parseInt(process.env.OLLAMA_NUM_GPU || '999', 10),
+        num_gpu: parseInt(process.env.OLLAMA_NUM_GPU || '0', 10),
+        num_ctx: parseInt(process.env.OLLAMA_NUM_CTX || '2048', 10),
       }
     })
   });

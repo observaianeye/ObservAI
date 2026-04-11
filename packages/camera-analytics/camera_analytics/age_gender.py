@@ -70,126 +70,220 @@ class AgeGenderEstimator(ABC):
 
 class MiVOLOEstimator(AgeGenderEstimator):
     """
-    Wrapper for MiVOLO (Multi-input Vision Transformer for Age and Gender).
-    Using the 'mivolo_repo' submodule.
+    MiVOLO (Multi-input VOLO) for age/gender estimation.
+    v2: Age MAE ~3.5yr, Gender ~97-98%. 384x384 input, trained on 807K samples.
+    v1: Age MAE ~3.7yr, Gender ~97%. 224x224 input.
+    Uses face+body dual 6-channel input for robust predictions.
+    Can predict body-only when face is not visible.
     """
-    def __init__(self, model_path: str = "models/model_im1k.pth.tar", device: str = None):
-        # Allow override of model path via environment variable
-        env_model_path = os.environ.get("MIVOLO_MODEL_PATH")
-        if env_model_path:
-             self.model_path = env_model_path
+
+    # Model filenames (v2 preferred over v1)
+    DEFAULT_MODEL_V2_DIR = "mivolo_v2"
+    DEFAULT_MODEL_V1 = "mivolo_d1_imdb.pth.tar"
+
+    # Architecture params for mivolo_d1 variant (shared by v1 and v2)
+    ARCH_PARAMS = dict(
+        layers=(4, 4, 8, 2),
+        embed_dims=(192, 384, 384, 384),
+        num_heads=(6, 12, 12, 12),
+    )
+
+    def __init__(self, model_path: str = None, device: str = None):
+        env_path = os.environ.get("MIVOLO_MODEL_PATH")
+        if env_path and os.path.exists(env_path):
+            self.model_path = env_path
+        elif model_path and os.path.exists(model_path):
+            self.model_path = model_path
         else:
-             # Default to local models dir in package
-             self.model_path = os.path.join(PARENT_DIR, "models", "mivolo_model.pth")
-        
-        self.device = device if device else ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-        self.predictor = None
+            # Prefer v2 (safetensors) over v1 (.pth.tar)
+            v2_dir = os.path.join(PARENT_DIR, "models", self.DEFAULT_MODEL_V2_DIR)
+            v2_safetensors = os.path.join(v2_dir, "model.safetensors")
+            if os.path.exists(v2_safetensors):
+                self.model_path = v2_safetensors
+            else:
+                self.model_path = os.path.join(PARENT_DIR, "models", self.DEFAULT_MODEL_V1)
+
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = None
+        self.meta = None  # min_age, max_age, avg_age
+        self.input_size = 224
+        self._mean = None
+        self._std = None
+        self._half = self.device != "cpu"
+        self._version = "v1"  # will be set during prepare()
+
+    def _load_safetensors(self):
+        """Load MiVOLOv2 from safetensors + config.json format."""
+        import json
+        from safetensors.torch import load_file
+
+        config_path = os.path.join(os.path.dirname(self.model_path), "config.json")
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"config.json not found alongside {self.model_path}")
+
+        with open(config_path) as f:
+            config = json.load(f)
+
+        self.meta = {
+            "min_age": config.get("min_age", 0),
+            "max_age": config.get("max_age", 122),
+            "avg_age": config.get("avg_age", 61.0),
+        }
+        self.input_size = config.get("input_size", 384)
+        in_chans = config.get("in_chans", 6)
+        num_classes = config.get("num_classes", 3)
+
+        # Load safetensors and strip HuggingFace wrapper prefix
+        raw_sd = load_file(self.model_path, device="cpu")
+        sd = {}
+        for k, v in raw_sd.items():
+            # Strip "mivolo.model." prefix from HuggingFace wrapper
+            clean_key = k.replace("mivolo.model.", "")
+            if "fds." not in clean_key:
+                sd[clean_key] = v
+
+        self._version = "v2"
+        return sd, in_chans, num_classes
+
+    def _load_pth_tar(self):
+        """Load MiVOLOv1 from .pth.tar checkpoint format."""
+        state = torch.load(self.model_path, map_location="cpu")
+        self.meta = {
+            "min_age": state["min_age"],
+            "max_age": state["max_age"],
+            "avg_age": state["avg_age"],
+        }
+        sd = state["state_dict"]
+        in_chans = 6 if "patch_embed.conv1.0.weight" in sd else 3
+        num_classes = 1 if state.get("no_gender", False) else 3
+        self.input_size = sd["pos_embed"].shape[1] * 16
+
+        clean_sd = {k: v for k, v in sd.items() if "fds." not in k}
+        self._version = "v1"
+        return clean_sd, in_chans, num_classes
 
     def prepare(self, ctx_id: int = 0, det_size: Tuple[int, int] = (640, 640)) -> None:
+        if not os.path.exists(self.model_path):
+            logger.warning(f"MiVOLO weights not found: {self.model_path}")
+            return
+
         try:
-            from mivolo.model.mi_volo import MiVOLO
-            from mivolo.structures import PersonAndFaceResult
-            
-            # Check if model exists
-            if not os.path.exists(self.model_path):
-                 logger.warning(f"MiVOLO model not found at {self.model_path}")
-                 logger.warning("Please download weights using setup_mivolo.sh manually.")
-                 return
+            from mivolo.model.mivolo_model import MiVOLOModel
+            from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
-            logger.info(f"Loading MiVOLO model from {self.model_path} to {self.device}")
-            
-            # Correct initialization based on inspection of source code
-            self.predictor = MiVOLO(
-                ckpt_path=self.model_path,
-                device=self.device,
-                half=True,
-                use_persons=True, # Model likely requires it
-                disable_faces=False,
-                verbose=False
+            logger.info(f"Loading MiVOLO from {self.model_path} on {self.device}")
+
+            # Load checkpoint (auto-detect format)
+            if self.model_path.endswith(".safetensors"):
+                sd, in_chans, num_classes = self._load_safetensors()
+            else:
+                sd, in_chans, num_classes = self._load_pth_tar()
+
+            # Create model directly (bypass timm build_model_with_cfg)
+            self.model = MiVOLOModel(
+                **self.ARCH_PARAMS,
+                img_size=self.input_size,
+                in_chans=in_chans,
+                num_classes=num_classes,
             )
-            self.predictor.model.eval()
-            
-            logger.info(f"✅ MiVOLO initialized successfully on {self.device}")
 
-        except ImportError as e:
-            logger.error(f"MiVOLO import failed: {e}. Is 'mivolo_repo' in path?")
+            self.model.load_state_dict(sd, strict=False)
+            self.model = self.model.to(self.device).eval()
+            if self._half:
+                self.model = self.model.half()
+
+            self._mean = IMAGENET_DEFAULT_MEAN
+            self._std = IMAGENET_DEFAULT_STD
+
+            # Warmup
+            dummy = torch.randn(1, in_chans, self.input_size, self.input_size).to(self.device)
+            if self._half:
+                dummy = dummy.half()
+            with torch.no_grad():
+                for _ in range(3):
+                    self.model(dummy)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+            params = sum(p.numel() for p in self.model.parameters())
+            precision = "FP16" if self._half else "FP32"
+            msg = (f"MiVOLO {self._version} ready: {params:,} params, input={self.input_size}, "
+                   f"in_chans={in_chans}, age=[{self.meta['min_age']}-{self.meta['max_age']}], "
+                   f"device={self.device}, {precision}")
+            logger.info(msg)
+            print(f"[MIVOLO] ✅ {msg}", flush=True)
+
         except Exception as e:
-            logger.error(f"Failed to load MiVOLO: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"MiVOLO load failed: {e}")
+            import traceback; traceback.print_exc()
+            self.model = None
+
+    def _prep_images(self, img_list):
+        """Preprocess a list of Optional[np.ndarray] into a batched tensor."""
+        from mivolo.data.misc import prepare_classification_images
+        return prepare_classification_images(
+            img_list, self.input_size, self._mean, self._std, device=self.device
+        )
+
+    def _decode(self, output, index=0):
+        """Decode MiVOLO output at batch index into (age, gender, gender_prob)."""
+        age_raw = output[index, 2].item()
+        age = age_raw * (self.meta["max_age"] - self.meta["min_age"]) + self.meta["avg_age"]
+        age = max(1.0, min(95.0, age))
+
+        gender_logits = output[index, :2].softmax(-1)
+        male_prob = gender_logits[0].item()
+        female_prob = gender_logits[1].item()
+        gender = "male" if male_prob >= female_prob else "female"
+        gender_prob = max(male_prob, female_prob)
+
+        return float(age), gender, float(gender_prob)
+
+    def predict_batch(self, face_crops, body_crops):
+        """
+        Batch age/gender prediction from face+body crop pairs.
+
+        Args:
+            face_crops: list of Optional[np.ndarray] — face crop or None
+            body_crops: list of Optional[np.ndarray] — body crop or None
+
+        Returns:
+            list of (age, gender, gender_prob) tuples.
+            gender_prob is CONTINUOUS [0.5, 1.0] — the model's actual confidence.
+        """
+        if self.model is None or len(face_crops) == 0:
+            return [(None, None, 0.0)] * len(face_crops)
+
+        try:
+            faces_t = self._prep_images(face_crops)
+            bodies_t = self._prep_images(body_crops)
+
+            if faces_t is None and bodies_t is None:
+                return [(None, None, 0.0)] * len(face_crops)
+
+            # 6-channel concat: [face_3ch, body_3ch]
+            model_input = torch.cat((faces_t, bodies_t), dim=1)
+            with torch.no_grad():
+                if self._half:
+                    model_input = model_input.half()
+                output = self.model(model_input)
+
+            results = []
+            for i in range(output.shape[0]):
+                results.append(self._decode(output, i))
+            return results
+
+        except Exception as e:
+            logger.error(f"MiVOLO batch error: {e}")
+            return [(None, None, 0.0)] * len(face_crops)
 
     def predict(self, face_img: np.ndarray) -> Tuple[Optional[float], Optional[str], float]:
-        if self.predictor is None:
-            return None, None, 0.0
-            
-        try:
-            from mivolo.data.misc import prepare_classification_images
-            
-            # Prepare inputs manually
-            # We treat the face crop as both the face and the person crop (heuristic)
-            faces_crops = [face_img]
-            bodies_crops = [face_img] # Duplicate for context
-            
-            input_size = self.predictor.input_size
-            mean = self.predictor.data_config["mean"]
-            std = self.predictor.data_config["std"]
-            
-            # Prepare tensors
-            faces_input = prepare_classification_images(
-                faces_crops, input_size, mean, std, device=self.device
-            )
-            person_input = prepare_classification_images(
-                bodies_crops, input_size, mean, std, device=self.device
-            )
-            
-            # Concatenate inputs (batch size 1)
-            # MiVOLO expects [B, 6, H, W] if use_persons is True
-            # faces_input is [1, 3, H, W]
-            model_input = torch.cat((faces_input, person_input), dim=1)
-            
-            # Inference
-            output = self.predictor.inference(model_input)
-            
-            # Decode Output
-            # Logic from MiVOLO.fill_in_results
-            if self.predictor.meta.only_age:
-                age_output = output
-                gender_probs = None
-            else:
-                age_output = output[:, 2]
-                gender_output = output[:, :2].softmax(-1)
-                gender_probs, gender_indx = gender_output.topk(1)
-            
-            # Process Age
-            age_raw = age_output[0].item()
-            min_age = self.predictor.meta.min_age
-            max_age = self.predictor.meta.max_age
-            avg_age = self.predictor.meta.avg_age
-            
-            # De-normalize age
-            age = age_raw * (max_age - min_age) + avg_age
-            age = max(0, age) # clamp
-            
-            # Process Gender
-            gender = None
-            confidence = 0.0
-            if gender_probs is not None:
-                g_idx = gender_indx[0].item()
-                g_score = gender_probs[0].item()
-                # 0 = Male, 1 = Female (Usually? Check source)
-                # Source of fill_in_results: gender = "male" if gender_indx[index].item() == 0 else "female"
-                gender = "male" if g_idx == 0 else "female"
-                confidence = g_score
-                
-            return float(age), gender, float(confidence)
+        """Single face-only prediction (crop fallback compatibility)."""
+        results = self.predict_batch([face_img], [face_img])
+        return results[0]
 
-        except Exception as e:
-            logger.error(f"MiVOLO prediction error: {e}")
-            import traceback
-            traceback.print_exc()
-            return None, None, 0.0
-    
     def detect_and_predict(self, full_frame: np.ndarray) -> Any:
+        # MiVOLO doesn't do face detection — InsightFace handles that
         return []
 
 
@@ -236,9 +330,13 @@ class InsightFaceEstimator(AgeGenderEstimator):
             logger.error("InsightFace library not found.")
             return
 
-        logger.info(f"Initializing InsightFace ({self.model_name}) with providers (TRT+CUDA+CPU)")
+        # Skip recognition model — we use MiVOLO for age/gender, InsightFace only for detection.
+        # This saves ~250MB memory and ~5ms/frame (no embedding extraction).
+        _allowed = ['detection', 'genderage']
+        logger.info(f"Initializing InsightFace ({self.model_name}) modules={_allowed} with CUDA EP")
         try:
-            self.app = FaceAnalysis(name=self.model_name, providers=self.providers)
+            self.app = FaceAnalysis(name=self.model_name, providers=self.providers,
+                                    allowed_modules=_allowed)
             self.app.prepare(ctx_id=ctx_id, det_size=det_size)
             logger.info(f"InsightFace ({self.model_name}) initialized successfully.")
             # Log loaded model names and active providers
@@ -326,7 +424,7 @@ class InsightFaceEstimator(AgeGenderEstimator):
             # --- Gender decoding ---
             gender = None
             if hasattr(face, "gender") and face.gender is not None:
-                gender = "male" if round(float(face.gender)) == 1 else "female"
+                gender = "male" if float(face.gender) > 0.5 else "female"
             elif hasattr(face, "sex"):
                 if isinstance(face.sex, str):
                     gender = "male" if face.sex.upper() == 'M' else "female"
@@ -343,9 +441,14 @@ class InsightFaceEstimator(AgeGenderEstimator):
 
             # Pose-based confidence: steeper penalty for non-frontal faces
             pose_factor = 0.7  # default if no pose data
+            yaw = 30.0  # default assumption
             if hasattr(face, 'pose') and face.pose is not None:
                 yaw = abs(float(face.pose[1]))
                 pose_factor = max(0.2, 1.0 - yaw / 90.0)
+
+            # Suppress gender for profile faces (consistent with full-frame path in analytics.py)
+            if yaw > 55.0:
+                gender = None
 
             confidence = 0.85 * min(1.0, det_score / 0.5) * size_factor * pose_factor
             confidence = max(0.10, min(0.95, confidence))
@@ -366,8 +469,30 @@ class InsightFaceEstimator(AgeGenderEstimator):
 
 
 class EstimatorFactory:
+    """
+    Creates demographics estimators.
+    In 'auto' mode: InsightFace for face detection, MiVOLO for age/gender.
+    """
+
+    @staticmethod
+    def _find_mivolo_weights() -> Optional[str]:
+        """Search for MiVOLO weights. Prefers v2 (safetensors) over v1 (.pth.tar)."""
+        candidates = [
+            os.environ.get("MIVOLO_MODEL_PATH", ""),
+            # v2 safetensors (preferred — better accuracy)
+            os.path.join(PARENT_DIR, "models", MiVOLOEstimator.DEFAULT_MODEL_V2_DIR, "model.safetensors"),
+            # v1 .pth.tar (fallback)
+            os.path.join(PARENT_DIR, "models", MiVOLOEstimator.DEFAULT_MODEL_V1),
+            os.path.join(PARENT_DIR, "models", "mivolo_model.pth"),
+        ]
+        for p in candidates:
+            if p and os.path.exists(p):
+                return p
+        return None
+
     @staticmethod
     def create_estimator(config: dict = None) -> AgeGenderEstimator:
+        """Create a face detector + demographics estimator (backward compat)."""
         if config is None:
             config = {}
 
@@ -378,27 +503,31 @@ class EstimatorFactory:
             return InsightFaceEstimator()
 
         if model_type == "mivolo":
-            logger.info("Factory: Creating MiVOLO Estimator...")
-            return MiVOLOEstimator()
+            path = EstimatorFactory._find_mivolo_weights()
+            logger.info(f"Factory: Creating MiVOLO Estimator (weights={path})")
+            return MiVOLOEstimator(model_path=path)
 
-        # "auto" mode: try MiVOLO first (better accuracy), fall back to InsightFace
-        try:
-            import importlib
-            importlib.import_module("mivolo.model.mi_volo")
-            mivolo_model_path = os.path.join(PARENT_DIR, "models", "mivolo_model.pth")
-            if os.path.exists(mivolo_model_path):
-                logger.info("Factory: MiVOLO available — creating MiVOLO Estimator...")
-                return MiVOLOEstimator()
-            else:
-                logger.info("Factory: MiVOLO module found but model weights missing — falling back to InsightFace")
-        except ImportError:
-            logger.info("Factory: MiVOLO not installed — falling back to InsightFace")
-
+        # "auto" mode: InsightFace for face detection (always needed)
         if insightface is not None:
-            logger.info("Factory: Creating InsightFace Estimator (auto-fallback)...")
+            logger.info("Factory: Creating InsightFace Estimator (face detection)...")
             estimator = InsightFaceEstimator()
             print(f"[INFO] Factory selected: {type(estimator).__name__}")
             return estimator
 
-        logger.warning("Factory: No demographics estimator available (install InsightFace or MiVOLO)")
-        return MiVOLOEstimator()
+        logger.warning("Factory: No demographics estimator available")
+        return InsightFaceEstimator()
+
+    @staticmethod
+    def create_mivolo(device: str = None) -> Optional[MiVOLOEstimator]:
+        """Create MiVOLO estimator if weights are available."""
+        path = EstimatorFactory._find_mivolo_weights()
+        if path is None:
+            logger.info("Factory: MiVOLO weights not found, skipping")
+            return None
+        try:
+            from mivolo.model.mivolo_model import MiVOLOModel  # noqa: F401
+        except ImportError:
+            logger.info("Factory: MiVOLO module not importable, skipping")
+            return None
+        logger.info(f"Factory: Creating MiVOLO age/gender model (weights={path})")
+        return MiVOLOEstimator(model_path=path, device=device)
