@@ -2,20 +2,20 @@ import { Camera } from 'lucide-react';
 
 export default function LoadingScreen() {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50/30 to-teal-50/30">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-0 grid-floor">
       <div className="text-center">
         <div className="relative inline-block mb-8">
-          <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-teal-500 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse-scale">
-            <Camera className="w-12 h-12 text-white" />
+          <div className="w-24 h-24 bg-gradient-to-br from-brand-500 to-accent-500 rounded-2xl flex items-center justify-center shadow-glow-brand animate-pulse-scale">
+            <Camera className="w-12 h-12 text-white" strokeWidth={1.5} />
           </div>
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-teal-500 rounded-2xl animate-ping opacity-20" />
+          <div className="absolute inset-0 bg-gradient-to-br from-brand-500 to-accent-500 rounded-2xl animate-ping opacity-20" />
         </div>
 
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">ObservAI</h2>
-        <p className="text-sm text-gray-600 mb-6">Loading your dashboard...</p>
+        <h2 className="font-display text-2xl font-semibold text-ink-0 mb-2 tracking-tight">ObservAI</h2>
+        <p className="text-sm text-ink-3 mb-6">Loading your dashboard...</p>
 
-        <div className="w-64 h-2 bg-gray-200 rounded-full overflow-hidden mx-auto">
-          <div className="h-full bg-gradient-to-r from-blue-600 to-teal-500 rounded-full animate-loading-bar" />
+        <div className="w-64 h-2 bg-white/[0.06] rounded-full overflow-hidden mx-auto border border-white/[0.08]">
+          <div className="h-full bg-gradient-to-r from-brand-500 via-accent-500 to-violet-500 rounded-full animate-loading-bar" />
         </div>
       </div>
 

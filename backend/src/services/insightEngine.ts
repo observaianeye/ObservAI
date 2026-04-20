@@ -18,6 +18,7 @@ import { prisma } from '../lib/db';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { callOllama } from '../routes/ai';
 import { dispatchBatch } from './notificationDispatcher';
+import { GEMINI_MODEL_CANDIDATES, isGeminiFallbackError } from '../lib/aiConfig';
 
 // ─── Weather Helper ───────────────────────────────────────────────────────────
 
@@ -524,9 +525,7 @@ Recommendations:`;
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
     if (GEMINI_API_KEY) {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      const modelCandidates = ['gemini-2.5-flash', 'gemini-2.0-flash-001', 'gemini-2.0-flash-lite'];
-
-      for (const modelName of modelCandidates) {
+      for (const modelName of GEMINI_MODEL_CANDIDATES) {
         try {
           const model = genAI.getGenerativeModel({ model: modelName });
           const result = await model.generateContent(prompt);
@@ -535,16 +534,11 @@ Recommendations:`;
           const recs = parseRecommendations(text);
           if (recs.length > 0) return recs;
         } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          const isQuotaOrMissing =
-            errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('429') ||
-            errMsg.toLowerCase().includes('404') || errMsg.toLowerCase().includes('resource_exhausted');
-
-          if (isQuotaOrMissing) {
-            console.log(`[InsightEngine] Gemini ${modelName}: quota_exhausted`);
+          if (isGeminiFallbackError(err)) {
+            console.log(`[InsightEngine] Gemini ${modelName}: quota/404, trying next`);
           } else {
-            console.error(`[InsightEngine] Gemini ${modelName}: error - ${errMsg}`);
-            break; // Non-quota error, stop trying
+            console.error(`[InsightEngine] Gemini ${modelName}: error - ${err instanceof Error ? err.message : String(err)}`);
+            break;
           }
         }
       }

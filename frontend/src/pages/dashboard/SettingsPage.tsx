@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Settings, Camera, Bell, Globe, Shield, User, Save, RotateCcw,
-  Eye, EyeOff, Sliders, Monitor, Wifi, WifiOff, AlertTriangle,
-  CheckCircle, ChevronDown, ChevronUp, Volume2, VolumeX, Sun, Moon,
+  Camera, Bell, Globe, Shield, User, Save, RotateCcw,
+  Monitor, Wifi, AlertTriangle,
+  CheckCircle, ChevronDown, ChevronUp, Sun, Moon,
   Send, Mail, MessageSquare
 } from 'lucide-react';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
+import { useLanguage } from '../../contexts/LanguageContext';
+import type { Lang } from '../../i18n/strings';
 import { cameraBackendService, type BackendHealth } from '../../services/cameraBackendService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -55,12 +57,9 @@ interface UserProfile {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-const LANGUAGES = [
-  { value: 'en', label: 'English' },
+const LANGUAGE_OPTIONS = [
   { value: 'tr', label: 'Türkçe' },
-  { value: 'de', label: 'Deutsch' },
-  { value: 'fr', label: 'Français' },
-  { value: 'es', label: 'Español' },
+  { value: 'en', label: 'English' },
 ];
 
 const TIMEZONES = [
@@ -105,11 +104,11 @@ const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 };
 
 const DEFAULT_REGIONAL: RegionalSettings = {
-  language: 'en',
+  language: 'tr',
   timezone: 'Europe/Istanbul',
   dateFormat: 'DD/MM/YYYY',
   timeFormat: '24h',
-  theme: 'light',
+  theme: 'dark',
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -146,24 +145,24 @@ function SettingsSection({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden">
+    <div className="surface-card overflow-hidden">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-5 hover:bg-white/5 transition-colors"
+        className="w-full flex items-center justify-between p-5 hover:bg-white/[0.03] transition-colors"
       >
         <div className="flex items-center space-x-3">
           <div className={`w-10 h-10 ${iconBg} rounded-lg flex items-center justify-center`}>
             <Icon className={`w-5 h-5 ${iconColor}`} />
           </div>
-          <h3 className="text-base font-semibold text-white">{title}</h3>
+          <h3 className="text-base font-semibold text-ink-0">{title}</h3>
         </div>
         {isOpen ? (
-          <ChevronUp className="w-5 h-5 text-gray-400" />
+          <ChevronUp className="w-5 h-5 text-ink-3" />
         ) : (
-          <ChevronDown className="w-5 h-5 text-gray-400" />
+          <ChevronDown className="w-5 h-5 text-ink-3" />
         )}
       </button>
-      {isOpen && <div className="px-5 pb-5 border-t border-white/10 pt-4">{children}</div>}
+      {isOpen && <div className="px-5 pb-5 border-t border-white/[0.06] pt-4">{children}</div>}
     </div>
   );
 }
@@ -184,11 +183,11 @@ function Toggle({
   return (
     <label className="flex items-start justify-between cursor-pointer group py-2">
       <div className="flex-1 mr-4">
-        <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">
+        <span className="text-sm font-medium text-ink-1 group-hover:text-ink-0 transition-colors">
           {label}
         </span>
         {description && (
-          <p className="text-xs text-gray-400 mt-0.5">{description}</p>
+          <p className="text-xs text-ink-3 mt-0.5">{description}</p>
         )}
       </div>
       <button
@@ -196,12 +195,12 @@ function Toggle({
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-          checked ? 'bg-blue-600' : 'bg-gray-600'
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-surface-1 ${
+          checked ? 'bg-brand-500' : 'bg-ink-5'
         }`}
       >
         <span
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
             checked ? 'translate-x-5' : 'translate-x-0'
           }`}
         />
@@ -235,12 +234,12 @@ function Slider({
     <div className="py-2">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <span className="text-sm font-medium text-gray-300">{label}</span>
+          <span className="text-sm font-medium text-ink-1">{label}</span>
           {description && (
-            <p className="text-xs text-gray-400 mt-0.5">{description}</p>
+            <p className="text-xs text-ink-3 mt-0.5">{description}</p>
           )}
         </div>
-        <span className="text-sm font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+        <span className="text-sm font-mono tabular-nums font-semibold text-brand-300 bg-brand-500/10 border border-brand-500/20 px-2 py-0.5 rounded">
           {value}{unit || ''}
         </span>
       </div>
@@ -251,9 +250,9 @@ function Slider({
         step={step || 1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600"
+        className="w-full h-2 bg-surface-3 rounded-lg appearance-none cursor-pointer accent-brand-500"
       />
-      <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+      <div className="flex justify-between text-[10px] font-mono text-ink-4 mt-1 tabular-nums">
         <span>{min}{unit || ''}</span>
         <span>{max}{unit || ''}</span>
       </div>
@@ -276,14 +275,14 @@ function Select({
 }) {
   return (
     <div className="py-2">
-      <label className="block text-sm font-medium text-gray-300 mb-1.5">{label}</label>
+      <label className="block text-sm font-medium text-ink-1 mb-1.5">{label}</label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+        className="w-full px-3 py-2 border border-white/[0.08] rounded-lg text-sm bg-surface-2/60 text-ink-0 focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/50 transition-colors"
       >
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+          <option key={opt.value} value={opt.value} className="bg-surface-2 text-ink-1">{opt.label}</option>
         ))}
       </select>
     </div>
@@ -296,6 +295,7 @@ export default function SettingsPage() {
   const { dataMode, setDataMode } = useDataMode();
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { lang, setLang, t } = useLanguage();
 
   // State
   const [camera, setCamera] = useState<CameraSettings>(() => loadSettings('camera', DEFAULT_CAMERA));
@@ -384,17 +384,22 @@ export default function SettingsPage() {
     }
   }, [user]);
 
+  // Keep regional.language in sync with the active language context
+  useEffect(() => {
+    if (regional.language !== lang) {
+      setRegional(prev => ({ ...prev, language: lang }));
+    }
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ─── Save All ────────────────────────────────────────────────────────
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // Save to localStorage
       saveSettings('camera', camera);
       saveSettings('notifications', notifications);
       saveSettings('regional', regional);
 
-      // Try to save profile to backend
       try {
         await fetch(`${API_URL}/api/users/profile`, {
           method: 'PATCH',
@@ -405,11 +410,8 @@ export default function SettingsPage() {
             lastName: profile.lastName,
           }),
         });
-      } catch {
-        // Profile save to backend is optional
-      }
+      } catch { /* optional */ }
 
-      // Save notification channels to backend
       try {
         await fetch(`${API_URL}/api/notifications/settings`, {
           method: 'PUT',
@@ -424,18 +426,16 @@ export default function SettingsPage() {
             dailySummaryTime: channels.dailySummaryTime,
           }),
         });
-      } catch {
-        // Notification save to backend is optional
-      }
+      } catch { /* optional */ }
 
       setHasChanges(false);
-      showToast('success', 'Settings saved successfully');
+      showToast('success', t('settings.savedOk'));
     } catch {
-      showToast('error', 'Failed to save settings');
+      showToast('error', t('settings.savedFail'));
     } finally {
       setSaving(false);
     }
-  }, [camera, notifications, regional, profile, showToast]);
+  }, [camera, notifications, regional, profile, channels, showToast, t]);
 
   // ─── Reset All ───────────────────────────────────────────────────────
 
@@ -443,10 +443,8 @@ export default function SettingsPage() {
     setCamera(DEFAULT_CAMERA);
     setNotifications(DEFAULT_NOTIFICATIONS);
     setRegional(DEFAULT_REGIONAL);
-    showToast('warning', 'Settings reset to defaults');
-  }, [showToast]);
-
-  // ─── Camera Setting Updaters ─────────────────────────────────────────
+    showToast('warning', t('settings.resetToDefaults'));
+  }, [showToast, t]);
 
   const updateCamera = <K extends keyof CameraSettings>(key: K, value: CameraSettings[K]) => {
     setCamera(prev => ({ ...prev, [key]: value }));
@@ -467,118 +465,118 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Settings</h1>
-          <p className="text-sm text-gray-400 mt-1">Configure system preferences and analytics parameters</p>
+          <h1 className="text-2xl font-display font-semibold tracking-tight text-ink-0">{t('settings.title')}</h1>
+          <p className="text-sm text-ink-3 mt-1">{t('settings.subtitle')}</p>
         </div>
         <div className="flex items-center space-x-3">
           <button
             onClick={handleReset}
-            className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors"
+            className="inline-flex items-center px-3 py-2 text-sm font-medium text-ink-1 bg-surface-2/60 border border-white/[0.08] rounded-lg hover:bg-white/[0.04] hover:border-white/[0.12] transition-colors"
           >
             <RotateCcw className="w-4 h-4 mr-1.5" />
-            Reset
+            {t('settings.reset')}
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !hasChanges}
-            className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-brand-500 to-accent-500 rounded-xl hover:shadow-glow-brand disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {saving ? (
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />
             ) : (
               <Save className="w-4 h-4 mr-1.5" />
             )}
-            Save Changes
+            {t('settings.saveChanges')}
           </button>
         </div>
       </div>
 
       {/* System Status Banner */}
-      <div className={`rounded-xl p-4 flex items-center space-x-3 ${
+      <div className={`rounded-xl p-4 flex items-center space-x-3 border ${
         backendHealth?.status === 'ready'
-          ? 'bg-green-500/10 border border-green-500/20'
+          ? 'bg-success-500/10 border-success-500/20'
           : backendHealth?.status === 'loading'
-          ? 'bg-yellow-500/10 border border-yellow-500/20'
-          : 'bg-red-500/10 border border-red-500/20'
+          ? 'bg-warning-500/10 border-warning-500/20'
+          : 'bg-danger-500/10 border-danger-500/20'
       }`}>
         {backendHealth?.status === 'ready' ? (
           <>
-            <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
+            <CheckCircle className="w-5 h-5 text-success-400 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-green-300">System Online</p>
-              <p className="text-xs text-green-400">
-                Python backend connected &middot; {backendHealth.fps.toFixed(1)} FPS &middot; Model loaded
+              <p className="text-sm font-medium text-success-300">{t('settings.system.online')}</p>
+              <p className="text-xs text-success-400">
+                {t('settings.system.online.detail', { fps: backendHealth.fps.toFixed(1) })}
               </p>
             </div>
           </>
         ) : backendHealth?.status === 'loading' ? (
           <>
-            <div className="w-5 h-5 border-2 border-yellow-500/30 border-t-yellow-500 rounded-full animate-spin flex-shrink-0" />
+            <div className="w-5 h-5 border-2 border-warning-500/30 border-t-warning-500 rounded-full animate-spin flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-yellow-300">System Loading</p>
-              <p className="text-xs text-yellow-400">Phase: {backendHealth.phase}</p>
+              <p className="text-sm font-medium text-warning-300">{t('settings.system.loading')}</p>
+              <p className="text-xs text-warning-400">{t('settings.system.loading.phase', { phase: backendHealth.phase })}</p>
             </div>
           </>
         ) : (
           <>
-            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <AlertTriangle className="w-5 h-5 text-danger-400 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-red-300">System Offline</p>
-              <p className="text-xs text-red-400">
-                {backendHealth?.error || 'Python backend is not reachable'}
+              <p className="text-sm font-medium text-danger-300">{t('settings.system.offline')}</p>
+              <p className="text-xs text-danger-400">
+                {backendHealth?.error || t('settings.system.offline.detail')}
               </p>
             </div>
           </>
         )}
         <div className="ml-auto flex items-center space-x-2">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase tracking-[0.18em] ${
             dataMode === 'live'
-              ? 'bg-green-500/10 text-green-400'
-              : 'bg-blue-500/10 text-blue-400'
+              ? 'bg-success-500/10 text-success-300'
+              : 'bg-violet-500/10 text-violet-200'
           }`}>
             {dataMode === 'live' ? (
-              <><Wifi className="w-3 h-3 mr-1" /> Live</>
+              <><Wifi className="w-3 h-3 mr-1" /> {t('common.live')}</>
             ) : (
-              <><Monitor className="w-3 h-3 mr-1" /> Demo</>
+              <><Monitor className="w-3 h-3 mr-1" /> {t('common.demo')}</>
             )}
           </span>
         </div>
       </div>
 
       {/* Data Mode Switch */}
-      <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5">
+      <div className="surface-card p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-indigo-500/10 rounded-lg flex items-center justify-center">
-              <Monitor className="w-5 h-5 text-indigo-400" />
+            <div className="w-10 h-10 bg-brand-500/10 rounded-lg flex items-center justify-center">
+              <Monitor className="w-5 h-5 text-brand-300" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white">Data Mode</h3>
-              <p className="text-xs text-gray-400">
-                Switch between live camera data and demo simulation data
+              <h3 className="text-base font-semibold text-ink-0">{t('settings.dataMode.title')}</h3>
+              <p className="text-xs text-ink-3">
+                {t('settings.dataMode.subtitle')}
               </p>
             </div>
           </div>
-          <div className="flex items-center bg-white/5 rounded-lg p-1">
+          <div className="flex items-center bg-surface-2/60 border border-white/[0.08] rounded-lg p-1 gap-0.5">
             <button
               onClick={() => setDataMode('demo')}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
                 dataMode === 'demo'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-violet-500/20 text-violet-200 border border-violet-500/30'
+                  : 'text-ink-3 hover:text-ink-0 border border-transparent'
               }`}
             >
-              Demo
+              {t('common.demo')}
             </button>
             <button
               onClick={() => setDataMode('live')}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
                 dataMode === 'live'
-                  ? 'bg-green-600 text-white shadow-sm'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-success-500/20 text-success-300 border border-success-500/30'
+                  : 'text-ink-3 hover:text-ink-0 border border-transparent'
               }`}
             >
-              Live
+              {t('common.live')}
             </button>
           </div>
         </div>
@@ -586,15 +584,15 @@ export default function SettingsPage() {
 
       {/* Camera Settings */}
       <SettingsSection
-        title="Camera & Detection"
+        title={t('settings.camera.title')}
         icon={Camera}
-        iconBg="bg-blue-500/10"
-        iconColor="text-blue-400"
+        iconBg="bg-brand-500/10"
+        iconColor="text-brand-300"
       >
         <div className="space-y-1">
           <Slider
-            label="Detection Sensitivity"
-            description="Higher values detect more objects but may include false positives"
+            label={t('settings.camera.sensitivity')}
+            description={t('settings.camera.sensitivityDesc')}
             value={camera.detectionSensitivity}
             onChange={(v) => updateCamera('detectionSensitivity', v)}
             min={10}
@@ -603,8 +601,8 @@ export default function SettingsPage() {
           />
 
           <Slider
-            label="Confidence Threshold"
-            description="Minimum confidence score to show a detection"
+            label={t('settings.camera.threshold')}
+            description={t('settings.camera.thresholdDesc')}
             value={Math.round(camera.confidenceThreshold * 100)}
             onChange={(v) => updateCamera('confidenceThreshold', v / 100)}
             min={10}
@@ -613,8 +611,8 @@ export default function SettingsPage() {
           />
 
           <Slider
-            label="Frame Skip"
-            description="Process every Nth frame for AI inference (higher = better performance)"
+            label={t('settings.camera.frameSkip')}
+            description={t('settings.camera.frameSkipDesc')}
             value={camera.frameSkip}
             onChange={(v) => updateCamera('frameSkip', v)}
             min={1}
@@ -622,41 +620,41 @@ export default function SettingsPage() {
           />
 
           <Select
-            label="Input Resolution"
+            label={t('settings.camera.resolution')}
             value={camera.inputResolution}
             onChange={(v) => updateCamera('inputResolution', v as CameraSettings['inputResolution'])}
             options={[
-              { value: '320', label: '320px (Fast, lower accuracy)' },
-              { value: '416', label: '416px (Balanced)' },
-              { value: '640', label: '640px (Best accuracy, slower)' },
+              { value: '320', label: t('settings.camera.resolution320') },
+              { value: '416', label: t('settings.camera.resolution416') },
+              { value: '640', label: t('settings.camera.resolution640') },
             ]}
           />
 
           <Slider
-            label="Max Detections"
-            description="Maximum number of people to track simultaneously"
+            label={t('settings.camera.maxDetect')}
+            description={t('settings.camera.maxDetectDesc')}
             value={camera.maxDetections}
             onChange={(v) => updateCamera('maxDetections', v)}
             min={5}
             max={100}
           />
 
-          <div className="border-t border-white/10 mt-3 pt-3 space-y-1">
+          <div className="border-t border-white/[0.06] mt-3 pt-3 space-y-1">
             <Toggle
-              label="Show Bounding Boxes"
-              description="Display detection rectangles on the video feed"
+              label={t('settings.camera.bbox')}
+              description={t('settings.camera.bboxDesc')}
               checked={camera.showBoundingBoxes}
               onChange={(v) => updateCamera('showBoundingBoxes', v)}
             />
             <Toggle
-              label="Show Demographics"
-              description="Display age and gender labels on detected people"
+              label={t('settings.camera.demographics')}
+              description={t('settings.camera.demographicsDesc')}
               checked={camera.showDemographics}
               onChange={(v) => updateCamera('showDemographics', v)}
             />
             <Toggle
-              label="Show Zone Overlay"
-              description="Display zone boundaries on the video feed"
+              label={t('settings.camera.zone')}
+              description={t('settings.camera.zoneDesc')}
               checked={camera.showZoneOverlay}
               onChange={(v) => updateCamera('showZoneOverlay', v)}
             />
@@ -666,57 +664,57 @@ export default function SettingsPage() {
 
       {/* Notification Settings */}
       <SettingsSection
-        title="Notifications"
+        title={t('settings.notif.title')}
         icon={Bell}
-        iconBg="bg-green-500/10"
-        iconColor="text-green-400"
+        iconBg="bg-success-500/10"
+        iconColor="text-success-400"
       >
         <div className="space-y-1">
           <Toggle
-            label="Push Notifications"
-            description="Receive browser push notifications for alerts"
+            label={t('settings.notif.push')}
+            description={t('settings.notif.pushDesc')}
             checked={notifications.enablePush}
             onChange={(v) => updateNotifications('enablePush', v)}
           />
           <Toggle
-            label="Alert Sounds"
-            description="Play a sound when a new alert arrives"
+            label={t('settings.notif.sound')}
+            description={t('settings.notif.soundDesc')}
             checked={notifications.enableSound}
             onChange={(v) => updateNotifications('enableSound', v)}
           />
 
-          <div className="border-t border-white/10 mt-3 pt-3">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Alert Types</p>
+          <div className="border-t border-white/[0.06] mt-3 pt-3">
+            <p className="text-[10px] font-mono font-semibold text-ink-3 uppercase tracking-[0.18em] mb-2">{t('settings.notif.alertTypes')}</p>
             <Toggle
-              label="Crowd Surge Alerts"
-              description="When visitor rate exceeds 2x the average"
+              label={t('settings.notif.surge')}
+              description={t('settings.notif.surgeDesc')}
               checked={notifications.crowdSurgeAlerts}
               onChange={(v) => updateNotifications('crowdSurgeAlerts', v)}
             />
             <Toggle
-              label="Occupancy Alerts"
-              description="When zone capacity exceeds threshold"
+              label={t('settings.notif.occupancy')}
+              description={t('settings.notif.occupancyDesc')}
               checked={notifications.occupancyAlerts}
               onChange={(v) => updateNotifications('occupancyAlerts', v)}
             />
             <Toggle
-              label="Demographic Trend Alerts"
-              description="When significant demographic shifts are detected"
+              label={t('settings.notif.demoTrend')}
+              description={t('settings.notif.demoTrendDesc')}
               checked={notifications.demographicTrends}
               onChange={(v) => updateNotifications('demographicTrends', v)}
             />
             <Toggle
-              label="System Alerts"
-              description="Backend status changes, connection issues"
+              label={t('settings.notif.system')}
+              description={t('settings.notif.systemDesc')}
               checked={notifications.systemAlerts}
               onChange={(v) => updateNotifications('systemAlerts', v)}
             />
           </div>
 
-          <div className="border-t border-white/10 mt-3 pt-3">
+          <div className="border-t border-white/[0.06] mt-3 pt-3">
             <Slider
-              label="Occupancy Alert Threshold"
-              description="Alert when zone occupancy exceeds this percentage"
+              label={t('settings.notif.occupancyThreshold')}
+              description={t('settings.notif.occupancyThresholdDesc')}
               value={notifications.occupancyThreshold}
               onChange={(v) => updateNotifications('occupancyThreshold', v)}
               min={50}
@@ -725,32 +723,32 @@ export default function SettingsPage() {
             />
           </div>
 
-          <div className="border-t border-white/10 mt-3 pt-3">
+          <div className="border-t border-white/[0.06] mt-3 pt-3">
             <Toggle
-              label="Quiet Hours"
-              description="Suppress non-critical notifications during specified hours"
+              label={t('settings.notif.quiet')}
+              description={t('settings.notif.quietDesc')}
               checked={notifications.quietHoursEnabled}
               onChange={(v) => updateNotifications('quietHoursEnabled', v)}
             />
             {notifications.quietHoursEnabled && (
               <div className="flex items-center space-x-3 mt-2 ml-1">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">From</label>
+                  <label className="block text-xs text-ink-3 mb-1">{t('settings.notif.from')}</label>
                   <input
                     type="time"
                     value={notifications.quietHoursStart}
                     onChange={(e) => updateNotifications('quietHoursStart', e.target.value)}
-                    className="px-2 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                    className="px-2 py-1.5 border border-white/[0.08] bg-surface-2/60 text-ink-0 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/30"
                   />
                 </div>
-                <span className="text-gray-400 mt-5">---</span>
+                <span className="text-ink-4 mt-5">—</span>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">To</label>
+                  <label className="block text-xs text-ink-3 mb-1">{t('settings.notif.to')}</label>
                   <input
                     type="time"
                     value={notifications.quietHoursEnd}
                     onChange={(e) => updateNotifications('quietHoursEnd', e.target.value)}
-                    className="px-2 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                    className="px-2 py-1.5 border border-white/[0.08] bg-surface-2/60 text-ink-0 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/30"
                   />
                 </div>
               </div>
@@ -758,53 +756,51 @@ export default function SettingsPage() {
           </div>
 
           {/* ── Notification Channels ── */}
-          <div className="border-t border-white/10 mt-3 pt-3">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Notification Channels</p>
+          <div className="border-t border-white/[0.06] mt-3 pt-3">
+            <p className="text-[10px] font-mono font-semibold text-ink-3 uppercase tracking-[0.18em] mb-3">{t('settings.channels.title')}</p>
 
-            {/* Minimum Severity */}
             <div className="mb-4">
-              <label className="block text-sm text-gray-300 mb-1">Minimum Alert Severity</label>
-              <p className="text-xs text-gray-500 mb-2">Only alerts at or above this level trigger Telegram/Email</p>
+              <label className="block text-sm text-ink-1 mb-1">{t('settings.channels.severity')}</label>
+              <p className="text-xs text-ink-3 mb-2">{t('settings.channels.severityDesc')}</p>
               <select
                 value={channels.notifySeverity}
                 onChange={(e) => setChannels(prev => ({ ...prev, notifySeverity: e.target.value }))}
-                className="w-full px-3 py-2 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-white/[0.08] bg-surface-2/60 text-ink-0 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/30"
               >
-                <option value="low">Low (all alerts)</option>
-                <option value="medium">Medium+</option>
-                <option value="high">High+ (recommended)</option>
-                <option value="critical">Critical only</option>
+                <option value="low">{t('settings.channels.severity.low')}</option>
+                <option value="medium">{t('settings.channels.severity.medium')}</option>
+                <option value="high">{t('settings.channels.severity.high')}</option>
+                <option value="critical">{t('settings.channels.severity.critical')}</option>
               </select>
             </div>
 
-            {/* Telegram */}
-            <div className="bg-white/5 rounded-lg p-4 mb-3">
+            <div className="surface-card p-4 mb-3">
               <div className="flex items-center gap-2 mb-3">
-                <MessageSquare className="w-4 h-4 text-blue-400" />
-                <span className="text-sm font-medium text-white">Telegram</span>
+                <MessageSquare className="w-4 h-4 text-brand-300" />
+                <span className="text-sm font-medium text-ink-0">{t('settings.channels.telegram')}</span>
                 {channelStatus?.telegram.botValid && (
-                  <span className="text-xs text-emerald-400 ml-auto">@{channelStatus.telegram.botName}</span>
+                  <span className="text-xs text-success-400 ml-auto font-mono">@{channelStatus.telegram.botName}</span>
                 )}
                 {channelStatus && !channelStatus.telegram.configured && (
-                  <span className="text-xs text-gray-500 ml-auto">Bot token not set</span>
+                  <span className="text-xs text-ink-4 ml-auto">{t('settings.channels.tgNotSet')}</span>
                 )}
               </div>
               <Toggle
-                label="Enable Telegram Notifications"
-                description="Receive alerts via Telegram bot"
+                label={t('settings.channels.tgEnabled')}
+                description={t('settings.channels.tgDesc')}
                 checked={channels.telegramNotifications}
                 onChange={(v) => setChannels(prev => ({ ...prev, telegramNotifications: v }))}
               />
               {channels.telegramNotifications && (
                 <div className="mt-2">
-                  <label className="block text-xs text-gray-400 mb-1">Telegram Chat ID</label>
+                  <label className="block text-xs text-ink-3 mb-1">{t('settings.channels.tgChatId')}</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={channels.telegramChatId}
                       onChange={(e) => setChannels(prev => ({ ...prev, telegramChatId: e.target.value }))}
-                      placeholder="e.g. 123456789"
-                      className="flex-1 px-3 py-2 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 placeholder-gray-600"
+                      placeholder={t('settings.channels.tgPlaceholder')}
+                      className="flex-1 px-3 py-2 border border-white/[0.08] bg-surface-2/60 text-ink-0 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/30 placeholder-ink-4"
                     />
                     <button
                       onClick={async () => {
@@ -814,37 +810,36 @@ export default function SettingsPage() {
                             method: 'POST', credentials: 'include',
                           });
                           const data = await res.json();
-                          showToast(data.success ? 'success' : 'error', data.success ? 'Test message sent!' : (data.error || 'Failed'));
-                        } catch { showToast('error', 'Connection error'); }
+                          showToast(data.success ? 'success' : 'error', data.success ? t('settings.channels.testSent') : (data.error || t('settings.channels.testFailed')));
+                        } catch { showToast('error', t('settings.channels.connectError')); }
                         setTestingTelegram(false);
                       }}
                       disabled={!channels.telegramChatId || testingTelegram}
-                      className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                      className="px-3 py-2 bg-brand-500 text-white rounded-lg text-xs font-semibold hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                     >
                       <Send className="w-3 h-3" />
-                      {testingTelegram ? '...' : 'Test'}
+                      {testingTelegram ? '...' : t('settings.channels.test')}
                     </button>
                   </div>
-                  <p className="text-[11px] text-gray-600 mt-1">Send /start to the bot, then enter your chat ID here</p>
+                  <p className="text-[11px] text-ink-4 mt-1">{t('settings.channels.tgBotHint')}</p>
                 </div>
               )}
             </div>
 
-            {/* Email */}
-            <div className="bg-white/5 rounded-lg p-4 mb-3">
+            <div className="surface-card p-4 mb-3">
               <div className="flex items-center gap-2 mb-3">
-                <Mail className="w-4 h-4 text-orange-400" />
-                <span className="text-sm font-medium text-white">Email</span>
+                <Mail className="w-4 h-4 text-warning-400" />
+                <span className="text-sm font-medium text-ink-0">{t('settings.channels.email')}</span>
                 {channelStatus?.email.connected && (
-                  <span className="text-xs text-emerald-400 ml-auto">SMTP connected</span>
+                  <span className="text-xs text-success-400 ml-auto">{t('settings.channels.emailConnected')}</span>
                 )}
                 {channelStatus && !channelStatus.email.configured && (
-                  <span className="text-xs text-gray-500 ml-auto">SMTP not configured</span>
+                  <span className="text-xs text-ink-4 ml-auto">{t('settings.channels.emailNotSet')}</span>
                 )}
               </div>
               <Toggle
-                label="Enable Email Notifications"
-                description="Receive critical alerts via email"
+                label={t('settings.channels.emailEnabled')}
+                description={t('settings.channels.emailDesc')}
                 checked={channels.emailNotifications}
                 onChange={(v) => setChannels(prev => ({ ...prev, emailNotifications: v }))}
               />
@@ -858,36 +853,35 @@ export default function SettingsPage() {
                           method: 'POST', credentials: 'include',
                         });
                         const data = await res.json();
-                        showToast(data.success ? 'success' : 'error', data.success ? 'Test email sent!' : (data.error || 'Failed'));
-                      } catch { showToast('error', 'Connection error'); }
+                        showToast(data.success ? 'success' : 'error', data.success ? t('settings.channels.testSent') : (data.error || t('settings.channels.testFailed')));
+                      } catch { showToast('error', t('settings.channels.connectError')); }
                       setTestingEmail(false);
                     }}
                     disabled={testingEmail}
-                    className="px-3 py-2 bg-orange-600 text-white rounded-lg text-xs hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                    className="px-3 py-2 bg-warning-500 text-white rounded-lg text-xs font-semibold hover:bg-warning-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                   >
                     <Send className="w-3 h-3" />
-                    {testingEmail ? 'Sending...' : 'Send Test Email'}
+                    {testingEmail ? t('settings.channels.testing') : t('settings.channels.testEmail')}
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Daily Summary */}
-            <div className="bg-white/5 rounded-lg p-4">
+            <div className="surface-card p-4">
               <Toggle
-                label="Daily Summary Email"
-                description="Receive a daily analytics summary at a set time"
+                label={t('settings.channels.summary')}
+                description={t('settings.channels.summaryDesc')}
                 checked={channels.dailySummaryEnabled}
                 onChange={(v) => setChannels(prev => ({ ...prev, dailySummaryEnabled: v }))}
               />
               {channels.dailySummaryEnabled && (
                 <div className="mt-2">
-                  <label className="block text-xs text-gray-400 mb-1">Summary Time</label>
+                  <label className="block text-xs text-ink-3 mb-1">{t('settings.channels.summaryTime')}</label>
                   <input
                     type="time"
                     value={channels.dailySummaryTime}
                     onChange={(e) => setChannels(prev => ({ ...prev, dailySummaryTime: e.target.value }))}
-                    className="px-2 py-1.5 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                    className="px-2 py-1.5 border border-white/[0.08] bg-surface-2/60 text-ink-0 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/30"
                   />
                 </div>
               )}
@@ -898,49 +892,54 @@ export default function SettingsPage() {
 
       {/* Regional Settings */}
       <SettingsSection
-        title="Regional & Display"
+        title={t('settings.regional.title')}
         icon={Globe}
-        iconBg="bg-purple-500/10"
-        iconColor="text-purple-400"
+        iconBg="bg-violet-500/10"
+        iconColor="text-violet-400"
       >
         <div className="space-y-1">
           <Select
-            label="Language"
-            value={regional.language}
-            onChange={(v) => updateRegional('language', v)}
-            options={LANGUAGES}
+            label={t('settings.language')}
+            value={lang}
+            onChange={(v) => {
+              const next = (v === 'en' ? 'en' : 'tr') as Lang;
+              setLang(next);
+              updateRegional('language', next);
+              showToast('success', t('settings.languageSaved'));
+            }}
+            options={LANGUAGE_OPTIONS}
           />
           <Select
-            label="Timezone"
+            label={t('settings.regional.timezone')}
             value={regional.timezone}
             onChange={(v) => updateRegional('timezone', v)}
             options={TIMEZONES}
           />
           <Select
-            label="Date Format"
+            label={t('settings.regional.dateFormat')}
             value={regional.dateFormat}
             onChange={(v) => updateRegional('dateFormat', v)}
             options={DATE_FORMATS}
           />
           <div className="py-2">
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Time Format</label>
-            <div className="flex items-center bg-white/5 rounded-lg p-1 w-fit">
+            <label className="block text-sm font-medium text-ink-1 mb-1.5">{t('settings.regional.timeFormat')}</label>
+            <div className="flex items-center bg-surface-2/60 border border-white/[0.08] rounded-lg p-1 w-fit gap-0.5">
               <button
                 onClick={() => updateRegional('timeFormat', '12h')}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
                   regional.timeFormat === '12h'
-                    ? 'bg-purple-600 text-white shadow-sm'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-violet-500/20 text-violet-200 border border-violet-500/30'
+                    : 'text-ink-3 hover:text-ink-0 border border-transparent'
                 }`}
               >
                 12h
               </button>
               <button
                 onClick={() => updateRegional('timeFormat', '24h')}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
                   regional.timeFormat === '24h'
-                    ? 'bg-purple-600 text-white shadow-sm'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-violet-500/20 text-violet-200 border border-violet-500/30'
+                    : 'text-ink-3 hover:text-ink-0 border border-transparent'
                 }`}
               >
                 24h
@@ -948,40 +947,40 @@ export default function SettingsPage() {
             </div>
           </div>
           <div className="py-2">
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Theme</label>
-            <div className="flex items-center bg-white/5 rounded-lg p-1 w-fit">
+            <label className="block text-sm font-medium text-ink-1 mb-1.5">{t('settings.regional.theme')}</label>
+            <div className="flex items-center bg-surface-2/60 border border-white/[0.08] rounded-lg p-1 w-fit gap-0.5">
               <button
                 onClick={() => updateRegional('theme', 'light')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all flex items-center space-x-1.5 ${
+                className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
                   regional.theme === 'light'
-                    ? 'bg-yellow-600 text-white shadow-sm'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-warning-500/20 text-warning-300 border border-warning-500/30'
+                    : 'text-ink-3 hover:text-ink-0 border border-transparent'
                 }`}
               >
                 <Sun className="w-4 h-4" />
-                <span>Light</span>
+                <span>{t('settings.regional.theme.light')}</span>
               </button>
               <button
                 onClick={() => updateRegional('theme', 'dark')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all flex items-center space-x-1.5 ${
+                className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
                   regional.theme === 'dark'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-brand-500/20 text-brand-200 border border-brand-500/30'
+                    : 'text-ink-3 hover:text-ink-0 border border-transparent'
                 }`}
               >
                 <Moon className="w-4 h-4" />
-                <span>Dark</span>
+                <span>{t('settings.regional.theme.dark')}</span>
               </button>
               <button
                 onClick={() => updateRegional('theme', 'system')}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all flex items-center space-x-1.5 ${
+                className={`px-3 py-1.5 text-sm font-semibold rounded-md transition-all flex items-center space-x-1.5 ${
                   regional.theme === 'system'
-                    ? 'bg-gray-600 text-white shadow-sm'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-ink-5/40 text-ink-1 border border-white/20'
+                    : 'text-ink-3 hover:text-ink-0 border border-transparent'
                 }`}
               >
                 <Monitor className="w-4 h-4" />
-                <span>System</span>
+                <span>{t('settings.regional.theme.system')}</span>
               </button>
             </div>
           </div>
@@ -990,48 +989,48 @@ export default function SettingsPage() {
 
       {/* User Profile */}
       <SettingsSection
-        title="User Profile"
+        title={t('settings.profile.title')}
         icon={User}
-        iconBg="bg-orange-500/10"
-        iconColor="text-orange-400"
+        iconBg="bg-warning-500/10"
+        iconColor="text-warning-400"
         defaultOpen={false}
       >
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">First Name</label>
+              <label className="block text-sm font-medium text-ink-1 mb-1.5">{t('settings.profile.firstName')}</label>
               <input
                 type="text"
                 value={profile.firstName}
                 onChange={(e) => setProfile(prev => ({ ...prev, firstName: e.target.value }))}
-                className="w-full px-3 py-2 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter first name"
+                className="w-full px-3 py-2 border border-white/[0.08] bg-surface-2/60 text-ink-0 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/50"
+                placeholder={t('settings.profile.firstNamePlaceholder')}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Last Name</label>
+              <label className="block text-sm font-medium text-ink-1 mb-1.5">{t('settings.profile.lastName')}</label>
               <input
                 type="text"
                 value={profile.lastName}
                 onChange={(e) => setProfile(prev => ({ ...prev, lastName: e.target.value }))}
-                className="w-full px-3 py-2 border border-white/10 bg-white/5 text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter last name"
+                className="w-full px-3 py-2 border border-white/[0.08] bg-surface-2/60 text-ink-0 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/50"
+                placeholder={t('settings.profile.lastNamePlaceholder')}
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
+            <label className="block text-sm font-medium text-ink-1 mb-1.5">{t('settings.profile.email')}</label>
             <input
               type="email"
               value={profile.email}
               disabled
-              className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-gray-400 cursor-not-allowed"
+              className="w-full px-3 py-2 border border-white/[0.08] rounded-lg text-sm bg-surface-2/40 text-ink-3 cursor-not-allowed"
             />
-            <p className="text-xs text-gray-500 mt-1">Email cannot be changed from settings</p>
+            <p className="text-xs text-ink-4 mt-1">{t('settings.profile.emailHint')}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Role</label>
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400">
+            <label className="block text-sm font-medium text-ink-1 mb-1.5">{t('settings.profile.role')}</label>
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-mono font-semibold uppercase tracking-[0.18em] bg-brand-500/10 text-brand-200 border border-brand-500/25">
               {profile.role}
             </span>
           </div>
@@ -1040,61 +1039,61 @@ export default function SettingsPage() {
 
       {/* Security */}
       <SettingsSection
-        title="Security"
+        title={t('settings.security.title')}
         icon={Shield}
-        iconBg="bg-red-500/10"
-        iconColor="text-red-400"
+        iconBg="bg-danger-500/10"
+        iconColor="text-danger-400"
         defaultOpen={false}
       >
         <div className="space-y-3">
           <button
             onClick={() => { setShowPasswordForm(!showPasswordForm); setPasswordError(''); setPasswordSuccess(false); }}
-            className="w-full px-4 py-2.5 bg-white/5 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/10 transition-colors border border-white/10 text-left"
+            className="w-full px-4 py-2.5 bg-surface-2/60 text-ink-1 rounded-lg text-sm font-medium hover:bg-white/[0.04] transition-colors border border-white/[0.08] text-left"
           >
-            {showPasswordForm ? 'Cancel Password Change' : 'Change Password'}
+            {showPasswordForm ? t('settings.security.cancelChange') : t('settings.security.changePwd')}
           </button>
 
           {showPasswordForm && (
-            <div className="space-y-3 p-4 bg-white/5 rounded-lg border border-white/10">
+            <div className="space-y-3 p-4 bg-surface-2/60 rounded-lg border border-white/[0.08]">
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">Current Password</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">{t('settings.security.currentPwd')}</label>
                 <input
                   type="password"
                   value={passwordForm.current}
                   onChange={(e) => setPasswordForm(p => ({ ...p, current: e.target.value }))}
-                  className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-white"
+                  className="w-full px-3 py-2 border border-white/[0.08] rounded-lg text-sm bg-surface-1/60 text-ink-0"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">New Password</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">{t('settings.security.newPwd')}</label>
                 <input
                   type="password"
                   value={passwordForm.newPassword}
                   onChange={(e) => setPasswordForm(p => ({ ...p, newPassword: e.target.value }))}
-                  className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-white"
-                  placeholder="Minimum 8 characters"
+                  className="w-full px-3 py-2 border border-white/[0.08] rounded-lg text-sm bg-surface-1/60 text-ink-0"
+                  placeholder={t('settings.security.newPwdHint')}
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1">Confirm New Password</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">{t('settings.security.confirmPwd')}</label>
                 <input
                   type="password"
                   value={passwordForm.confirm}
                   onChange={(e) => setPasswordForm(p => ({ ...p, confirm: e.target.value }))}
-                  className="w-full px-3 py-2 border border-white/10 rounded-lg text-sm bg-white/5 text-white"
+                  className="w-full px-3 py-2 border border-white/[0.08] rounded-lg text-sm bg-surface-1/60 text-ink-0"
                 />
               </div>
-              {passwordError && <p className="text-xs text-red-400">{passwordError}</p>}
-              {passwordSuccess && <p className="text-xs text-green-400">Password changed successfully!</p>}
+              {passwordError && <p className="text-xs text-danger-400">{passwordError}</p>}
+              {passwordSuccess && <p className="text-xs text-success-400">{t('settings.security.pwdSuccess')}</p>}
               <button
                 onClick={async () => {
                   setPasswordError('');
                   if (passwordForm.newPassword !== passwordForm.confirm) {
-                    setPasswordError('Passwords do not match');
+                    setPasswordError(t('settings.security.pwdMismatch'));
                     return;
                   }
                   if (passwordForm.newPassword.length < 8) {
-                    setPasswordError('Password must be at least 8 characters');
+                    setPasswordError(t('settings.security.pwdTooShort'));
                     return;
                   }
                   try {
@@ -1109,46 +1108,45 @@ export default function SettingsPage() {
                       setPasswordForm({ current: '', newPassword: '', confirm: '' });
                     } else {
                       const data = await res.json();
-                      setPasswordError(data.error || 'Failed to change password');
+                      setPasswordError(data.error || t('settings.security.pwdFailed'));
                     }
                   } catch {
-                    setPasswordError('Connection error');
+                    setPasswordError(t('settings.channels.connectError'));
                   }
                 }}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                className="w-full px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl text-sm font-semibold hover:shadow-glow-brand transition-all"
               >
-                Update Password
+                {t('settings.security.updatePwd')}
               </button>
             </div>
           )}
 
           <div className="relative">
-            <button className="w-full px-4 py-2.5 bg-white/5 text-gray-500 rounded-lg text-sm font-medium border border-white/10 text-left cursor-not-allowed" disabled>
-              Enable Two-Factor Authentication
+            <button className="w-full px-4 py-2.5 bg-surface-2/40 text-ink-4 rounded-lg text-sm font-medium border border-white/[0.06] text-left cursor-not-allowed" disabled>
+              {t('settings.security.twoFactor')}
             </button>
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 bg-white/5 px-2 py-0.5 rounded">Coming Soon</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono uppercase tracking-[0.18em] text-ink-4 bg-surface-1/80 border border-white/[0.08] px-2 py-0.5 rounded">{t('common.comingSoon')}</span>
           </div>
           <div className="relative">
-            <button className="w-full px-4 py-2.5 bg-white/5 text-gray-500 rounded-lg text-sm font-medium border border-white/10 text-left cursor-not-allowed" disabled>
-              Manage API Keys
+            <button className="w-full px-4 py-2.5 bg-surface-2/40 text-ink-4 rounded-lg text-sm font-medium border border-white/[0.06] text-left cursor-not-allowed" disabled>
+              {t('settings.security.apiKeys')}
             </button>
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 bg-white/5 px-2 py-0.5 rounded">Coming Soon</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono uppercase tracking-[0.18em] text-ink-4 bg-surface-1/80 border border-white/[0.08] px-2 py-0.5 rounded">{t('common.comingSoon')}</span>
           </div>
         </div>
       </SettingsSection>
 
       {/* About */}
-      <div className="bg-[#0f1117]/80 backdrop-blur-xl rounded-xl border border-white/10 p-5">
+      <div className="surface-card p-5">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-white">ObservAI</h3>
-            <p className="text-xs text-gray-400 mt-0.5">AI-Powered Real-Time Customer Analytics Platform</p>
+            <h3 className="text-sm font-semibold text-ink-0">{t('settings.about.title')}</h3>
+            <p className="text-xs text-ink-3 mt-0.5">{t('settings.about.subtitle')}</p>
           </div>
-          <span className="text-xs text-gray-500 font-mono">v1.0.0-beta</span>
+          <span className="text-xs text-ink-4 font-mono">v1.0.0-beta</span>
         </div>
       </div>
 
-      {/* Bottom spacer for scroll */}
       <div className="h-4" />
     </div>
   );

@@ -23,6 +23,10 @@ export default tseslint.config(
         'warn',
         { allowConstantExport: true },
       ],
+      'no-restricted-syntax': ['error', {
+        selector: "JSXAttribute[name.name='className'] Literal[value=/\\b(text|bg|border|from|to|via)-(gray|blue|purple|teal|green|red|amber|orange|yellow|pink|indigo|rose|slate|emerald|cyan|sky)-/]",
+        message: 'Use ObservAI design tokens (ink-*, surface-*, brand-*, accent-*, violet-*, success, warning, danger) instead of legacy Tailwind color-* classes.',
+      }],
     },
   }
 );

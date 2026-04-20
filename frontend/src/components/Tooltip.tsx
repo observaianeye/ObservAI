@@ -30,9 +30,9 @@ export default function Tooltip({ content, title, position = 'top' }: TooltipPro
         onMouseEnter={() => setIsVisible(true)}
         onMouseLeave={() => setIsVisible(false)}
         onClick={() => setIsVisible(!isVisible)}
-        className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+        className="p-1 hover:bg-white/[0.06] rounded-full transition-colors"
       >
-        <HelpCircle className="w-4 h-4 text-gray-500 hover:text-blue-600" />
+        <HelpCircle className="w-4 h-4 text-ink-4 hover:text-brand-300" strokeWidth={1.5} />
       </button>
 
       {isVisible && (
@@ -49,9 +49,9 @@ export default function Tooltip({ content, title, position = 'top' }: TooltipPro
             }}
           >
             {title && (
-              <h4 className="text-sm font-bold text-white mb-2">{title}</h4>
+              <h4 className="font-display text-sm font-semibold text-ink-0 mb-2">{title}</h4>
             )}
-            <p className="text-sm text-gray-200 leading-relaxed">{content}</p>
+            <p className="text-sm text-ink-2 leading-relaxed">{content}</p>
           </div>
           <div className={`absolute ${arrowStyles[position]} w-0 h-0`}>
             <div

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -11,13 +12,8 @@ interface Recommendation {
   optimal: number;
 }
 
-const STATUS_STYLES = {
-  optimal: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', label: 'Uygun' },
-  understaffed: { bg: 'bg-red-500/10', text: 'text-red-400', label: 'Yetersiz' },
-  overstaffed: { bg: 'bg-amber-500/10', text: 'text-amber-400', label: 'Fazla' },
-};
-
 export default function StaffingPage() {
+  const { t } = useLanguage();
   const [hourlyStaff, setHourlyStaff] = useState<number[]>(new Array(24).fill(0));
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [summary, setSummary] = useState<any>(null);
@@ -25,6 +21,12 @@ export default function StaffingPage() {
   const [loading, setLoading] = useState(true);
   const [branchId, setBranchId] = useState('');
   const [cameraId, setCameraId] = useState('');
+
+  const STATUS_STYLES: Record<'optimal' | 'understaffed' | 'overstaffed', { bg: string; text: string; labelKey: string }> = {
+    optimal: { bg: 'bg-success-500/10', text: 'text-success-300', labelKey: 'staffing.statusLabel.optimal' },
+    understaffed: { bg: 'bg-danger-500/10', text: 'text-danger-300', labelKey: 'staffing.statusLabel.understaffed' },
+    overstaffed: { bg: 'bg-warning-500/10', text: 'text-warning-300', labelKey: 'staffing.statusLabel.overstaffed' },
+  };
 
   useEffect(() => {
     const storedBranch = localStorage.getItem('selectedBranchId') || 'default';
@@ -80,7 +82,6 @@ export default function StaffingPage() {
           createdBy: 'current-user',
         }),
       });
-      // Refresh recommendations
       fetchData(branchId, cameraId);
     } catch (e) {
       console.error('Failed to save shifts:', e);
@@ -92,7 +93,7 @@ export default function StaffingPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
       </div>
     );
   }
@@ -101,54 +102,54 @@ export default function StaffingPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Personel Planlama</h2>
-          <p className="text-sm text-gray-400 mt-1">Vardiya planlama ve müşteri/personel oranı analizi</p>
+          <h2 className="font-display text-xl font-semibold text-gradient-brand tracking-tight">{t('staffing.page.title')}</h2>
+          <p className="text-sm text-ink-3 mt-1">{t('staffing.page.subtitle2')}</p>
         </div>
         <button
           onClick={saveShifts}
           disabled={saving}
-          className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium text-sm hover:bg-purple-700 transition-colors disabled:opacity-50"
+          className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-medium text-sm hover:shadow-glow-brand transition-all disabled:opacity-50"
         >
-          {saving ? 'Kaydediliyor...' : 'Kaydet'}
+          {saving ? t('staffing.page.saving') : t('staffing.page.save')}
         </button>
       </div>
 
       {/* Summary Cards */}
       {summary && (
         <div className="grid grid-cols-3 gap-4">
-          <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4">
-            <p className="text-xs text-gray-400">Yetersiz Saatler</p>
-            <p className="text-2xl font-bold text-red-400">{summary.understaffedHours}</p>
+          <div className="surface-card rounded-xl p-4">
+            <p className="text-xs text-ink-3">{t('staffing.page.understaffedHours')}</p>
+            <p className="font-display text-2xl font-bold text-danger-300 font-mono">{summary.understaffedHours}</p>
           </div>
-          <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4">
-            <p className="text-xs text-gray-400">Fazla Saatler</p>
-            <p className="text-2xl font-bold text-amber-400">{summary.overstaffedHours}</p>
+          <div className="surface-card rounded-xl p-4">
+            <p className="text-xs text-ink-3">{t('staffing.page.overstaffedHours')}</p>
+            <p className="font-display text-2xl font-bold text-warning-300 font-mono">{summary.overstaffedHours}</p>
           </div>
-          <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4">
-            <p className="text-xs text-gray-400">Kritik Saatler</p>
-            <p className="text-2xl font-bold text-red-500">{summary.criticalHours?.length || 0}</p>
+          <div className="surface-card rounded-xl p-4">
+            <p className="text-xs text-ink-3">{t('staffing.page.criticalHours')}</p>
+            <p className="font-display text-2xl font-bold text-danger-400 font-mono">{summary.criticalHours?.length || 0}</p>
           </div>
         </div>
       )}
 
       {/* Quick Actions */}
       <div className="flex gap-2">
-        <button onClick={() => copyToAll(1)} className="px-3 py-1.5 bg-gray-700/50 text-gray-300 rounded-lg text-xs hover:bg-gray-700">Tüm saatlere 1 kişi</button>
-        <button onClick={() => copyToAll(2)} className="px-3 py-1.5 bg-gray-700/50 text-gray-300 rounded-lg text-xs hover:bg-gray-700">Tüm saatlere 2 kişi</button>
-        <button onClick={() => copyToAll(3)} className="px-3 py-1.5 bg-gray-700/50 text-gray-300 rounded-lg text-xs hover:bg-gray-700">Tüm saatlere 3 kişi</button>
+        <button onClick={() => copyToAll(1)} className="px-3 py-1.5 bg-white/[0.04] text-ink-2 rounded-xl text-xs hover:bg-white/[0.08] border border-white/[0.08] transition-colors">{t('staffing.page.copyAll1')}</button>
+        <button onClick={() => copyToAll(2)} className="px-3 py-1.5 bg-white/[0.04] text-ink-2 rounded-xl text-xs hover:bg-white/[0.08] border border-white/[0.08] transition-colors">{t('staffing.page.copyAll2')}</button>
+        <button onClick={() => copyToAll(3)} className="px-3 py-1.5 bg-white/[0.04] text-ink-2 rounded-xl text-xs hover:bg-white/[0.08] border border-white/[0.08] transition-colors">{t('staffing.page.copyAll3')}</button>
       </div>
 
       {/* Staff Input Grid */}
-      <div className="bg-gray-800/50 border border-gray-700/50 rounded-xl overflow-x-auto">
+      <div className="surface-card rounded-xl overflow-x-auto">
         <table className="w-full min-w-[600px]">
           <thead>
-            <tr className="border-b border-gray-700/50">
-              <th className="text-left text-xs text-gray-400 px-4 py-3 font-medium">Saat</th>
-              <th className="text-center text-xs text-gray-400 px-4 py-3 font-medium">Personel</th>
-              <th className="text-center text-xs text-gray-400 px-4 py-3 font-medium">Ort. Müşteri</th>
-              <th className="text-center text-xs text-gray-400 px-4 py-3 font-medium">Oran</th>
-              <th className="text-center text-xs text-gray-400 px-4 py-3 font-medium">Önerilen</th>
-              <th className="text-center text-xs text-gray-400 px-4 py-3 font-medium">Durum</th>
+            <tr className="border-b border-white/[0.08]">
+              <th className="text-left text-xs text-ink-3 px-4 py-3 font-medium">{t('staffing.page.col.hour')}</th>
+              <th className="text-center text-xs text-ink-3 px-4 py-3 font-medium">{t('staffing.page.col.staff')}</th>
+              <th className="text-center text-xs text-ink-3 px-4 py-3 font-medium">{t('staffing.page.col.avgCustomers')}</th>
+              <th className="text-center text-xs text-ink-3 px-4 py-3 font-medium">{t('staffing.page.col.ratio')}</th>
+              <th className="text-center text-xs text-ink-3 px-4 py-3 font-medium">{t('staffing.page.col.recommended')}</th>
+              <th className="text-center text-xs text-ink-3 px-4 py-3 font-medium">{t('staffing.page.col.status')}</th>
             </tr>
           </thead>
           <tbody>
@@ -156,8 +157,8 @@ export default function StaffingPage() {
               const rec = recommendations.find(r => r.hour === hour);
               const style = rec ? STATUS_STYLES[rec.status] : STATUS_STYLES.optimal;
               return (
-                <tr key={hour} className={`border-b border-gray-700/20 ${style.bg}`}>
-                  <td className="px-4 py-2 text-sm text-white font-medium">{String(hour).padStart(2, '0')}:00</td>
+                <tr key={hour} className={`border-b border-white/[0.06] ${style.bg}`}>
+                  <td className="px-4 py-2 text-sm text-ink-0 font-medium font-mono">{String(hour).padStart(2, '0')}:00</td>
                   <td className="px-4 py-2 text-center">
                     <input
                       type="number"
@@ -165,16 +166,16 @@ export default function StaffingPage() {
                       max={50}
                       value={hourlyStaff[hour]}
                       onChange={e => updateStaff(hour, parseInt(e.target.value) || 0)}
-                      className="w-16 text-center text-sm bg-gray-700/50 border border-gray-600/50 rounded px-2 py-1 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-16 text-center text-sm bg-surface-2/70 border border-white/[0.08] rounded-lg px-2 py-1 text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40 font-mono"
                     />
                   </td>
-                  <td className="px-4 py-2 text-center text-sm text-gray-300">{rec?.avgCustomers ?? '-'}</td>
-                  <td className="px-4 py-2 text-center text-sm text-gray-300">
+                  <td className="px-4 py-2 text-center text-sm text-ink-1 font-mono">{rec?.avgCustomers ?? '-'}</td>
+                  <td className="px-4 py-2 text-center text-sm text-ink-1 font-mono">
                     {rec && rec.staffCount > 0 ? `${rec.ratio}:1` : '-'}
                   </td>
-                  <td className="px-4 py-2 text-center text-sm text-purple-400 font-medium">{rec?.optimal ?? '-'}</td>
+                  <td className="px-4 py-2 text-center text-sm text-brand-300 font-medium font-mono">{rec?.optimal ?? '-'}</td>
                   <td className="px-4 py-2 text-center">
-                    <span className={`text-xs font-medium ${style.text}`}>{style.label}</span>
+                    <span className={`text-xs font-medium ${style.text}`}>{t(style.labelKey)}</span>
                   </td>
                 </tr>
               );

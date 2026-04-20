@@ -2,9 +2,11 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Save, Tag, Camera, AlertCircle, RefreshCw } from 'lucide-react';
 import { cameraBackendService, Zone } from '../../services/cameraBackendService';
 import { useToast } from '../../contexts/ToastContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function ZoneCanvas() {
   const { showToast } = useToast();
+  const { t } = useLanguage();
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // State
@@ -300,71 +302,71 @@ export default function ZoneCanvas() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-400">Zone Labeling</h2>
-          <p className="text-sm text-gray-400 mt-1">Kamera görüntüsü üzerinde giriş, çıkış, kuyruk ve masa bölgeleri tanımlayın</p>
+          <h2 className="font-display text-xl font-semibold text-gradient-brand tracking-tight">{t('zones.canvas.title')}</h2>
+          <p className="text-sm text-ink-3 mt-1">{t('zones.canvas.subtitle')}</p>
         </div>
         <div className="flex items-center space-x-3">
-          <button onClick={loadZones} className="p-2 text-gray-400 hover:text-gray-300 hover:bg-gray-800/50 rounded-lg" title="Reload Zones">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <button onClick={loadZones} className="p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.06] rounded-xl border border-white/[0.08]" title={t('zones.canvas.reload')}>
+            <RefreshCw strokeWidth={1.5} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
           <button
             onClick={captureCameraSnapshot}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium text-sm hover:bg-purple-700 transition-colors flex items-center space-x-2"
+            className="px-4 py-2 bg-violet-500/15 text-violet-200 border border-violet-500/30 rounded-xl font-medium text-sm hover:bg-violet-500/25 transition-colors flex items-center space-x-2"
           >
-            <Camera className="w-4 h-4" />
-            <span>Capture Camera</span>
+            <Camera strokeWidth={1.5} className="w-4 h-4" />
+            <span>{t('zones.canvas.capture')}</span>
           </button>
           <button
             onClick={() => { setIsDrawing(!isDrawing); setSelectedZoneId(null); }}
-            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center space-x-2 ${isDrawing
-              ? 'bg-blue-600 text-white shadow-lg ring-2 ring-offset-2 ring-blue-500'
-              : 'bg-gray-800/50 border border-blue-500/30 text-gray-300 hover:bg-gray-800/70'
+            className={`px-4 py-2 rounded-xl font-medium text-sm transition-all flex items-center space-x-2 ${isDrawing
+              ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white shadow-glow-brand'
+              : 'bg-white/[0.03] border border-brand-500/30 text-ink-1 hover:bg-white/[0.06]'
               }`}
           >
-            <Plus className="w-4 h-4" />
-            <span>{isDrawing ? 'Drawing Mode' : 'Add Zone'}</span>
+            <Plus strokeWidth={1.5} className="w-4 h-4" />
+            <span>{isDrawing ? t('zones.canvas.drawingMode') : t('zones.canvas.addZone')}</span>
           </button>
           <button
             onClick={saveZones}
             disabled={loading}
-            className={`px-4 py-2 bg-green-600 text-white rounded-lg font-medium text-sm hover:bg-green-700 transition-colors flex items-center space-x-2 shadow-lg ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`px-4 py-2 bg-success-500/20 text-success-200 border border-success-500/40 rounded-xl font-medium text-sm hover:bg-success-500/30 transition-colors flex items-center space-x-2 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <Save className="w-4 h-4" />
-            <span>{loading ? 'Saving...' : 'Save All'}</span>
+            <Save strokeWidth={1.5} className="w-4 h-4" />
+            <span>{loading ? t('zones.canvas.saving') : t('zones.canvas.saveAll')}</span>
           </button>
         </div>
       </div>
 
       {captureError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+        <div className="bg-danger-500/10 border border-danger-500/30 rounded-xl p-4 flex items-start space-x-3">
+          <AlertCircle strokeWidth={1.5} className="w-5 h-5 text-danger-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-red-900">Capture Failed</p>
-            <p className="text-sm text-red-700 mt-1">{captureError}</p>
+            <p className="text-sm font-medium text-danger-200">{t('zones.canvas.captureFailed')}</p>
+            <p className="text-sm text-danger-300 mt-1">{captureError}</p>
           </div>
         </div>
       )}
 
       {overlapError && (
-        <div className="bg-red-900/50 border border-red-500/50 rounded-lg p-4 flex items-start space-x-3">
-          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+        <div className="bg-danger-500/15 border border-danger-500/40 rounded-xl p-4 flex items-start space-x-3">
+          <AlertCircle strokeWidth={1.5} className="w-5 h-5 text-danger-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-red-300">Zone Overlap</p>
-            <p className="text-sm text-red-400 mt-1">{overlapError}</p>
+            <p className="text-sm font-medium text-danger-200">{t('zones.canvas.zoneOverlap')}</p>
+            <p className="text-sm text-danger-300 mt-1">{overlapError}</p>
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <div className="rounded-xl border-2 border-blue-500/30 overflow-hidden shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:border-blue-500/50 backdrop-blur-md bg-gray-900/80 select-none">
+          <div className="rounded-xl border-2 border-brand-500/30 overflow-hidden shadow-[0_0_15px_rgba(29,107,255,0.12)] hover:shadow-glow-brand hover:border-brand-500/50 backdrop-blur-md bg-surface-0/80 select-none">
             <div
               ref={canvasRef}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
-              className={`relative bg-gray-900 aspect-video ${isDrawing ? 'cursor-crosshair' : 'cursor-default'}`}
+              className={`relative bg-surface-0 aspect-video ${isDrawing ? 'cursor-crosshair' : 'cursor-default'}`}
               style={{
                 backgroundImage: backgroundImage
                   ? `url(${backgroundImage})`
@@ -375,10 +377,10 @@ export default function ZoneCanvas() {
               }}
             >
               {!backgroundImage && (
-                <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm font-medium pointer-events-none">
+                <div className="absolute inset-0 flex items-center justify-center text-ink-3 text-sm font-medium pointer-events-none">
                   <div className="text-center">
-                    <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>Click "Capture Camera" to use your camera view as background</p>
+                    <Camera strokeWidth={1.5} className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>{t('zones.canvas.clickCapture')}</p>
                   </div>
                 </div>
               )}
@@ -413,13 +415,13 @@ export default function ZoneCanvas() {
                     {isSelected && !isDrawing && (
                       <>
                         {/* Corners */}
-                        <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-gray-400 rounded-full cursor-nw-resize"
+                        <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-white/[0.08] rounded-full cursor-nw-resize"
                           onMouseDown={(e) => startResizing(e, zone, 'nw')}></div>
-                        <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-gray-400 rounded-full cursor-ne-resize"
+                        <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-white/[0.08] rounded-full cursor-ne-resize"
                           onMouseDown={(e) => startResizing(e, zone, 'ne')}></div>
-                        <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-gray-400 rounded-full cursor-sw-resize"
+                        <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-white/[0.08] rounded-full cursor-sw-resize"
                           onMouseDown={(e) => startResizing(e, zone, 'sw')}></div>
-                        <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-gray-400 rounded-full cursor-se-resize"
+                        <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-white/[0.08] rounded-full cursor-se-resize"
                           onMouseDown={(e) => startResizing(e, zone, 'se')}></div>
                       </>
                     )}
@@ -430,7 +432,7 @@ export default function ZoneCanvas() {
               {/* Temp Zone Drawing */}
               {tempZone && tempZone.width !== undefined && (
                 <div
-                  className={`absolute border-2 border-dashed rounded pointer-events-none ${tempZoneOverlaps ? 'bg-red-500 bg-opacity-20 border-red-500' : 'bg-blue-500 bg-opacity-20 border-blue-500'}`}
+                  className={`absolute border-2 border-dashed rounded pointer-events-none ${tempZoneOverlaps ? 'bg-danger/20 border-danger' : 'bg-brand-500/20 border-brand-500'}`}
                   style={{
                     left: `${(tempZone.x || 0) * 100}%`,
                     top: `${(tempZone.y || 0) * 100}%`,
@@ -442,47 +444,47 @@ export default function ZoneCanvas() {
             </div>
           </div>
 
-          <div className="mt-4 px-4 py-3 bg-gray-900/80 border border-blue-500/30 rounded-lg flex items-center justify-between shadow-[0_0_15px_rgba(59,130,246,0.1)] backdrop-blur-md">
+          <div className="mt-4 px-4 py-3 surface-card rounded-xl flex items-center justify-between">
             <div className="flex items-center space-x-4 text-xs">
               <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-blue-600 rounded"></div>
-                <span className="text-gray-300">Entrance Zone</span>
+                <div className="w-3 h-3 bg-brand-500 rounded"></div>
+                <span className="text-ink-2">{t('zones.canvas.entranceZone')}</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-red-600 rounded"></div>
-                <span className="text-gray-300">Exit Zone</span>
+                <div className="w-3 h-3 bg-danger-500 rounded"></div>
+                <span className="text-ink-2">{t('zones.canvas.exitZone')}</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }}></div>
-                <span className="text-gray-300">Queue Zone</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#ffb547' }}></div>
+                <span className="text-ink-2">{t('zones.canvas.queueZone')}</span>
               </div>
               <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#10b981' }}></div>
-                <span className="text-gray-300">Table Zone</span>
+                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#1fc98a' }}></div>
+                <span className="text-ink-2">{t('zones.canvas.tableZone')}</span>
               </div>
             </div>
-            <div className="text-xs text-gray-400">
-              {zones.length} zone{zones.length !== 1 ? 's' : ''} defined
+            <div className="text-xs text-ink-3 font-mono">
+              {t('zones.canvas.zonesDefined', { n: zones.length })}
             </div>
           </div>
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-xl border border-blue-500/30 p-4 shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:border-blue-500/50 backdrop-blur-md bg-gray-900/80 h-full flex flex-col">
-            <h3 className="text-sm font-bold text-white mb-3 flex items-center">
-              <Tag className="w-4 h-4 mr-2" />
-              Zone List
+          <div className="surface-card rounded-xl p-4 h-full flex flex-col">
+            <h3 className="font-display text-sm font-semibold text-ink-0 mb-3 flex items-center">
+              <Tag strokeWidth={1.5} className="w-4 h-4 mr-2 text-brand-300" />
+              {t('zones.canvas.zoneList')}
             </h3>
             {zones.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-4">No zones defined yet</p>
+              <p className="text-sm text-ink-3 text-center py-4">{t('zones.canvas.noZonesYet')}</p>
             ) : (
               <div className="space-y-2 overflow-y-auto flex-1 pr-1 custom-scrollbar">
                 {zones.map((zone) => (
                   <div
                     key={zone.id}
-                    className={`p-3 rounded-lg border transition-all cursor-pointer ${selectedZoneId === zone.id
-                      ? 'border-blue-500 bg-blue-500/20 ring-1 ring-blue-500'
-                      : 'border-blue-500/30 hover:border-blue-500/50 bg-gray-800/50'
+                    className={`p-3 rounded-xl border transition-all cursor-pointer ${selectedZoneId === zone.id
+                      ? 'border-brand-500/60 bg-brand-500/15 shadow-glow-brand'
+                      : 'border-white/[0.08] hover:border-white/[0.16] bg-white/[0.03]'
                       }`}
                     onClick={() => setSelectedZoneId(zone.id)}
                   >
@@ -491,7 +493,7 @@ export default function ZoneCanvas() {
                         type="text"
                         value={zone.name}
                         onChange={(e) => updateZoneName(zone.id, e.target.value)}
-                        className="text-sm font-semibold text-white bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 -ml-1 flex-1"
+                        className="text-sm font-semibold text-ink-0 bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-brand-500/40 rounded px-1 -ml-1 flex-1"
                         onClick={(e) => e.stopPropagation()}
                       />
                       <button
@@ -499,21 +501,21 @@ export default function ZoneCanvas() {
                           e.stopPropagation();
                           deleteZone(zone.id);
                         }}
-                        className="text-red-400 hover:text-red-300 p-1 hover:bg-red-500/20 rounded transition-colors"
+                        className="text-danger-400 hover:text-danger-300 p-1 hover:bg-danger-500/10 rounded-lg transition-colors"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 strokeWidth={1.5} className="w-4 h-4" />
                       </button>
                     </div>
                     <select
                       value={zone.type}
                       onChange={(e) => updateZoneType(zone.id, e.target.value as 'entrance' | 'exit' | 'queue' | 'table')}
-                      className="w-full text-xs px-2 py-1 border border-blue-500/30 bg-gray-800/50 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full text-xs px-2 py-1 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/40"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <option value="entrance">Entrance</option>
-                      <option value="exit">Exit</option>
-                      <option value="queue">Queue</option>
-                      <option value="table">Masa (Table)</option>
+                      <option value="entrance">{t('zones.canvas.type.entrance')}</option>
+                      <option value="exit">{t('zones.canvas.type.exit')}</option>
+                      <option value="queue">{t('zones.canvas.type.queue')}</option>
+                      <option value="table">{t('zones.canvas.type.table')}</option>
                     </select>
                   </div>
                 ))}

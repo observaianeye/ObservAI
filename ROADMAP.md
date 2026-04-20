@@ -657,6 +657,69 @@ CSV ve PDF export'unu tam dogru ve mantikli calisir hale getirmek. Raporlarda AI
 
 ---
 
+## ADIM 11: Demografi Dogrulugu + AI Konfigurasyon Konsolidasyonu + UI Temizligi
+**Durum:** DONE (2026-04-19)
+**Atanan:** Emre (partal)
+**Bagimlilik:** ADIM 2, ADIM 3
+
+### Amac
+- Yas/cinsiyet modelinde dogruluk iyilestirmeleri (FPS dusmeden)
+- Login ekranindaki kamera animasyonu tamamen kaldirilmasi
+- AI saglayici listelerinin tek kaynakta (aiConfig.ts) toplanmasi
+- Demografi confidence + lock bilgilerinin backend-to-frontend tasinmasi
+- YouTube + sample image testleri ile dogrulama
+
+### Yapilanlar
+
+1. **Gender/Age pipeline iyilestirmeleri** (analytics.py, age_gender.py, metrics.py, config.py):
+   - Cinsiyet tespitinde hysteresis band (0.35 lower / 0.65 upper) — net olmayan skorlar `round()` ile erkek/kadin'a zorlanmak yerine `None` olarak gecilir (flip-flop onler)
+   - Pose penalty gevsetildi: default 0.85, yaw/150.0 (eski: 0.8, yaw/120.0) — profil yuzlerden daha fazla bilgi alinir
+   - Age EMA lock: stability 0.95 + min 30 sample (eski: 0.90 + 15)
+   - Temporal decay: 0.92 (eski: 0.85) — kisa-sureli yanlis oylarin etkisi azaltildi
+   - Pose yaw cutoff: 55° → 70°
+   - MiVOLO batch boyutu: 6 → 12 (RTX 5070 icin)
+   - ActivePersonSnapshot artik `age_confidence`, `gender_confidence`, `age_locked`, `gender_locked`, `age_stability` alanlarini icerir
+   - Frontend `CameraFeed.tsx` her bbox etiketinde `=` ile kilitlenmis durumu gosterir
+
+2. **AI konfigurasyonu merkezilesti** (backend/src/lib/aiConfig.ts YENI):
+   - `GEMINI_MODEL_CANDIDATES` (2.5-flash, 2.0-flash-001, 2.0-flash-lite)
+   - `OLLAMA_MODEL_PRIORITY` (qwen3:14b, llama3.3, llama3.2, qwen2.5, llama3.1:8b, ...)
+   - `isGeminiFallbackError()` helper quota/404/exhausted detect
+   - `routes/ai.ts` + `services/insightEngine.ts` artik bu modulu kullanir (iki yerdeki liste drift onlendi)
+   - Ollama calls now wrapped in AbortController (`OLLAMA_TIMEOUT_MS`, default 60s)
+
+3. **Login ekrani temizligi**:
+   - Eski kamera / ParticleBackground / AnimatedNetworkBackground animasyonlari silindi
+   - Landing/Login/Register/Forgot/Reset sayfalari sade koyu gradient arka plan
+
+4. **Tip guvenligi**:
+   - `CameraFeed.tsx` `Zone[]` tipine cevrildi (any[] kaldirildi)
+
+5. **Testler** (scripts/):
+   - `youtube_demographics_test.py` — Jackson Hole live cam, YOLO 6 kisi algilama dogru. Full-frame face detection uzak mesafe yuzunden 0 yuz (beklenen — tum yuz modelleri icin gecerli sinirlama).
+   - `insightface_groundtruth_test.py` — InsightFace t1.jpg sample (6 yuz, bilinen gercek): 3M + 3F dogru, ages 25-41, hysteresis band tum 6 yuzu temiz hi/lo bandina ayirdi (mid=0). Pipeline dogrulanmistir.
+   - Frontend typecheck + build + Backend build: yesil.
+
+### Dosyalar
+- `packages/camera-analytics/camera_analytics/{analytics,age_gender,metrics,config}.py` — DEGISTI
+- `packages/camera-analytics/config/default_zones.yaml` — DEGISTI (6 demografi parametresi)
+- `backend/src/lib/aiConfig.ts` — YENI
+- `backend/src/routes/ai.ts` — DEGISTI (aiConfig import, AbortController timeout)
+- `backend/src/services/insightEngine.ts` — DEGISTI (aiConfig import)
+- `frontend/src/services/cameraBackendService.ts` — DEGISTI (Detection confidence/lock alanlari)
+- `frontend/src/components/camera/CameraFeed.tsx` — DEGISTI (Zone[] type, lock indicator)
+- `frontend/src/components/visuals/{ParticleBackground,AnimatedNetworkBackground}.tsx` — SILINDI
+- `frontend/src/pages/{LandingPage,LoginPage,RegisterPage,ForgotPasswordPage,ResetPasswordPage,NotFoundPage}.tsx` — DEGISTI
+- `scripts/{youtube_demographics_test,insightface_groundtruth_test}.py` — YENI
+
+### Kullanici Dogrulamasi Icin
+- Login ekraninda animasyon yok → sade gradient gorunum
+- Canli kamerayla veya closer kamerayla deneyin: her kisinin bbox etiketinde `M|25-34|12s =` gibi — `=` kilit isareti cinsiyet+yas ikisinin de locked durumda oldugunu gosterir
+- Ollama'da kurulu en iyi model qwen3:14b veya llama3.1:8b otomatik secilir (config.OLLAMA_MODEL ile override)
+- Demo testi icin: `logs/insightface_groundtruth_t1.jpg` acin → 6 yuz dogru etiketlenmis olmali
+
+---
+
 ## Adim Sirasi ve Bagimlilik Haritasi
 
 ```

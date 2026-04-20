@@ -28,12 +28,12 @@ export default function DemoRedirectPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#050505]">
+      <div className="min-h-screen flex items-center justify-center bg-surface-0 grid-floor">
         <div className="text-center">
-          <p className="text-red-400 mb-4">{error}</p>
+          <p className="text-danger mb-4 font-mono">{error}</p>
           <button
             onClick={() => navigate('/login')}
-            className="text-blue-400 hover:text-blue-300"
+            className="text-brand-300 hover:text-brand-200 font-mono"
           >
             Go to Login
           </button>
@@ -43,10 +43,10 @@ export default function DemoRedirectPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#050505]">
+    <div className="min-h-screen flex items-center justify-center bg-surface-0 grid-floor">
       <div className="text-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-400 mx-auto mb-4" />
-        <p className="text-gray-400">Starting demo session...</p>
+        <Loader2 className="w-8 h-8 animate-spin text-brand-300 mx-auto mb-4" strokeWidth={1.5} />
+        <p className="text-ink-3 font-mono">Starting demo session...</p>
       </div>
     </div>
   );

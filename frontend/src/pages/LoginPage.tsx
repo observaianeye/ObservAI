@@ -1,77 +1,22 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { Activity, Lock, Mail, ArrowRight, Loader2 } from 'lucide-react';
-import ParticleBackground from '../components/visuals/ParticleBackground';
+import { Activity, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import logoImage from '../assets/logo.jpeg';
+import { useLanguage } from '../contexts/LanguageContext';
+import AuthBrandPanel from '../components/auth/AuthBrandPanel';
+import markSvg from '../assets/mark.svg';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState(() => {
-    // Load saved email if remember me was checked
-    return localStorage.getItem('rememberedEmail') || '';
-  });
+  const [email, setEmail] = useState(() => localStorage.getItem('rememberedEmail') || '');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(() => {
-    // Load remember me preference
-    return localStorage.getItem('rememberMe') === 'true';
-  });
+  const [showPw, setShowPw] = useState(false);
+  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('rememberMe') === 'true');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isPasswordFocused, setIsPasswordFocused] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
-  const [passwordFieldPosition, setPasswordFieldPosition] = useState({ x: 0, y: 0 });
-  const passwordInputRef = useRef<HTMLInputElement>(null);
-  const typingTimeoutRef = useRef<number | null>(null);
   const navigate = useNavigate();
   const { login, demoLogin } = useAuth();
-
-  const updatePasswordFieldPosition = useCallback(() => {
-    if (passwordInputRef.current) {
-      const rect = passwordInputRef.current.getBoundingClientRect();
-      setPasswordFieldPosition({
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    updatePasswordFieldPosition();
-    window.addEventListener('resize', updatePasswordFieldPosition);
-    window.addEventListener('scroll', updatePasswordFieldPosition);
-
-    return () => {
-      window.removeEventListener('resize', updatePasswordFieldPosition);
-      window.removeEventListener('scroll', updatePasswordFieldPosition);
-    };
-  }, [updatePasswordFieldPosition]);
-
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPassword(e.target.value);
-    setIsTyping(true);
-
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-
-    typingTimeoutRef.current = window.setTimeout(() => {
-      setIsTyping(false);
-    }, 500);
-  };
-
-  const handlePasswordFocus = () => {
-    setIsPasswordFocused(true);
-    updatePasswordFieldPosition();
-  };
-
-  const handlePasswordBlur = () => {
-    setIsPasswordFocused(false);
-    setIsTyping(false);
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-  };
+  const { t } = useLanguage();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,9 +24,7 @@ export default function LoginPage() {
     setError('');
 
     const success = await login(email, password, rememberMe);
-
     if (success) {
-      // Save email and remember me preference if checkbox is checked
       if (rememberMe) {
         localStorage.setItem('rememberedEmail', email);
         localStorage.setItem('rememberMe', 'true');
@@ -91,7 +34,7 @@ export default function LoginPage() {
       }
       navigate('/dashboard');
     } else {
-      setError('Invalid email or password');
+      setError(t('auth.login.error.invalid'));
       setIsLoading(false);
     }
   };
@@ -99,152 +42,192 @@ export default function LoginPage() {
   const handleDemoLogin = async () => {
     setIsLoading(true);
     setError('');
-
     const success = await demoLogin();
-
-    if (success) {
-      navigate('/dashboard');
-    } else {
-      setError('Demo session unavailable. Please try again.');
+    if (success) navigate('/dashboard');
+    else {
+      setError(t('auth.login.error.demo'));
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-[#050505] overflow-hidden">
-      <ParticleBackground
-        isPasswordFocused={isPasswordFocused}
-        isTyping={isTyping}
-        passwordFieldPosition={passwordFieldPosition}
-      />
+    <div className="min-h-screen bg-surface-0 text-ink-1 flex flex-col lg:grid lg:grid-cols-12">
+      {/* Left: branded panel (hidden on mobile to keep focus on form) */}
+      <aside className="hidden lg:block lg:col-span-6 xl:col-span-7 relative">
+        <AuthBrandPanel />
+        {/* Hard divider to separate from the form area */}
+        <div className="absolute top-0 right-0 bottom-0 w-px bg-gradient-to-b from-transparent via-white/[0.08] to-transparent" />
+      </aside>
 
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5 }}
-        className="relative z-10 w-full max-w-md px-4"
-      >
-        <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600/20 mb-4">
-              <img 
-                src={logoImage} 
-                alt="ObservAI Logo" 
-                className="w-10 h-10 rounded-lg object-contain"
+      {/* Right: form */}
+      <main className="relative lg:col-span-6 xl:col-span-5 flex items-center justify-center px-6 py-10 lg:py-16">
+        {/* Mobile: show a compact header with logo + tagline */}
+        <div className="absolute top-0 inset-x-0 flex items-center justify-between px-6 py-5 lg:hidden">
+          <Link to="/" className="flex items-center gap-2">
+            <img src={markSvg} alt="ObservAI" className="w-8 h-8" />
+            <span className="font-display font-bold text-ink-0">ObservAI</span>
+          </Link>
+          <Link to="/register" className="text-sm text-brand-300 hover:text-brand-200">{t('auth.login.signupLink')}</Link>
+        </div>
+
+        {/* Aurora backdrop for mobile */}
+        <div className="absolute inset-0 lg:hidden bg-radial-aurora opacity-60 pointer-events-none" aria-hidden />
+        <div className="absolute inset-0 lg:hidden grid-floor opacity-50 pointer-events-none" aria-hidden />
+
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="relative w-full max-w-md"
+        >
+          <div className="surface-card-elevated p-8 lg:p-10">
+            <div className="mb-8">
+              <h1 className="font-display text-2xl lg:text-3xl font-semibold text-ink-0">
+                {t('auth.login.title')}
+              </h1>
+              <p className="mt-2 text-sm text-ink-3">
+                {t('auth.login.subtitle')}
+              </p>
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-5">
+              <Field
+                label={t('auth.login.email')}
+                icon={Mail}
+                type="email"
+                placeholder={t('auth.login.emailPlaceholder')}
+                value={email}
+                onChange={(v) => setEmail(v)}
+                autoComplete="email"
+                required
               />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
-            <p className="text-gray-400 text-sm">Access your analytics dashboard</p>
-          </div>
 
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Email Address</label>
-              <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-mono text-brand-300 uppercase tracking-[0.14em]">
+                    {t('auth.login.password')}
+                  </label>
+                  <Link to="/forgot-password" className="text-xs text-accent-300 hover:text-accent-200 transition-colors">
+                    {t('auth.login.forgot')}
+                  </Link>
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-4" />
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    required
+                    className="w-full bg-surface-1 border border-white/[0.08] rounded-xl py-2.5 pl-10 pr-11 text-sm text-ink-0 placeholder-ink-4 focus:outline-none focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/20 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((s) => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-1 transition-colors"
+                    aria-label={showPw ? t('auth.login.hidePassword') : t('auth.login.showPassword')}
+                  >
+                    {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-ink-2 cursor-pointer select-none">
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                  placeholder="you@yourcafe.com"
-                  required
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded bg-surface-1 border border-white/10 text-brand-500 focus:ring-brand-500/40"
                 />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-mono text-blue-400 uppercase tracking-wider">Password</label>
-                <Link to="/forgot-password" className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-                  Forgot password?
-                </Link>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input
-                  ref={passwordInputRef}
-                  type="password"
-                  value={password}
-                  onChange={handlePasswordChange}
-                  onFocus={handlePasswordFocus}
-                  onBlur={handlePasswordBlur}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
-                  placeholder="Enter your password"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                id="remember-me"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-600 rounded bg-white/5 cursor-pointer"
-              />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-400 cursor-pointer">
-                Remember me for 30 days
+                {t('auth.login.remember')}
               </label>
-            </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>
-                  Sign In
-                  <ArrowRight className="w-5 h-5" />
-                </>
-              )}
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-brand-500 to-accent-500 text-white font-semibold shadow-glow-brand hover:shadow-glow-accent transition-shadow flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    {t('auth.login.submit')}
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
 
-          {error && (
-            <div className="mt-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg">
-              <p className="text-sm text-red-400 text-center">{error}</p>
-            </div>
-          )}
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/10"></div>
+            {error && (
+              <div className="mt-4 p-3 rounded-xl bg-danger-500/10 border border-danger-500/40">
+                <p className="text-sm text-danger-400 text-center">{error}</p>
               </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-2 bg-black/40 text-gray-500">or</span>
-              </div>
+            )}
+
+            <div className="relative my-6 flex items-center">
+              <div className="flex-1 h-px bg-white/[0.06]" />
+              <span className="px-3 text-[10px] uppercase tracking-[0.18em] text-ink-3 font-mono">{t('auth.login.or')}</span>
+              <div className="flex-1 h-px bg-white/[0.06]" />
             </div>
 
             <button
               onClick={handleDemoLogin}
               type="button"
               disabled={isLoading}
-              className="mt-4 w-full py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/50 text-purple-300 font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+              className="w-full py-3 rounded-xl bg-violet-500/10 border border-violet-500/30 text-violet-300 hover:bg-violet-500/15 hover:border-violet-500/50 transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-70 disabled:cursor-not-allowed"
             >
               <Activity className="w-4 h-4" />
-              Try Demo
+              {t('auth.login.demo')}
             </button>
-          </div>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-500">
-              Don't have an account?{' '}
-              <Link to="/register" className="text-blue-400 hover:text-blue-300 font-medium transition-colors">
-                Register
+            <p className="mt-6 text-center text-sm text-ink-3">
+              {t('auth.login.noAccount')}{' '}
+              <Link to="/register" className="text-brand-300 hover:text-brand-200 font-medium transition-colors">
+                {t('auth.login.startTrial')}
               </Link>
             </p>
           </div>
-        </div>
+        </motion.div>
+      </main>
+    </div>
+  );
+}
 
-        <div className="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -z-10" />
-        <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -z-10" />
-      </motion.div>
+function Field({
+  label,
+  icon: Icon,
+  type,
+  placeholder,
+  value,
+  onChange,
+  autoComplete,
+  required,
+}: {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  type: string;
+  placeholder?: string;
+  value: string;
+  onChange: (v: string) => void;
+  autoComplete?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-[11px] font-mono text-brand-300 uppercase tracking-[0.14em]">{label}</label>
+      <div className="relative">
+        <Icon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-4" />
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          required={required}
+          className="w-full bg-surface-1 border border-white/[0.08] rounded-xl py-2.5 pl-10 pr-4 text-sm text-ink-0 placeholder-ink-4 focus:outline-none focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/20 transition-all"
+        />
+      </div>
     </div>
   );
 }

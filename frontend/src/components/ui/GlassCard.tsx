@@ -17,9 +17,9 @@ export const GlassCard = React.forwardRef<HTMLDivElement, GlassCardProps>(({
     const baseStyles = "rounded-xl backdrop-blur-md border transition-all duration-300";
 
     const variants = {
-        light: "bg-white/10 border-white/20 text-gray-800 shadow-lg",
-        dark: "bg-black/60 border-white/10 text-white shadow-xl",
-        neon: "bg-gray-900/80 border-blue-500/30 text-white shadow-[0_0_15px_rgba(59,130,246,0.1)] hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:border-blue-500/50"
+        light: "bg-white/10 border-white/20 text-ink-1 shadow-lg",
+        dark: "bg-surface-1/80 border-white/[0.08] text-ink-0 shadow-xl",
+        neon: "bg-surface-1/80 border-brand-500/30 text-ink-0 shadow-[0_0_15px_rgba(29,107,255,0.12)] hover:shadow-glow-brand hover:border-brand-500/50"
     };
 
     const intensities = {

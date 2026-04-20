@@ -51,9 +51,11 @@ class AnalyticsConfig:
   demo_gender_consensus: float = 0.80   # Gender consensus threshold (fraction of weighted votes)
   demo_max_age_history: int = 80        # Max age samples for temporal smoothing
   demo_max_gender_history: int = 80     # Max gender samples for temporal smoothing
-  demo_temporal_decay: float = 0.85     # Decay factor for older gender votes (per sample)
+  demo_temporal_decay: float = 0.92     # Decay factor for older gender votes (higher = slower forgetting, more accurate lock-in)
   demo_continuous_refinement: bool = True  # Keep refining demographics even after initial classification
   demo_gender_lock_threshold: int = 8     # Lock gender after N consecutive same-gender high-confidence votes
+  demo_gender_lower_band: float = 0.35    # Gender prob below this = female (hysteresis band)
+  demo_gender_upper_band: float = 0.65    # Gender prob above this = male (hysteresis band)
 
   # Minimum person bounding-box sizes for demographics processing
   demo_min_bbox_width: int = 25   # px – below this, skip face analysis
@@ -81,6 +83,18 @@ class AnalyticsConfig:
   table_needs_cleaning_timeout: float = 60.0   # seconds after person leaves → "needs_cleaning"
   table_empty_timeout: float = 180.0           # seconds after "needs_cleaning" → "empty"
   table_long_occupancy_alert: float = 5400.0   # 90 min → alert "check on table"
+
+  # Post-NMS overlap filtering
+  post_nms_containment_thresh: float = 0.70  # Suppress nested bbox if containment > this
+  post_nms_iou_merge_thresh: float = 0.60    # Suppress overlapping bbox if IoU > this
+
+  # Demographics freeze thresholds
+  demo_age_lock_stability: float = 0.95   # Age stability required to lock (higher = stricter, prevents premature lock)
+  demo_age_lock_min_samples: int = 30     # Minimum samples before age can lock (more samples = higher confidence)
+  demo_pose_max_yaw: float = 70.0         # Max face yaw (deg) for gender decision (was 55, relaxed for more coverage)
+
+  # Track persistence
+  track_stale_ttl: float = 4.0  # Seconds before dropping unseen tracks
 
 
 def _load_normalized_point(raw: Sequence[float]) -> NormalizedPoint:
@@ -150,9 +164,11 @@ def load_config(path: Path) -> AnalyticsConfig:
     demo_gender_consensus=float(data.get("demo_gender_consensus", 0.80)),
     demo_max_age_history=int(data.get("demo_max_age_history", 80)),
     demo_max_gender_history=int(data.get("demo_max_gender_history", 80)),
-    demo_temporal_decay=float(data.get("demo_temporal_decay", 0.85)),
+    demo_temporal_decay=float(data.get("demo_temporal_decay", 0.92)),
     demo_continuous_refinement=bool(data.get("demo_continuous_refinement", True)),
     demo_gender_lock_threshold=int(data.get("demo_gender_lock_threshold", 8)),
+    demo_gender_lower_band=float(data.get("demo_gender_lower_band", 0.35)),
+    demo_gender_upper_band=float(data.get("demo_gender_upper_band", 0.65)),
     # Demographic bounding-box and crop size thresholds
     demo_min_bbox_width=int(data.get("demo_min_bbox_width", 25)),
     demo_min_bbox_height=int(data.get("demo_min_bbox_height", 40)),
@@ -173,4 +189,13 @@ def load_config(path: Path) -> AnalyticsConfig:
     table_needs_cleaning_timeout=float(data.get("table_needs_cleaning_timeout", 60.0)),
     table_empty_timeout=float(data.get("table_empty_timeout", 180.0)),
     table_long_occupancy_alert=float(data.get("table_long_occupancy_alert", 5400.0)),
+    # Post-NMS overlap filtering
+    post_nms_containment_thresh=float(data.get("post_nms_containment_thresh", 0.70)),
+    post_nms_iou_merge_thresh=float(data.get("post_nms_iou_merge_thresh", 0.60)),
+    # Demographics freeze
+    demo_age_lock_stability=float(data.get("demo_age_lock_stability", 0.95)),
+    demo_age_lock_min_samples=int(data.get("demo_age_lock_min_samples", 30)),
+    demo_pose_max_yaw=float(data.get("demo_pose_max_yaw", 70.0)),
+    # Track persistence
+    track_stale_ttl=float(data.get("track_stale_ttl", 4.0)),
   )

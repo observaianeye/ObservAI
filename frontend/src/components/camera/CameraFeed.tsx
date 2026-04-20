@@ -1,7 +1,8 @@
-import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Activity, Loader2 } from 'lucide-react';
+import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Activity } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useDataMode } from '../../contexts/DataModeContext';
-import { cameraBackendService, Detection, BackendHealth } from '../../services/cameraBackendService';
+import { useLanguage } from '../../contexts/LanguageContext';
+import { cameraBackendService, Detection, BackendHealth, Zone } from '../../services/cameraBackendService';
 import { GlassCard } from '../ui/GlassCard';
 
 export type CameraSource = 'webcam' | 'iphone' | 'ip' | 'videolink' | 'file';
@@ -32,6 +33,7 @@ interface IPCamera {
 
 export default function CameraFeed() {
   const { dataMode } = useDataMode();
+  const { t } = useLanguage();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -57,7 +59,7 @@ export default function CameraFeed() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [backendConnected, setBackendConnected] = useState(false);
   const [showZones] = useState(true); // Can be made toggleable in future
-  const [zones, setZones] = useState<any[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
 
   // Advanced settings
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -105,7 +107,7 @@ export default function CameraFeed() {
   const [savedCameras, setSavedCameras] = useState<SavedCamera[]>([]);
 
   // Backend readiness state machine
-  const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
+  const [, setBackendHealth] = useState<BackendHealth | null>(null);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Source version counter — incremented on each source change to re-trigger subscriptions
   const [sourceVersion, setSourceVersion] = useState(0);
@@ -113,8 +115,8 @@ export default function CameraFeed() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('DISCONNECTED');
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 5;
-  const [retryCountDisplay, setRetryCountDisplay] = useState(0);
-  const [nextRetryIn, setNextRetryIn] = useState(0); // countdown seconds
+  const [, setRetryCountDisplay] = useState(0);
+  const [, setNextRetryIn] = useState(0); // countdown seconds
   const retryCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mjpegRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mjpegRetryCountRef = useRef(0);
@@ -463,7 +465,7 @@ export default function CameraFeed() {
 
       // Draw zones if enabled
       if (showZones && zones.length > 0) {
-        zones.forEach((zone: any) => {
+        zones.forEach((zone) => {
           // Zone coordinates are normalized (0-1), convert to pixels
           const zoneX = zone.x * canvas.width;
           const zoneY = zone.y * canvas.height;
@@ -487,7 +489,7 @@ export default function CameraFeed() {
       }
 
       // Draw detections
-      detections.forEach((detection, idx) => {
+      detections.forEach((detection, _idx) => {
         const [x, y, w, h] = detection.bbox; // Normalized coordinates [0-1]
 
         // Convert to pixel coordinates
@@ -509,7 +511,11 @@ export default function CameraFeed() {
         // Use age bucket directly from backend (e.g., '18-24', '25-34', etc.)
         const ageBucket = detection.ageBucket || 'Unknown';
         const dwellTime = Math.floor(detection.dwellSec);
-        const labelText = `${gender} | ${ageBucket} | ${dwellTime}s`;
+        // Lock indicator: solid "=" when both age + gender are stable,
+        // helps the user tell "model is sure" from "still learning".
+        const bothLocked = Boolean(detection.ageLocked && detection.genderLocked);
+        const lockMark = bothLocked ? ' =' : '';
+        const labelText = `${gender} | ${ageBucket} | ${dwellTime}s${lockMark}`;
 
         ctx.font = `${fontSize}px sans-serif`; // Use responsive font size
         const textMetrics = ctx.measureText(labelText);
@@ -921,28 +927,28 @@ export default function CameraFeed() {
       className={`overflow-hidden ${isFullscreen ? 'flex flex-col h-screen' : ''}`}
     >
       {/* Header */}
-      <div className="bg-gradient-to-r from-gray-800 to-gray-900 px-4 py-3 flex items-center justify-between">
+      <div className="bg-gradient-to-r from-surface-2 to-surface-1 px-4 py-3 flex items-center justify-between border-b border-white/[0.08]">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-            <Video className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-accent-500 rounded-xl flex items-center justify-center shadow-glow-brand">
+            <Video className="w-5 h-5 text-white" strokeWidth={1.5} />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-white">{getSourceLabel()}</h3>
+            <h3 className="font-display text-sm font-semibold text-ink-0">{getSourceLabel()}</h3>
             <div className="flex items-center space-x-2">
-              <span className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></span>
-              <span className="text-xs text-gray-200">
-                {dataMode === 'demo' ? 'DEMO MODE' : (isStreaming ? 'LIVE' : 'OFFLINE')}
+              <span className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-success animate-pulse' : 'bg-danger'}`}></span>
+              <span className="text-xs text-ink-2 font-mono">
+                {dataMode === 'demo' ? t('cameraFeed.demoMode') : (isStreaming ? t('cameraFeed.live') : t('cameraFeed.offline'))}
               </span>
               {isStreaming && backendConnected && (
                 <>
-                  <span className="text-xs text-gray-200">•</span>
-                  <span className="text-xs text-green-400">Backend Connected</span>
+                  <span className="text-xs text-ink-3">•</span>
+                  <span className="text-xs text-success font-mono">{t('cameraFeed.backendConnected')}</span>
                 </>
               )}
               {isStreaming && !backendConnected && dataMode === 'live' && (
                 <>
-                  <span className="text-xs text-gray-200">•</span>
-                  <span className="text-xs text-yellow-400">Waiting for backend...</span>
+                  <span className="text-xs text-ink-3">•</span>
+                  <span className="text-xs text-warning font-mono">{t('cameraFeed.waitingForBackend')}</span>
                 </>
               )}
             </div>
@@ -962,22 +968,22 @@ export default function CameraFeed() {
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
                 showHeatmap
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                  ? 'bg-violet-500 text-white shadow-glow-brand'
+                  : 'bg-white/[0.06] text-ink-2 hover:bg-white/[0.1]'
               }`}
-              title={showHeatmap ? 'Hide Heatmap' : 'Show Heatmap'}
+              title={showHeatmap ? t('cameraFeed.hideHeatmap') : t('cameraFeed.showHeatmap')}
             >
               <Activity className="w-3.5 h-3.5" />
-              <span>Heatmap</span>
+              <span>{t('cameraFeed.heatmap')}</span>
             </button>
           )}
           {dataMode === 'live' && (
             <button
               onClick={() => setShowSourceSelect(!showSourceSelect)}
               className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-              title="Change camera source"
+              title={t('cameraFeed.changeSource')}
             >
-              <Settings className="w-4 h-4 text-gray-200" />
+              <Settings className="w-4 h-4 text-ink-1" />
             </button>
           )}
           <button
@@ -986,19 +992,19 @@ export default function CameraFeed() {
               initializeCamera();
             }}
             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-            title="Reload camera"
+            title={t('cameraFeed.reloadCamera')}
           >
-            <RotateCcw className="w-4 h-4 text-gray-200" />
+            <RotateCcw className="w-4 h-4 text-ink-1" />
           </button>
           <button
             onClick={handleFullscreen}
             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-            title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            title={isFullscreen ? t('cameraFeed.exitFullscreen') : t('cameraFeed.fullscreen')}
           >
             {isFullscreen ? (
-              <Minimize2 className="w-4 h-4 text-gray-200" />
+              <Minimize2 className="w-4 h-4 text-ink-1" />
             ) : (
-              <Maximize2 className="w-4 h-4 text-gray-200" />
+              <Maximize2 className="w-4 h-4 text-ink-1" />
             )}
           </button>
         </div>
@@ -1006,21 +1012,21 @@ export default function CameraFeed() {
 
       {/* Source Selector */}
       {showSourceSelect && dataMode === 'live' && (
-        <div className="bg-gray-800 px-4 py-3 border-t border-gray-700">
+        <div className="bg-surface-1 px-4 py-3 border-t border-white/[0.08]">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs text-gray-300">Select camera source:</p>
+            <p className="text-xs text-ink-2">{t('cameraFeed.selectSource')}</p>
             <button
               onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-              className="text-xs text-blue-400 hover:text-blue-300"
+              className="text-xs text-brand-300 hover:text-brand-200 font-mono"
             >
-              {showAdvancedSettings ? 'Basic' : 'Advanced'}
+              {showAdvancedSettings ? t('cameraFeed.basic') : t('cameraFeed.advanced')}
             </button>
           </div>
 
           {/* Saved Cameras from Camera Selection page */}
           {savedCameras.length > 0 && (
             <div className="mb-3">
-              <p className="text-xs text-gray-500 mb-1.5">Kayitli Kaynaklar:</p>
+              <p className="text-xs text-ink-4 mb-1.5">{t('cameraFeed.savedSources')}</p>
               <div className="space-y-1">
                 {savedCameras.map((cam) => (
                   <button
@@ -1028,15 +1034,15 @@ export default function CameraFeed() {
                     onClick={() => handleSavedCameraSelect(cam)}
                     className={`w-full text-left px-3 py-2 text-xs rounded-lg transition-colors flex items-center justify-between ${
                       cam.isActive
-                        ? 'bg-blue-600/20 text-blue-300 ring-1 ring-blue-500/50'
-                        : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50'
+                        ? 'bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/40'
+                        : 'bg-surface-2/50 text-ink-2 hover:bg-surface-3/50'
                     }`}
                   >
                     <span className="flex items-center gap-2">
-                      {cam.isActive && <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />}
+                      {cam.isActive && <span className="w-1.5 h-1.5 bg-success rounded-full animate-pulse" />}
                       <span className="font-medium">{cam.name}</span>
                     </span>
-                    <span className="text-gray-500 text-[10px] uppercase">{cam.sourceType}</span>
+                    <span className="text-ink-4 text-[10px] uppercase">{cam.sourceType}</span>
                   </button>
                 ))}
               </div>
@@ -1044,34 +1050,34 @@ export default function CameraFeed() {
           )}
 
           {/* Quick Connect */}
-          <p className="text-xs text-gray-500 mb-1.5">Hizli Baglan:</p>
+          <p className="text-xs text-ink-4 mb-1.5">{t('cameraFeed.quickConnect')}</p>
           <div className="grid grid-cols-2 gap-2 mb-3">
             <button
               onClick={() => handleSourceChange('webcam')}
               className={`px-3 py-2 text-xs rounded-lg transition-colors relative ${currentSource.type === 'webcam'
-                ? 'bg-blue-600 text-white ring-2 ring-blue-400'
-                : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white ring-2 ring-brand-400/50 shadow-glow-brand'
+                : 'bg-surface-2 text-ink-1 hover:bg-surface-3'
                 }`}
             >
               <span className="flex items-center justify-center">
                 {currentSource.type === 'webcam' && (
-                  <span className="absolute left-2 w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                  <span className="absolute left-2 w-2 h-2 bg-success rounded-full animate-pulse"></span>
                 )}
-                Camera
+                {t('cameraFeed.camera')}
               </span>
             </button>
             <button
               onClick={() => handleSourceChange('iphone')}
               className={`px-3 py-2 text-xs rounded-lg transition-colors relative ${currentSource.type === 'iphone'
-                ? 'bg-blue-600 text-white ring-2 ring-blue-400'
-                : 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white ring-2 ring-brand-400/50 shadow-glow-brand'
+                : 'bg-surface-2 text-ink-1 hover:bg-surface-3'
                 }`}
             >
               <span className="flex items-center justify-center">
                 {currentSource.type === 'iphone' && (
-                  <span className="absolute left-2 w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                  <span className="absolute left-2 w-2 h-2 bg-success rounded-full animate-pulse"></span>
                 )}
-                Phone Cam
+                {t('cameraFeed.phoneCam')}
               </span>
             </button>
           </div>
@@ -1079,10 +1085,10 @@ export default function CameraFeed() {
           {/* Phone Cam — Tailscale / Remote ivCam URL */}
           {currentSource.type === 'iphone' && (
             <div className="mt-2">
-              <label className="text-xs text-gray-300 mb-1 flex items-center">
+              <label className="text-xs text-ink-2 mb-1 flex items-center">
                 <LinkIcon className="w-3 h-3 mr-1" />
-                ivCam Tailscale URL
-                <span className="ml-2 text-gray-500">(uzaktan erisim icin)</span>
+                {t('cameraFeed.ivcamUrlLabel')}
+                <span className="ml-2 text-ink-4">{t('cameraFeed.ivcamRemote')}</span>
               </label>
               <div className="flex space-x-2">
                 <input
@@ -1093,26 +1099,26 @@ export default function CameraFeed() {
                     localStorage.setItem('iphoneRemoteUrl', e.target.value);
                   }}
                   placeholder="http://100.127.69.88:4747/video"
-                  className="flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+                  className="flex-1 px-3 py-2 bg-surface-2 text-ink-0 text-xs rounded-lg border border-white/[0.08] focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-ink-4 mt-1">
                 {iphoneRemoteUrl.trim()
-                  ? 'Tailscale HTTP stream kullanilacak'
-                  : 'Bos birakirsan: iVCam virtual kamera (index 1)'}
+                  ? t('cameraFeed.tailscaleUsed')
+                  : t('cameraFeed.ivcamVirtual')}
               </p>
             </div>
           )}
 
           {/* Video Link Input (YouTube, HLS, RTMP, MP4) */}
           <div className="mt-3">
-            <label className="text-xs text-gray-300 mb-1 flex items-center">
+            <label className="text-xs text-ink-2 mb-1 flex items-center">
               <LinkIcon className="w-3 h-3 mr-1" />
-              Video Link (YouTube, HLS, RTMP, MP4)
+              {t('cameraFeed.videoLink')}
               {currentSource.type === 'videolink' && (
-                <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full flex items-center">
-                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1 animate-pulse"></span>
-                  Active
+                <span className="ml-2 px-2 py-0.5 bg-gradient-to-r from-brand-500 to-accent-500 text-white text-xs rounded-full flex items-center shadow-glow-brand">
+                  <span className="w-1.5 h-1.5 bg-success rounded-full mr-1 animate-pulse"></span>
+                  {t('cameraFeed.active')}
                 </span>
               )}
             </label>
@@ -1122,60 +1128,60 @@ export default function CameraFeed() {
                 value={videoLinkUrl}
                 onChange={(e) => setVideoLinkUrl(e.target.value)}
                 placeholder="https://youtube.com/watch?v=... or .m3u8/.mp4 URL"
-                className={`flex-1 px-3 py-2 bg-gray-700 text-white text-xs rounded-lg border transition-colors focus:outline-none ${
+                className={`flex-1 px-3 py-2 bg-surface-2 text-ink-0 text-xs rounded-lg border transition-colors focus:outline-none ${
                   currentSource.type === 'videolink'
-                    ? 'border-blue-500 ring-1 ring-blue-400'
-                    : 'border-gray-600 focus:border-blue-500'
+                    ? 'border-brand-500 ring-1 ring-brand-400/50'
+                    : 'border-white/[0.08] focus:border-brand-500'
                 }`}
               />
               <button
                 onClick={handleVideoLinkConnect}
                 disabled={!videoLinkUrl.trim()}
-                className="px-4 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white text-xs rounded-lg hover:shadow-glow-brand disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                Connect
+                {t('cameraFeed.connect')}
               </button>
             </div>
           </div>
 
           {/* Advanced Settings */}
           {showAdvancedSettings && (
-            <div className="space-y-3 border-t border-gray-700 pt-3">
+            <div className="space-y-3 border-t border-white/[0.08] pt-3">
               {/* File Upload */}
               <div>
-                <label className="text-xs text-gray-300 mb-1 block">
+                <label className="text-xs text-ink-2 mb-1 block">
                   <Upload className="w-3 h-3 inline mr-1" />
-                  Local Video File
+                  {t('cameraFeed.localFile')}
                 </label>
                 <input
                   type="file"
                   accept="video/*"
                   onChange={handleFileSelect}
-                  className="w-full text-xs text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:bg-blue-600 file:text-white hover:file:bg-blue-700 file:cursor-pointer"
+                  className="w-full text-xs text-ink-2 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:bg-gradient-to-r file:from-brand-500 file:to-accent-500 file:text-white hover:file:shadow-glow-brand file:cursor-pointer"
                 />
               </div>
 
               {/* IP Cameras */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-gray-300">IP Cameras</label>
+                  <label className="text-xs text-ink-2">{t('cameraFeed.ipCameras')}</label>
                   <button
                     onClick={() => setShowAddIPCamera(!showAddIPCamera)}
-                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center"
+                    className="text-xs text-brand-300 hover:text-brand-200 flex items-center font-mono"
                   >
                     <Plus className="w-3 h-3 mr-1" />
-                    Add Camera
+                    {t('cameraFeed.addCamera')}
                   </button>
                 </div>
 
                 {showAddIPCamera && (
-                  <form onSubmit={handleAddIPCamera} className="bg-gray-700 rounded-lg p-3 mb-2 space-y-2">
+                  <form onSubmit={handleAddIPCamera} className="bg-surface-2 rounded-lg p-3 mb-2 space-y-2">
                     <input
                       type="text"
-                      placeholder="Camera name"
+                      placeholder={t('cameraFeed.cameraNamePh')}
                       value={newIPCamera.name}
                       onChange={(e) => setNewIPCamera({ ...newIPCamera, name: e.target.value })}
-                      className="w-full px-3 py-2 bg-gray-800 text-white text-xs rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                      className="w-full px-3 py-2 bg-surface-1 text-ink-0 text-xs rounded border border-white/[0.08] focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
                       required
                     />
                     <input
@@ -1183,30 +1189,30 @@ export default function CameraFeed() {
                       placeholder="rtsp://username:password@ip:port/stream"
                       value={newIPCamera.url}
                       onChange={(e) => setNewIPCamera({ ...newIPCamera, url: e.target.value })}
-                      className="w-full px-3 py-2 bg-gray-800 text-white text-xs rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                      className="w-full px-3 py-2 bg-surface-1 text-ink-0 text-xs rounded border border-white/[0.08] focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
                       required
                     />
                     <div className="flex space-x-2">
                       <select
                         value={newIPCamera.type}
                         onChange={(e) => setNewIPCamera({ ...newIPCamera, type: e.target.value as 'rtsp' | 'http' })}
-                        className="flex-1 px-3 py-2 bg-gray-800 text-white text-xs rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                        className="flex-1 px-3 py-2 bg-surface-1 text-ink-0 text-xs rounded border border-white/[0.08] focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
                       >
                         <option value="rtsp">RTSP</option>
                         <option value="http">HTTP</option>
                       </select>
                       <button
                         type="submit"
-                        className="px-4 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                        className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white text-xs rounded hover:shadow-glow-brand transition-all"
                       >
-                        Add
+                        {t('cameraFeed.add')}
                       </button>
                       <button
                         type="button"
                         onClick={() => setShowAddIPCamera(false)}
-                        className="px-4 py-2 bg-gray-600 text-white text-xs rounded hover:bg-gray-500"
+                        className="px-4 py-2 bg-surface-3 text-white text-xs rounded hover:bg-surface-3"
                       >
-                        Cancel
+                        {t('cameraFeed.cancel')}
                       </button>
                     </div>
                   </form>
@@ -1214,25 +1220,25 @@ export default function CameraFeed() {
 
                 <div className="space-y-1">
                   {ipCameras.length === 0 ? (
-                    <p className="text-xs text-gray-500 italic">No IP cameras configured</p>
+                    <p className="text-xs text-ink-4 italic">{t('cameraFeed.noIpCameras')}</p>
                   ) : (
                     ipCameras.map((camera) => (
                       <div
                         key={camera.id}
-                        className="flex items-center justify-between bg-gray-700 rounded px-3 py-2"
+                        className="flex items-center justify-between bg-surface-2 rounded px-3 py-2"
                       >
                         <button
                           onClick={() => handleSelectIPCamera(camera.id)}
-                          className="flex-1 text-left text-xs text-white hover:text-blue-400"
+                          className="flex-1 text-left text-xs text-ink-0 hover:text-brand-300"
                         >
                           <span className="font-semibold">{camera.name}</span>
-                          <span className="text-gray-400 ml-2">({camera.type.toUpperCase()})</span>
+                          <span className="text-ink-3 ml-2">({camera.type.toUpperCase()})</span>
                         </button>
                         <button
                           onClick={() => handleDeleteIPCamera(camera.id)}
-                          className="p-1 hover:bg-red-600 rounded transition-colors"
+                          className="p-1 hover:bg-danger/20 rounded transition-colors"
                         >
-                          <X className="w-3 h-3 text-gray-400" />
+                          <X className="w-3 h-3 text-ink-3" />
                         </button>
                       </div>
                     ))
@@ -1276,12 +1282,12 @@ export default function CameraFeed() {
           {dataMode === 'demo' ? (
             // Demo mode - placeholder
             <div className="w-full h-full flex items-center justify-center">
-              <div className="w-full h-full bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900 flex items-center justify-center">
+              <div className="w-full h-full bg-gradient-to-br from-surface-2 via-surface-1 to-surface-0 flex items-center justify-center">
                 <div className="text-center">
-                  <CameraIcon className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                  <p className="text-gray-400 font-medium">Demo Mode Active</p>
-                  <p className="text-gray-500 text-sm mt-1">Switch to Live mode to see camera feed</p>
-                  <p className="text-gray-600 text-xs mt-2">Charts below show demo data</p>
+                  <CameraIcon className="w-16 h-16 text-ink-4 mx-auto mb-4" />
+                  <p className="text-ink-3 font-medium">{t('cameraFeed.demoActive')}</p>
+                  <p className="text-ink-4 text-sm mt-1">{t('cameraFeed.switchToLive')}</p>
+                  <p className="text-ink-4 text-xs mt-2">{t('cameraFeed.demoCharts')}</p>
                 </div>
               </div>
             </div>
@@ -1289,16 +1295,16 @@ export default function CameraFeed() {
             // Error state
             <div className="w-full h-full flex items-center justify-center p-6">
               <div className="text-center max-w-md">
-                <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-                <p className="text-red-400 font-medium mb-2">Camera Error</p>
-                <pre className="text-gray-300 text-xs whitespace-pre-wrap text-left bg-gray-800 rounded p-3 mb-4">
+                <AlertCircle className="w-12 h-12 text-danger mx-auto mb-3" strokeWidth={1.5} />
+                <p className="text-danger font-medium mb-2">{t('cameraFeed.cameraError')}</p>
+                <pre className="text-ink-2 text-xs whitespace-pre-wrap text-left bg-surface-1 rounded p-3 mb-4 font-mono">
                   {error}
                 </pre>
                 <button
                   onClick={initializeCamera}
-                  className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                  className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white text-sm rounded-lg hover:shadow-glow-brand transition-all"
                 >
-                  Retry
+                  {t('cameraFeed.retry')}
                 </button>
               </div>
             </div>
@@ -1307,10 +1313,10 @@ export default function CameraFeed() {
             <div className="w-full h-full flex items-center justify-center">
               {connectionState === 'FAILED' ? (
                 <div className="text-center">
-                  <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-                  <p className="text-red-400 font-medium mb-2">Bağlantı Kurulamadı</p>
-                  <p className="text-gray-500 text-sm mt-1 mb-4">
-                    Python backend çalışmıyor veya erişilemiyor ({MAX_RETRIES} deneme başarısız)
+                  <AlertCircle className="w-12 h-12 text-danger mx-auto mb-3" strokeWidth={1.5} />
+                  <p className="text-danger font-medium mb-2">{t('cameraFeed.connectionFailed')}</p>
+                  <p className="text-ink-4 text-sm mt-1 mb-4">
+                    {t('cameraFeed.pythonUnreachable', { max: MAX_RETRIES })}
                   </p>
                   <button
                     onClick={() => {
@@ -1329,25 +1335,27 @@ export default function CameraFeed() {
                       if (healthPollRef.current) clearInterval(healthPollRef.current);
                       healthPollRef.current = setInterval(pollRetry, 2000);
                     }}
-                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                    className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white text-sm rounded-lg hover:shadow-glow-brand transition-all"
                   >
-                    Tekrar Dene
+                    {t('cameraFeed.retry')}
                   </button>
                 </div>
               ) : (
                 <div className="text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                  <p className="text-gray-400 font-medium">
-                    {isSwitchingSource ? 'Kaynak değiştiriliyor...' :
-                     connectionState === 'CONNECTING' ? 'Backend\'e bağlanılıyor...' :
-                     connectionState === 'WAITING_FOR_BACKEND' ? 'Backend hazırlanıyor, model yükleniyor...' :
-                     connectionState === 'CONNECTED' ? 'Kamera akışı başlatılıyor...' :
-                     'Kameraya bağlanılıyor...'}
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500 mx-auto mb-4"></div>
+                  <p className="text-ink-3 font-medium">
+                    {isSwitchingSource ? t('cameraFeed.switchingSource') :
+                     connectionState === 'CONNECTING' ? t('cameraFeed.connectingToBackend') :
+                     connectionState === 'WAITING_FOR_BACKEND' ? t('cameraFeed.backendLoadingModel') :
+                     connectionState === 'CONNECTED' ? t('cameraFeed.startingStream') :
+                     t('cameraFeed.connectingCamera')}
                   </p>
-                  <p className="text-gray-500 text-sm mt-1">
+                  <p className="text-ink-4 text-sm mt-1">
                     {connectionState === 'WAITING_FOR_BACKEND'
-                      ? `Lütfen bekleyin — ${retryCountRef.current > 0 ? `Deneme ${retryCountRef.current}/${MAX_RETRIES}` : 'model yükleniyor'}`
-                      : 'Lütfen kamera izinlerine onay verin'}
+                      ? (retryCountRef.current > 0
+                          ? t('cameraFeed.pleaseWaitAttempt', { attempt: retryCountRef.current, max: MAX_RETRIES })
+                          : t('cameraFeed.loadingModel'))
+                      : t('cameraFeed.cameraPermission')}
                   </p>
                 </div>
               )}
@@ -1451,7 +1459,7 @@ export default function CameraFeed() {
             {dataMode === 'live' && detections.length > 0 && (
               <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
                 <p className="text-xs text-white font-semibold">
-                  {detections.length} detected
+                  {t('cameraFeed.detected', { count: detections.length })}
                 </p>
               </div>
             )}
@@ -1460,26 +1468,26 @@ export default function CameraFeed() {
       </div>
 
       {/* Footer stats */}
-      <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
-        <div className="text-xs text-gray-600">
-          <span className="font-semibold">Status:</span> {
-            dataMode === 'demo' ? 'Demo mode' :
-            isStreaming ? `Live from ${getSourceLabel()}` :
-            connectionState === 'FAILED' ? 'Backend unreachable' :
-            connectionState === 'WAITING_FOR_BACKEND' ? 'Loading model...' :
-            connectionState === 'CONNECTING' ? 'Connecting...' :
-            'Waiting for camera'
+      <div className="px-4 py-3 bg-surface-2/60 border-t border-white/[0.08] flex items-center justify-between">
+        <div className="text-xs text-ink-4">
+          <span className="font-semibold">{t('cameraFeed.status')}</span> {
+            dataMode === 'demo' ? t('cameraFeed.statusDemo') :
+            isStreaming ? t('cameraFeed.statusLive', { source: getSourceLabel() }) :
+            connectionState === 'FAILED' ? t('cameraFeed.statusUnreachable') :
+            connectionState === 'WAITING_FOR_BACKEND' ? t('cameraFeed.statusLoading') :
+            connectionState === 'CONNECTING' ? t('cameraFeed.statusConnecting') :
+            t('cameraFeed.statusWaiting')
           }
         </div>
         {dataMode === 'live' && isStreaming && (
           <div className="flex items-center space-x-4 text-xs">
             <div>
-              <span className="text-gray-500">Detected:</span>
-              <span className="font-semibold text-gray-900 ml-1">{detections.length}</span>
+              <span className="text-ink-4">{t('cameraFeed.detectedLabel')}</span>
+              <span className="font-semibold text-ink-5 ml-1">{detections.length}</span>
             </div>
-            <div className={`flex items-center ${backendConnected ? 'text-green-600' : 'text-yellow-600'}`}>
-              <span className={`w-2 h-2 rounded-full mr-1 ${backendConnected ? 'bg-green-600' : 'bg-yellow-600'}`}></span>
-              <span>{backendConnected ? 'Backend Active' : 'Backend Offline'}</span>
+            <div className={`flex items-center font-mono ${backendConnected ? 'text-success' : 'text-warning'}`}>
+              <span className={`w-2 h-2 rounded-full mr-1 ${backendConnected ? 'bg-success' : 'bg-warning'}`}></span>
+              <span>{backendConnected ? t('cameraFeed.backendActive') : t('cameraFeed.backendOffline')}</span>
             </div>
           </div>
         )}

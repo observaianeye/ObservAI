@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { DataModeProvider } from './contexts/DataModeContext';
 import { DashboardFilterProvider } from './contexts/DashboardFilterContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { LanguageProvider } from './contexts/LanguageContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalAlerts from './components/GlobalAlerts';
 import GlobalChatbot from './components/GlobalChatbot';
@@ -31,6 +32,7 @@ const StaffingPage = lazy(() => import('./pages/dashboard/StaffingPage'));
 
 function App() {
   return (
+    <LanguageProvider>
     <AuthProvider>
       <DataModeProvider>
         <DashboardFilterProvider>
@@ -138,6 +140,7 @@ function App() {
         </DashboardFilterProvider>
       </DataModeProvider>
     </AuthProvider>
+    </LanguageProvider>
   );
 }
 

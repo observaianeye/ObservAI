@@ -2,6 +2,7 @@ import { Camera, Circle, Monitor, Wifi, Upload, Trash2, Loader2, Smartphone, Pla
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 type SourceType = 'webcam' | 'file' | 'rtsp' | 'screen' | 'youtube' | 'phone';
 
@@ -18,6 +19,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export default function CameraSelectionPage() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [sourceType, setSourceType] = useState<SourceType>('webcam');
   const [sourceValue, setSourceValue] = useState<string>('0');
@@ -46,17 +48,17 @@ export default function CameraSelectionPage() {
   }, [fetchCameras]);
 
   const sourceTypes = [
-    { value: 'webcam', label: 'Webcam', icon: Camera, description: 'Built-in or USB camera' },
-    { value: 'phone', label: 'Phone Cam', icon: Smartphone, description: 'iVCam / DroidCam HTTP stream' },
-    { value: 'file', label: 'Video File', icon: Upload, description: 'MP4, AVI, or other video file' },
-    { value: 'rtsp', label: 'RTSP/RTMP Stream', icon: Wifi, description: 'Network camera or stream' },
-    { value: 'screen', label: 'Screen Capture', icon: Monitor, description: 'Capture your screen' },
-    { value: 'youtube', label: 'YouTube Live', icon: Camera, description: 'YouTube live stream URL' }
+    { value: 'webcam', label: t('cameraSelection.type.webcam.label'), icon: Camera, description: t('cameraSelection.type.webcam.desc') },
+    { value: 'phone', label: t('cameraSelection.type.phone.label'), icon: Smartphone, description: t('cameraSelection.type.phone.desc') },
+    { value: 'file', label: t('cameraSelection.type.file.label'), icon: Upload, description: t('cameraSelection.type.file.desc') },
+    { value: 'rtsp', label: t('cameraSelection.type.rtsp.label'), icon: Wifi, description: t('cameraSelection.type.rtsp.desc') },
+    { value: 'screen', label: t('cameraSelection.type.screen.label'), icon: Monitor, description: t('cameraSelection.type.screen.desc') },
+    { value: 'youtube', label: t('cameraSelection.type.youtube.label'), icon: Camera, description: t('cameraSelection.type.youtube.desc') },
   ];
 
   const handleAddSource = async () => {
     if (!sourceValue || !sourceName) {
-      setError('Please provide both a source name and value');
+      setError(t('cameraSelection.errorMissing'));
       return;
     }
 
@@ -82,10 +84,10 @@ export default function CameraSelectionPage() {
         await fetchCameras();
       } else {
         const data = await res.json();
-        setError(data.error || 'Failed to add camera');
+        setError(data.error || t('cameraSelection.errorSave'));
       }
     } catch (err) {
-      setError('Failed to save camera. Check backend connection.');
+      setError(t('cameraSelection.errorBackend'));
     } finally {
       setIsSaving(false);
     }
@@ -137,34 +139,25 @@ export default function CameraSelectionPage() {
     }
   };
 
-  const getSourceDescription = () => {
-    switch (sourceType) {
-      case 'webcam': return 'Enter camera index (0 for built-in, 1 for first USB camera, etc.)';
-      case 'phone': return 'iVCam veya DroidCam HTTP stream URL girin (orn: http://IP:4747/video)';
-      case 'file': return 'Enter the full path to your video file';
-      case 'rtsp': return 'Enter RTSP or RTMP stream URL';
-      case 'screen': return 'Type "screen" to capture your screen display';
-      case 'youtube': return 'Enter YouTube Live stream URL (requires yt-dlp)';
-      default: return '';
-    }
-  };
+  const getSourceDescription = () => t(`cameraSelection.placeholder.${sourceType}`);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Camera & Video Sources</h1>
-        <p className="text-sm text-gray-400 mt-1">Configure video input sources for analytics</p>
+        <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('cameraSelection.page.title')}</h1>
+        <p className="text-sm text-ink-3 mt-1">{t('cameraSelection.page.subtitle')}</p>
       </div>
 
       {/* Add New Source */}
-      <div className="rounded-xl border border-white/10 p-6 bg-[#0f1117]/80">
-        <h2 className="text-lg font-semibold text-white mb-4">Add New Source</h2>
+      <div className="surface-card rounded-xl p-6">
+        <h2 className="font-display text-lg font-semibold text-ink-0 mb-4">{t('cameraSelection.addNew')}</h2>
 
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-300 mb-3">Source Type</label>
+          <label className="block text-sm font-medium text-ink-2 mb-3">{t('cameraSelection.page.sourceLabel')}</label>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
             {sourceTypes.map((st) => {
               const Icon = st.icon;
+              const active = sourceType === st.value;
               return (
                 <button
                   key={st.value}
@@ -172,19 +165,15 @@ export default function CameraSelectionPage() {
                     setSourceType(st.value as SourceType);
                     setSourceValue(st.value === 'webcam' ? '0' : st.value === 'screen' ? 'screen' : st.value === 'phone' ? 'http://' : '');
                   }}
-                  className={`p-4 rounded-lg border-2 transition-all ${
-                    sourceType === st.value
-                      ? 'border-blue-500 bg-blue-500/20'
-                      : 'border-white/10 hover:border-white/20 bg-white/5'
+                  className={`p-4 rounded-xl border-2 transition-all ${
+                    active
+                      ? 'border-brand-500/60 bg-brand-500/15 shadow-glow-brand'
+                      : 'border-white/[0.08] hover:border-white/[0.16] bg-white/[0.03]'
                   }`}
                 >
-                  <Icon className={`w-6 h-6 mx-auto mb-2 ${
-                    sourceType === st.value ? 'text-blue-400' : 'text-gray-400'
-                  }`} />
-                  <p className={`text-sm font-medium ${
-                    sourceType === st.value ? 'text-blue-300' : 'text-gray-300'
-                  }`}>{st.label}</p>
-                  <p className="text-xs text-gray-500 mt-1">{st.description}</p>
+                  <Icon strokeWidth={1.5} className={`w-6 h-6 mx-auto mb-2 ${active ? 'text-brand-300' : 'text-ink-3'}`} />
+                  <p className={`text-sm font-medium ${active ? 'text-brand-200' : 'text-ink-2'}`}>{st.label}</p>
+                  <p className="text-xs text-ink-4 mt-1">{st.description}</p>
                 </button>
               );
             })}
@@ -193,84 +182,84 @@ export default function CameraSelectionPage() {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Source Name</label>
+            <label className="block text-sm font-medium text-ink-2 mb-2">{t('cameraSelection.sourceName')}</label>
             <input
               type="text"
               value={sourceName}
               onChange={(e) => setSourceName(e.target.value)}
-              placeholder="e.g., Front Door Camera"
-              className="w-full px-4 py-2 border border-white/10 bg-white/5 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 placeholder:text-gray-500"
+              placeholder={t('cameraSelection.sourceNamePh')}
+              className="w-full px-4 py-2 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 placeholder:text-ink-4 transition-all"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Source Value</label>
+            <label className="block text-sm font-medium text-ink-2 mb-2">{t('cameraSelection.sourceValue')}</label>
             <input
               type="text"
               value={sourceValue}
               onChange={(e) => setSourceValue(e.target.value)}
               placeholder={getSourcePlaceholder()}
-              className="w-full px-4 py-2 border border-white/10 bg-white/5 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm placeholder:text-gray-500"
+              className="w-full px-4 py-2 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 font-mono text-sm placeholder:text-ink-4 transition-all"
             />
-            <p className="mt-2 text-xs text-gray-500">{getSourceDescription()}</p>
+            <p className="mt-2 text-xs text-ink-4">{getSourceDescription()}</p>
           </div>
 
           {error && (
-            <p className="text-sm text-red-400">{error}</p>
+            <p className="text-sm text-danger-400">{error}</p>
           )}
 
           <button
             onClick={handleAddSource}
             disabled={isSaving}
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full px-4 py-2.5 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-glow-brand transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {isSaving ? 'Saving...' : 'Add Source'}
+            {isSaving ? t('cameraSelection.saving') : t('cameraSelection.addSource')}
           </button>
         </div>
       </div>
 
       {/* Saved Cameras */}
       <div>
-        <h2 className="text-lg font-semibold text-white mb-4">
-          Configured Sources {cameras.length > 0 && `(${cameras.length})`}
+        <h2 className="font-display text-lg font-semibold text-ink-0 mb-4">
+          {t('cameraSelection.configured')} {cameras.length > 0 && `(${cameras.length})`}
         </h2>
 
         {isLoading ? (
           <div className="text-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-400 mx-auto" />
-            <p className="text-sm text-gray-400 mt-2">Loading cameras...</p>
+            <Loader2 className="w-6 h-6 animate-spin text-brand-400 mx-auto" />
+            <p className="text-sm text-ink-3 mt-2">{t('cameraSelection.loading')}</p>
           </div>
         ) : cameras.length === 0 ? (
-          <div className="rounded-xl border border-white/10 p-8 text-center bg-[#0f1117]/80">
-            <Camera className="w-10 h-10 text-gray-500 mx-auto mb-3" />
-            <p className="text-gray-400">No cameras configured yet</p>
-            <p className="text-sm text-gray-500 mt-1">Add a source above to get started</p>
+          <div className="surface-card rounded-xl p-8 text-center">
+            <Camera strokeWidth={1.5} className="w-10 h-10 text-ink-4 mx-auto mb-3" />
+            <p className="text-ink-3">{t('cameraSelection.emptyTitle')}</p>
+            <p className="text-sm text-ink-4 mt-1">{t('cameraSelection.emptyHint')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {cameras.map((camera) => {
               const Icon = getSourceIcon(camera.sourceType);
               return (
-                <div key={camera.id} className="rounded-xl border border-white/10 p-6 bg-[#0f1117]/80 hover:border-white/20 transition-colors">
+                <div key={camera.id} className="surface-card rounded-xl p-6 hover:border-brand-500/30 transition-colors">
                   <div className="flex items-start justify-between mb-4">
-                    <div className="w-12 h-12 bg-blue-600/20 rounded-lg flex items-center justify-center">
-                      <Icon className="w-6 h-6 text-blue-400" />
+                    <div className="w-12 h-12 bg-brand-500/15 rounded-xl flex items-center justify-center">
+                      <Icon strokeWidth={1.5} className="w-6 h-6 text-brand-300" />
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Circle className={`w-3 h-3 ${camera.isActive ? 'text-green-500 fill-green-500' : 'text-gray-500 fill-gray-500'}`} />
-                      <span className="text-xs text-gray-400 capitalize">{camera.sourceType.toLowerCase()}</span>
+                      <Circle className={`w-3 h-3 ${camera.isActive ? 'text-success-400 fill-success-400' : 'text-ink-4 fill-ink-4'}`} />
+                      <span className="text-xs text-ink-3 capitalize font-mono">{camera.sourceType.toLowerCase()}</span>
                     </div>
                   </div>
-                  <h3 className="text-base font-semibold text-white mb-1">{camera.name}</h3>
-                  <p className="text-xs text-gray-500 mb-4 font-mono break-all">{camera.sourceValue}</p>
+                  <h3 className="text-base font-semibold text-ink-0 mb-1">{camera.name}</h3>
+                  <p className="text-xs text-ink-4 mb-4 font-mono break-all">{camera.sourceValue}</p>
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleActivate(camera.id)}
-                      className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-1.5"
+                      className="flex-1 px-3 py-2 bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-xl text-sm font-medium hover:bg-brand-500/25 transition-colors flex items-center justify-center gap-1.5"
                     >
-                      <Play className="w-3.5 h-3.5" />
-                      Aktif Et
+                      <Play className="w-3.5 h-3.5" strokeWidth={1.5} />
+                      {t('cameraSelection.activate')}
                     </button>
                     <button
                       onClick={() => {
@@ -278,17 +267,17 @@ export default function CameraSelectionPage() {
                           `python -m camera_analytics.run_with_websocket --source "${camera.sourceValue}"`
                         );
                       }}
-                      className="px-3 py-2 bg-white/5 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/10 transition-colors border border-white/10"
-                      title="Komutu kopyala"
+                      className="px-3 py-2 bg-white/[0.04] text-ink-2 rounded-xl text-sm font-medium hover:bg-white/[0.08] transition-colors border border-white/[0.08]"
+                      title={t('cameraSelection.copyCmd')}
                     >
-                      Copy
+                      {t('cameraSelection.copy')}
                     </button>
                     <button
                       onClick={() => handleDelete(camera.id)}
-                      className="px-3 py-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors border border-white/10"
-                      title="Sil"
+                      className="px-3 py-2 text-danger-400 hover:bg-danger-500/10 rounded-xl transition-colors border border-white/[0.08]"
+                      title={t('cameraSelection.delete')}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4" strokeWidth={1.5} />
                     </button>
                   </div>
                 </div>

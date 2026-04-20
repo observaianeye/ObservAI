@@ -84,18 +84,18 @@ export default function DonutChart({
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {centerText && (
             <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900">{centerText}</div>
+              <div className="font-display font-mono text-2xl font-semibold text-ink-0">{centerText}</div>
               {centerSubtext && (
-                <div className="text-xs text-gray-600 mt-1">{centerSubtext}</div>
+                <div className="text-xs text-ink-3 mt-1 font-mono">{centerSubtext}</div>
               )}
             </div>
           )}
         </div>
 
         {showTooltip && hoveredIndex !== null && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-900 text-white px-4 py-2 rounded-lg shadow-lg text-center animate-fade-in-up pointer-events-none">
-            <div className="text-xs font-medium">{segments[hoveredIndex].label}</div>
-            <div className="text-sm font-semibold">{segments[hoveredIndex].percentage.toFixed(1)}%</div>
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-surface-1/95 backdrop-blur-xl border border-white/[0.08] text-ink-0 px-4 py-2 rounded-lg shadow-lg text-center animate-fade-in-up pointer-events-none">
+            <div className="text-xs font-medium text-ink-2">{segments[hoveredIndex].label}</div>
+            <div className="text-sm font-semibold font-mono text-ink-0">{segments[hoveredIndex].percentage.toFixed(1)}%</div>
           </div>
         )}
       </div>
@@ -116,8 +116,8 @@ export default function DonutChart({
               }}
             />
             <div className="flex-1">
-              <div className="text-xs font-medium text-gray-900">{segment.label}</div>
-              <div className="text-xs text-gray-600">{segment.percentage.toFixed(1)}%</div>
+              <div className="text-xs font-medium text-ink-1">{segment.label}</div>
+              <div className="text-xs text-ink-3 font-mono">{segment.percentage.toFixed(1)}%</div>
             </div>
           </div>
         ))}

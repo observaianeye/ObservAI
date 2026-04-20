@@ -13,6 +13,11 @@ export interface Detection {
   ageBucket: string | null;
   dwellSec: number;
   state: 'entering' | 'present' | 'exiting';
+  // Confidence & lock signals (populated when Python backend emits them)
+  ageConfidence?: number;     // 0-1
+  genderConfidence?: number;  // 0-1
+  ageLocked?: boolean;
+  genderLocked?: boolean;
 }
 
 export interface AnalyticsData {

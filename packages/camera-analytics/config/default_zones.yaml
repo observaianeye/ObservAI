@@ -64,8 +64,13 @@ demo_max_age_history: 80
 demo_max_gender_history: 80
 
 # Temporal decay for older gender votes (per sample, recent = 1.0)
-# Lower = older votes fade faster, helps correct early misclassifications
-demo_temporal_decay: 0.85
+# Higher (0.92) = slower forgetting, more accurate lock-in; retains evidence longer for stable predictions
+demo_temporal_decay: 0.92
+
+# Gender decision hysteresis band (applied to raw InsightFace/MiVOLO gender score).
+# gender > upper_band → male, gender < lower_band → female, between = ambiguous (skip this frame).
+demo_gender_lower_band: 0.35
+demo_gender_upper_band: 0.65
 
 # Continuous refinement: keep improving demographics even after initial classification
 # Set to false for legacy behavior (stop after first good classification)
@@ -97,6 +102,24 @@ zone_exit_debounce_frames: 5
 # Bbox smoothing EMA alpha range (lower min = heavier smoothing for stationary)
 bbox_smoothing_alpha_min: 0.2
 bbox_smoothing_alpha_max: 0.9
+
+# Post-NMS overlap filtering: suppress nested/overlapping person detections
+# Containment threshold: if smaller box is >70% inside larger box, suppress it
+post_nms_containment_thresh: 0.70
+# IoU merge threshold: if two similar-sized boxes overlap >60%, suppress lower confidence
+post_nms_iou_merge_thresh: 0.60
+
+# Demographics freeze: stop updating once stable
+# Age lock: requires stability > 0.95 AND at least 30 samples (stricter, prevents premature lock-in)
+demo_age_lock_stability: 0.95
+demo_age_lock_min_samples: 30
+
+# Max face yaw (degrees) for gender decision. 70° covers more poses than 55° while staying reliable.
+demo_pose_max_yaw: 70.0
+
+# Track persistence: seconds before dropping unseen tracks
+# Should be >= track_buffer/fps + margin (90/30 + 1 = 4s)
+track_stale_ttl: 4.0
 
 # Table occupancy tracking
 # Kişi masadan kalktıktan sonra "temizlik bekliyor" süresi (saniye)
