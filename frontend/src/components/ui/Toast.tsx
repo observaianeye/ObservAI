@@ -10,15 +10,15 @@ interface ToastProps {
 
 export function Toast({ id, type, message, onClose }: ToastProps) {
   const icons = {
-    success: <CheckCircle className="w-5 h-5 text-green-500" />,
-    error: <XCircle className="w-5 h-5 text-red-500" />,
-    warning: <AlertCircle className="w-5 h-5 text-yellow-500" />
+    success: <CheckCircle className="w-5 h-5 text-success" strokeWidth={1.5} />,
+    error: <XCircle className="w-5 h-5 text-danger" strokeWidth={1.5} />,
+    warning: <AlertCircle className="w-5 h-5 text-warning" strokeWidth={1.5} />
   };
 
   const colors = {
-    success: 'bg-green-500/10 border-green-500/50',
-    error: 'bg-red-500/10 border-red-500/50',
-    warning: 'bg-yellow-500/10 border-yellow-500/50'
+    success: 'bg-success/10 border-success/40',
+    error: 'bg-danger/10 border-danger/40',
+    warning: 'bg-warning/10 border-warning/40'
   };
 
   return (
@@ -26,12 +26,12 @@ export function Toast({ id, type, message, onClose }: ToastProps) {
       initial={{ opacity: 0, x: 100 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 100 }}
-      className={`flex items-start space-x-3 p-4 rounded-lg border ${colors[type]} shadow-lg min-w-[300px] max-w-md backdrop-blur-sm`}
+      className={`flex items-start space-x-3 p-4 rounded-xl border ${colors[type]} shadow-lg min-w-[300px] max-w-md backdrop-blur-xl bg-surface-1/90`}
     >
       {icons[type]}
-      <p className="text-sm text-white flex-1">{message}</p>
-      <button onClick={() => onClose(id)} className="text-gray-400 hover:text-white transition-colors">
-        <X className="w-4 h-4" />
+      <p className="text-sm text-ink-0 flex-1">{message}</p>
+      <button onClick={() => onClose(id)} className="text-ink-4 hover:text-ink-0 transition-colors">
+        <X className="w-4 h-4" strokeWidth={1.5} />
       </button>
     </motion.div>
   );

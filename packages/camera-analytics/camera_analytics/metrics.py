@@ -66,6 +66,9 @@ class TableSnapshot:
   current_occupants: int
   avg_stay_seconds: float
   longest_stay_seconds: float
+  status: str = "empty"           # "empty" | "occupied" | "needs_cleaning"
+  occupancy_duration: float = 0.0  # seconds since current occupancy began
+  turnover_count: int = 0          # number of occupy→leave cycles
 
 
 @dataclass
@@ -94,6 +97,12 @@ class ActivePersonSnapshot:
   age_bucket: str
   gender: str
   dwell_seconds: float
+  # Confidence surfacing — lets the frontend show uncertainty and lock state.
+  age_confidence: float = 0.0      # Max confidence seen for age across samples (0-1)
+  gender_confidence: float = 0.0   # Weighted consensus ratio for gender (0-1)
+  age_locked: bool = False
+  gender_locked: bool = False
+  age_stability: float = 0.0       # Stability score from temporal smoothing (0-1)
 
 
 @dataclass
@@ -147,6 +156,9 @@ class CameraMetrics:
           "currentOccupants": table.current_occupants,
           "avgStaySeconds": round(table.avg_stay_seconds, 1),
           "longestStaySeconds": round(table.longest_stay_seconds, 1),
+          "status": table.status,
+          "occupancyDuration": round(table.occupancy_duration, 1),
+          "turnoverCount": table.turnover_count,
         }
         for table in self.tables
       ],
@@ -158,6 +170,11 @@ class CameraMetrics:
           "ageBucket": person.age_bucket,
           "gender": person.gender,
           "dwellSeconds": round(float(person.dwell_seconds), 1),
+          "ageConfidence": round(float(person.age_confidence), 2),
+          "genderConfidence": round(float(person.gender_confidence), 2),
+          "ageLocked": bool(person.age_locked),
+          "genderLocked": bool(person.gender_locked),
+          "ageStability": round(float(person.age_stability), 2),
         }
         for person in self.active_people
       ],

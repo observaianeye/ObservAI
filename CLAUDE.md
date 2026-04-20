@@ -174,10 +174,12 @@ python -m camera_analytics.run_with_websocket --source 1 --model yolo11l.pt
 1. InsightFace full-frame face detection (her frame'de, RTX 5070 ile 960x960 det_size)
 2. Yuz → YOLO kisi bbox eslestirme (proportional tolerance)
 3. Eslesmeyenler icin crop-based fallback (max 3 crop, CLAHE low-light enhancement)
-4. AYRI age/gender confidence: age=lenient pose penalty, gender=strict (yaw>55 reject)
+4. AYRI age/gender confidence: age=lenient pose penalty (default 0.85, yaw/150), gender=hysteresis band (0.35 lower / 0.65 upper, yaw>70 reject)
 5. Temporal smoothing: Age=EMA+weighted_median (stability dampening), Gender=decay-weighted voting + lock
 6. Gender lock: 8 ardisik ayni cinsiyet oyu sonrasi cinsiyet kilitlenir (flip-flop engelleme)
-7. Demographics persistence cache: track drop → save → re-entry restore (120s pencere)
+7. Age lock: 30 sample + stability >= 0.95 olunca yas kilitlenir (frame-to-frame snap onler)
+8. Demographics persistence cache: track drop → save → re-entry restore (120s pencere)
+9. Belirsiz bolgedeki (0.35-0.65) gender skorlari None gecer — zorla M/F atamasi yok
 
 ### Konfigürasyon Parametreleri (default_zones.yaml)
 ```yaml
@@ -186,8 +188,13 @@ face_detection_interval: 1    # Her frame'de InsightFace calistir (RTX 5070)
 demo_age_ema_alpha: 0.15      # Yas EMA smoothing (dusuk=daha stabil)
 demo_min_confidence: 0.40     # Min yuz tespit guven esigi (yuksek=temiz tahmin)
 demo_gender_consensus: 0.70   # Cinsiyet oylama esigi (yuksek=flip-flop engelleme)
-demo_temporal_decay: 0.85     # Eski oylar icin azalma carpani
+demo_gender_lower_band: 0.35  # Hysteresis alt sinir — skor <= kadin
+demo_gender_upper_band: 0.65  # Hysteresis ust sinir — skor >= erkek, arasi None
+demo_temporal_decay: 0.92     # Eski oylar icin azalma carpani (yuksek = daha uzun hafiza)
 demo_gender_lock_threshold: 8 # Cinsiyet kilitleme icin ardisik oy sayisi
+demo_age_lock_stability: 0.95 # Yas kilit stability esigi (EMA tutarlilik)
+demo_age_lock_min_samples: 30 # Yas kilit icin min sample sayisi
+demo_pose_max_yaw: 70.0       # Gender reject esigi (derece) — eski 55
 confidence_threshold: 0.5     # YOLO kisi tespit esigi
 queue_alert_threshold: 5      # Queue zone alert kisi esigi
 zone_enter_debounce_frames: 3 # Zone girisi icin ardisik frame sayisi
@@ -221,10 +228,14 @@ Queue zone tipi (amber renk) kafe/restoran icin kuyruk takibi saglar:
 Zone'lar ic ice giremez. Frontend'te cizim sirasinda overlap tespiti yapilir.
 Backend'te server-side validation ile guvenlik agi saglanir.
 
-### AI Entegrasyonu (Ollama)
-- Varsayilan AI saglayici: Ollama (local, http://localhost:11434)
-- Model oncelik sirasi: llama3.1:8b > llama3:8b > mistral > phi3
-- Gemini fallback: GEMINI_API_KEY varsa otomatik fallback
+### AI Entegrasyonu (Ollama + Gemini fallback)
+- Tek kaynakta yonetilir: `backend/src/lib/aiConfig.ts` — `routes/ai.ts` ve `services/insightEngine.ts` ayni listeyi kullanir
+- Varsayilan saglayici: Ollama (local, http://localhost:11434)
+- Ollama oncelik: qwen3:14b → qwen3 → llama3.3:latest → llama3.3 → llama3.2:latest → llama3.2 → qwen2.5:7b → qwen2.5 → llama3.1:8b → llama3:8b → gemma2 → mistral → phi3 → qwen2
+- `OLLAMA_MODEL` env ile override
+- `OLLAMA_TIMEOUT_MS` (default 60000) — AbortController ile istek zaman asimi
+- Gemini candidates (fallback): gemini-2.5-flash → gemini-2.0-flash-001 → gemini-2.0-flash-lite
+- `isGeminiFallbackError()` quota/429/404/resource_exhausted hatalarinda otomatik model degistirir
 - Iki dil destegi: TR/EN (kullanici dilinde yanit verir)
 - Hava durumu: Branch koordinatlarina gore Open-Meteo API
 

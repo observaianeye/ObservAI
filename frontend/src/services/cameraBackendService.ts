@@ -13,6 +13,11 @@ export interface Detection {
   ageBucket: string | null;
   dwellSec: number;
   state: 'entering' | 'present' | 'exiting';
+  // Confidence & lock signals (populated when Python backend emits them)
+  ageConfidence?: number;     // 0-1
+  genderConfidence?: number;  // 0-1
+  ageLocked?: boolean;
+  genderLocked?: boolean;
 }
 
 export interface AnalyticsData {
@@ -61,7 +66,18 @@ export interface AnalyticsData {
     totalVisitors: number;
     avgDwellTime: number;
   }>;
+  tables?: TableData[];
   fps: number;
+}
+
+export interface TableData {
+  id: string;
+  name: string;
+  status: 'empty' | 'occupied' | 'needs_cleaning';
+  currentOccupants: number;
+  avgStaySeconds: number;
+  occupancyDuration: number;
+  turnoverCount: number;
 }
 
 export interface Zone {
@@ -71,7 +87,7 @@ export interface Zone {
   y: number;
   width: number;
   height: number;
-  type: 'entrance' | 'exit' | 'queue';
+  type: 'entrance' | 'exit' | 'queue' | 'table';
   color: string;
 }
 

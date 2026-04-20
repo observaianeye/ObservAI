@@ -234,8 +234,18 @@ class MiVOLOEstimator(AgeGenderEstimator):
         gender_logits = output[index, :2].softmax(-1)
         male_prob = gender_logits[0].item()
         female_prob = gender_logits[1].item()
-        gender = "male" if male_prob >= female_prob else "female"
         gender_prob = max(male_prob, female_prob)
+
+        # Hysteresis band: require clear evidence before committing to a gender.
+        # Probabilities hugging 50/50 almost always come from ambiguous crops
+        # (very small, occluded, or heavy side pose). Returning None keeps the
+        # vote neutral; the tracker's temporal consensus picks it up next frame.
+        if male_prob >= 0.65:
+            gender = "male"
+        elif female_prob >= 0.65:
+            gender = "female"
+        else:
+            gender = None
 
         return float(age), gender, float(gender_prob)
 
@@ -421,15 +431,24 @@ class InsightFaceEstimator(AgeGenderEstimator):
 
             age = float(face.age) if face.age is not None else None
 
-            # --- Gender decoding ---
+            # --- Gender decoding with hysteresis band ---
+            # Raw score is in [0, 1]; values in the middle are ambiguous.
+            # Return None (vs. forcing a decision) so the caller can skip this frame.
             gender = None
+            gender_score = None
             if hasattr(face, "gender") and face.gender is not None:
-                gender = "male" if float(face.gender) > 0.5 else "female"
+                gender_score = float(face.gender)
             elif hasattr(face, "sex"):
                 if isinstance(face.sex, str):
                     gender = "male" if face.sex.upper() == 'M' else "female"
                 else:
-                    gender = "male" if float(face.sex) > 0.5 else "female"
+                    gender_score = float(face.sex)
+
+            if gender_score is not None:
+                if gender_score >= 0.65:
+                    gender = "male"
+                elif gender_score <= 0.35:
+                    gender = "female"
 
             # Quality-based confidence: large frontal faces = high weight,
             # small/side faces = lower weight (but still contribute to voting)
@@ -439,15 +458,15 @@ class InsightFaceEstimator(AgeGenderEstimator):
             img_area = processed.shape[0] * processed.shape[1]
             size_factor = min(1.0, max(0.3, (face_area / max(1, img_area)) / 0.01))
 
-            # Pose-based confidence: steeper penalty for non-frontal faces
-            pose_factor = 0.7  # default if no pose data
-            yaw = 30.0  # default assumption
+            # Pose-based confidence: softer penalty so moderate side poses still vote.
+            pose_factor = 0.75
+            yaw = 30.0
             if hasattr(face, 'pose') and face.pose is not None:
                 yaw = abs(float(face.pose[1]))
-                pose_factor = max(0.2, 1.0 - yaw / 90.0)
+                pose_factor = max(0.25, 1.0 - yaw / 110.0)
 
-            # Suppress gender for profile faces (consistent with full-frame path in analytics.py)
-            if yaw > 55.0:
+            # Suppress gender only for severe profile poses (relaxed from 55° to 70°).
+            if yaw > 70.0:
                 gender = None
 
             confidence = 0.85 * min(1.0, det_score / 0.5) * size_factor * pose_factor

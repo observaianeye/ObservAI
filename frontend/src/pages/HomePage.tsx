@@ -3,22 +3,22 @@ import { Camera, Eye, Users, TrendingUp, Video, MapPin, ArrowRight } from 'lucid
 
 function HomeNavbar() {
   return (
-    <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-200">
+    <nav className="sticky top-0 z-50 bg-surface-0/80 backdrop-blur-xl border-b border-white/[0.08]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center space-x-2 group">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-lg flex items-center justify-center transform group-hover:scale-110 transition-transform">
-            <Camera className="w-5 h-5 text-white" />
+          <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-500 rounded-xl flex items-center justify-center transform group-hover:scale-110 transition-transform shadow-glow-brand">
+            <Camera className="w-5 h-5 text-white" strokeWidth={1.5} />
           </div>
-          <span className="text-xl font-bold text-gray-900">ObservAI</span>
+          <span className="font-display text-xl font-semibold text-ink-0 tracking-tight">ObservAI</span>
         </Link>
 
         <div className="flex items-center gap-4 sm:gap-6">
-          <a href="#features" className="hidden sm:inline text-sm font-semibold text-gray-700 hover:text-blue-600 transition-colors">Features</a>
-          <a href="#how-it-works" className="hidden sm:inline text-sm font-semibold text-gray-700 hover:text-blue-600 transition-colors">How It Works</a>
-          <Link to="/login" className="text-sm font-semibold text-gray-700 hover:text-blue-600 transition-colors">Login</Link>
+          <a href="#features" className="hidden sm:inline text-sm font-semibold text-ink-2 hover:text-ink-0 transition-colors">Features</a>
+          <a href="#how-it-works" className="hidden sm:inline text-sm font-semibold text-ink-2 hover:text-ink-0 transition-colors">How It Works</a>
+          <Link to="/login" className="text-sm font-semibold text-ink-2 hover:text-ink-0 transition-colors">Login</Link>
           <Link
             to="/register"
-            className="px-4 sm:px-6 py-2 text-sm bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-semibold rounded-lg hover:shadow-lg transform hover:scale-105 transition-all"
+            className="px-4 sm:px-6 py-2 text-sm bg-gradient-to-r from-brand-500 to-accent-500 text-white font-semibold rounded-xl hover:shadow-glow-brand transform hover:scale-105 transition-all"
           >
             <span className="hidden sm:inline">Start Free Trial</span>
             <span className="sm:hidden">Sign Up</span>
@@ -31,37 +31,38 @@ function HomeNavbar() {
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-surface-0">
       <HomeNavbar />
 
-      <section className="relative pt-20 pb-24 bg-gradient-to-br from-slate-50 via-blue-50 to-cyan-50 overflow-hidden">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLW9wYWNpdHk9IjAuMDMiIHN0cm9rZS13aWR0aD0iMSIvPjwvcGF0dGVybj48L2RlZnM+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0idXJsKCNncmlkKSIvPjwvc3ZnPg==')] opacity-40"></div>
+      <section className="relative pt-20 pb-24 bg-surface-0 grid-floor overflow-hidden">
+        <div className="absolute top-20 left-1/4 w-96 h-96 bg-brand-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 right-1/4 w-96 h-96 bg-accent-500/10 rounded-full blur-3xl" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 relative">
           <div className="text-center mb-16">
-            <div className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-100 rounded-full mb-6">
-              <Video className="w-4 h-4 text-blue-600" />
-              <span className="text-sm font-semibold text-blue-900">Camera Analytics Platform</span>
+            <div className="inline-flex items-center space-x-2 px-4 py-2 surface-card rounded-full mb-6">
+              <Video className="w-4 h-4 text-brand-300" strokeWidth={1.5} />
+              <span className="text-sm font-semibold text-brand-300 font-mono">Camera Analytics Platform</span>
             </div>
-            <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6">
+            <h1 className="font-display text-5xl md:text-6xl font-semibold text-ink-0 mb-6 tracking-tight">
               Visitor Intelligence
               <br />
-              <span className="bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">Powered by Vision AI</span>
+              <span className="text-gradient-brand">Powered by Vision AI</span>
             </h1>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
+            <p className="text-xl text-ink-2 max-w-3xl mx-auto mb-8">
               Transform your cameras into powerful analytics tools. Track visitors, analyze behavior, and optimize your space with real-time insights.
             </p>
             <div className="flex items-center justify-center gap-4">
               <Link
                 to="/login"
-                className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-semibold rounded-xl hover:shadow-xl transform hover:scale-105 transition-all flex items-center space-x-2"
+                className="px-8 py-4 bg-gradient-to-r from-brand-500 to-accent-500 text-white font-semibold rounded-xl hover:shadow-glow-brand-strong transform hover:scale-105 transition-all flex items-center space-x-2"
               >
                 <span>Try Demo Dashboard</span>
-                <ArrowRight className="w-5 h-5" />
+                <ArrowRight className="w-5 h-5" strokeWidth={1.5} />
               </Link>
               <a
                 href="#features"
-                className="px-8 py-4 bg-white border-2 border-gray-300 text-gray-900 font-semibold rounded-xl hover:border-blue-600 transition-all"
+                className="px-8 py-4 surface-card text-ink-0 font-semibold rounded-xl hover:border-brand-500/30 hover:shadow-glow-brand transition-all"
               >
                 Learn More
               </a>
@@ -70,122 +71,123 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="features" className="py-20 bg-white">
+      <section id="features" className="py-20 bg-surface-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-gray-900 mb-4">Camera Analytics Features</h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            <h2 className="font-display text-4xl font-semibold text-ink-0 mb-4 tracking-tight">Camera Analytics Features</h2>
+            <p className="text-lg text-ink-3 max-w-2xl mx-auto">
               Everything you need to understand visitor behavior and optimize your space
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl p-8 border border-blue-200">
-              <div className="w-14 h-14 bg-blue-600 rounded-xl flex items-center justify-center mb-4">
-                <Users className="w-7 h-7 text-white" />
+            <div className="surface-card rounded-2xl p-8 hover:border-brand-500/30 hover:shadow-glow-brand transition-all">
+              <div className="w-14 h-14 bg-gradient-to-br from-brand-500 to-accent-500 rounded-xl flex items-center justify-center mb-4 shadow-glow-brand">
+                <Users className="w-7 h-7 text-white" strokeWidth={1.5} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Visitor Counting</h3>
-              <p className="text-gray-600">Real-time tracking of foot traffic with gender and age demographics</p>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-3">Visitor Counting</h3>
+              <p className="text-ink-3">Real-time tracking of foot traffic with gender and age demographics</p>
             </div>
 
-            <div className="bg-gradient-to-br from-orange-50 to-red-50 rounded-2xl p-8 border border-orange-200">
-              <div className="w-14 h-14 bg-orange-600 rounded-xl flex items-center justify-center mb-4">
-                <Eye className="w-7 h-7 text-white" />
+            <div className="surface-card rounded-2xl p-8 hover:border-warning/30 transition-all">
+              <div className="w-14 h-14 bg-gradient-to-br from-warning to-danger rounded-xl flex items-center justify-center mb-4">
+                <Eye className="w-7 h-7 text-white" strokeWidth={1.5} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Heatmap Overlay</h3>
-              <p className="text-gray-600">Visualize high-traffic areas and customer movement patterns</p>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-3">Heatmap Overlay</h3>
+              <p className="text-ink-3">Visualize high-traffic areas and customer movement patterns</p>
             </div>
 
-            <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-2xl p-8 border border-green-200">
-              <div className="w-14 h-14 bg-green-600 rounded-xl flex items-center justify-center mb-4">
-                <MapPin className="w-7 h-7 text-white" />
+            <div className="surface-card rounded-2xl p-8 hover:border-success/30 transition-all">
+              <div className="w-14 h-14 bg-gradient-to-br from-success to-accent-500 rounded-xl flex items-center justify-center mb-4">
+                <MapPin className="w-7 h-7 text-white" strokeWidth={1.5} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Zone Labeling</h3>
-              <p className="text-gray-600">Define entrance/exit zones for accurate flow tracking</p>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-3">Zone Labeling</h3>
+              <p className="text-ink-3">Define entrance/exit zones for accurate flow tracking</p>
             </div>
 
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-8 border border-purple-200">
-              <div className="w-14 h-14 bg-purple-600 rounded-xl flex items-center justify-center mb-4">
-                <TrendingUp className="w-7 h-7 text-white" />
+            <div className="surface-card rounded-2xl p-8 hover:border-violet-500/30 transition-all">
+              <div className="w-14 h-14 bg-gradient-to-br from-violet-500 to-danger rounded-xl flex items-center justify-center mb-4">
+                <TrendingUp className="w-7 h-7 text-white" strokeWidth={1.5} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Dwell Time Analysis</h3>
-              <p className="text-gray-600">Measure how long visitors stay in different areas</p>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-3">Dwell Time Analysis</h3>
+              <p className="text-ink-3">Measure how long visitors stay in different areas</p>
             </div>
 
-            <div className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-2xl p-8 border border-yellow-200">
-              <div className="w-14 h-14 bg-yellow-600 rounded-xl flex items-center justify-center mb-4">
-                <Video className="w-7 h-7 text-white" />
+            <div className="surface-card rounded-2xl p-8 hover:border-warning/30 transition-all">
+              <div className="w-14 h-14 bg-gradient-to-br from-warning to-accent-500 rounded-xl flex items-center justify-center mb-4">
+                <Video className="w-7 h-7 text-white" strokeWidth={1.5} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Live Camera Feed</h3>
-              <p className="text-gray-600">Monitor multiple cameras in real-time with analytics overlay</p>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-3">Live Camera Feed</h3>
+              <p className="text-ink-3">Monitor multiple cameras in real-time with analytics overlay</p>
             </div>
 
-            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl p-8 border border-indigo-200">
-              <div className="w-14 h-14 bg-indigo-600 rounded-xl flex items-center justify-center mb-4">
-                <TrendingUp className="w-7 h-7 text-white" />
+            <div className="surface-card rounded-2xl p-8 hover:border-brand-500/30 transition-all">
+              <div className="w-14 h-14 bg-gradient-to-br from-brand-500 to-violet-500 rounded-xl flex items-center justify-center mb-4 shadow-glow-brand">
+                <TrendingUp className="w-7 h-7 text-white" strokeWidth={1.5} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Historical Analytics</h3>
-              <p className="text-gray-600">Review past trends and export data for deeper analysis</p>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-3">Historical Analytics</h3>
+              <p className="text-ink-3">Review past trends and export data for deeper analysis</p>
             </div>
           </div>
         </div>
       </section>
 
-      <section id="how-it-works" className="py-20 bg-gray-50">
+      <section id="how-it-works" className="py-20 bg-surface-0 grid-floor opacity-90">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-gray-900 mb-4">How It Works</h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            <h2 className="font-display text-4xl font-semibold text-ink-0 mb-4 tracking-tight">How It Works</h2>
+            <p className="text-lg text-ink-3 max-w-2xl mx-auto">
               Get started with camera analytics in minutes
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="text-center">
-              <div className="w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center text-2xl font-bold mx-auto mb-4">1</div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Connect Cameras</h3>
-              <p className="text-gray-600">Link your existing cameras to the ObservAI platform</p>
+              <div className="w-16 h-16 bg-gradient-to-br from-brand-500 to-accent-500 text-white rounded-2xl flex items-center justify-center font-display font-mono text-2xl font-semibold mx-auto mb-4 shadow-glow-brand">1</div>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-2">Connect Cameras</h3>
+              <p className="text-ink-3">Link your existing cameras to the ObservAI platform</p>
             </div>
             <div className="text-center">
-              <div className="w-16 h-16 bg-cyan-600 text-white rounded-2xl flex items-center justify-center text-2xl font-bold mx-auto mb-4">2</div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Define Zones</h3>
-              <p className="text-gray-600">Label entrance/exit zones for accurate tracking</p>
+              <div className="w-16 h-16 bg-gradient-to-br from-accent-500 to-violet-500 text-white rounded-2xl flex items-center justify-center font-display font-mono text-2xl font-semibold mx-auto mb-4">2</div>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-2">Define Zones</h3>
+              <p className="text-ink-3">Label entrance/exit zones for accurate tracking</p>
             </div>
             <div className="text-center">
-              <div className="w-16 h-16 bg-green-600 text-white rounded-2xl flex items-center justify-center text-2xl font-bold mx-auto mb-4">3</div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Get Insights</h3>
-              <p className="text-gray-600">View real-time analytics and optimize your space</p>
+              <div className="w-16 h-16 bg-gradient-to-br from-success to-accent-500 text-white rounded-2xl flex items-center justify-center font-display font-mono text-2xl font-semibold mx-auto mb-4">3</div>
+              <h3 className="font-display text-xl font-semibold text-ink-0 mb-2">Get Insights</h3>
+              <p className="text-ink-3">View real-time analytics and optimize your space</p>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="py-20 bg-gradient-to-br from-blue-600 to-cyan-600 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 text-center">
-          <h2 className="text-4xl font-bold mb-4">Ready to Get Started?</h2>
-          <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
+      <section className="relative py-20 bg-gradient-to-br from-brand-500 via-accent-500 to-violet-500 text-white overflow-hidden">
+        <div className="absolute inset-0 grid-floor opacity-20" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 text-center relative">
+          <h2 className="font-display text-4xl font-semibold mb-4 tracking-tight">Ready to Get Started?</h2>
+          <p className="text-xl text-ink-0/90 mb-8 max-w-2xl mx-auto">
             Try our demo dashboard and see how camera analytics can transform your business
           </p>
           <Link
             to="/login"
-            className="inline-flex items-center space-x-2 px-8 py-4 bg-white text-blue-600 font-semibold rounded-xl hover:shadow-2xl transform hover:scale-105 transition-all"
+            className="inline-flex items-center space-x-2 px-8 py-4 bg-white text-brand-500 font-semibold rounded-xl hover:shadow-2xl transform hover:scale-105 transition-all"
           >
             <span>Access Demo Dashboard</span>
-            <ArrowRight className="w-5 h-5" />
+            <ArrowRight className="w-5 h-5" strokeWidth={1.5} />
           </Link>
         </div>
       </section>
 
-      <footer className="bg-gray-900 text-gray-400 py-12">
+      <footer className="bg-surface-0 border-t border-white/[0.08] text-ink-3 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-lg flex items-center justify-center">
-                <Camera className="w-5 h-5 text-white" />
+              <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-500 rounded-xl flex items-center justify-center shadow-glow-brand">
+                <Camera className="w-5 h-5 text-white" strokeWidth={1.5} />
               </div>
-              <span className="text-lg font-bold text-white">ObservAI</span>
+              <span className="font-display text-lg font-semibold text-ink-0 tracking-tight">ObservAI</span>
             </div>
-            <p className="text-sm">&copy; 2025 ObservAI. Camera Analytics Platform.</p>
+            <p className="text-sm font-mono">&copy; 2025 ObservAI. Camera Analytics Platform.</p>
           </div>
         </div>
       </footer>

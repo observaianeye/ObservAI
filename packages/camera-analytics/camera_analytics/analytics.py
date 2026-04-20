@@ -75,6 +75,8 @@ class TrackedPerson:
   age_stability: float = 0.0          # How stable the age prediction is (0-1)
   gender_stability: float = 0.0       # How stable the gender prediction is (0-1)
   gender_locked: bool = False          # Once locked, gender no longer changes
+  age_locked: bool = False             # Once locked, age no longer changes
+  demographics_frozen: bool = False    # Both age+gender locked → skip all face processing
   _gender_consecutive_same: int = 0    # Consecutive same-gender high-confidence votes
   _gender_consecutive_opposite: int = 0  # Consecutive opposite-gender votes (for unlock)
   _gender_last_vote: str = ""          # Last voted gender for consecutive tracking
@@ -88,7 +90,8 @@ class TrackedPerson:
     return x1 <= px <= x2 and y1 <= py <= y2
 
   def update_age(self, new_age: float, confidence: float = 1.0,
-                 ema_alpha: float = 0.15, min_confidence: float = 0.25) -> None:
+                 ema_alpha: float = 0.15, min_confidence: float = 0.25,
+                 lock_stability: float = 0.95, lock_min_samples: int = 30) -> None:
     """
     Confidence-weighted EMA + median hybrid for age estimation.
 
@@ -103,6 +106,10 @@ class TrackedPerson:
         min_confidence: Minimum confidence to accept (from config)
     """
     if new_age is None:
+      return
+
+    # Age locked — no further updates
+    if self.age_locked:
       return
 
     # Filter very low confidence to prevent noise injection
@@ -173,6 +180,11 @@ class TrackedPerson:
       # Wider window + sample_factor: prevents premature freezing with few samples
       sample_factor = min(1.0, len(samples) / 20.0)
       self.age_stability = max(0.0, (1.0 - std_dev / 10.0) * sample_factor)
+
+    # Lock age once highly stable with enough evidence.
+    # Thresholds come from config (demo_age_lock_stability, demo_age_lock_min_samples).
+    if not self.age_locked and self.age_stability > lock_stability and len(samples) >= lock_min_samples:
+      self.age_locked = True
 
   def update_gender(self, new_gender: str, confidence: float = 1.0,
                     consensus_threshold: float = 0.70,
@@ -525,6 +537,15 @@ class CameraAnalyticsEngine:
     self.zone_active_members: Dict[str, Dict[int, float]] = defaultdict(dict)
     self.zone_completed_durations: Dict[str, list[float]] = defaultdict(list)
 
+    # Table occupancy state machine
+    self.table_status: Dict[str, str] = {}           # zone_id → "empty"|"occupied"|"needs_cleaning"
+    self.table_left_at: Dict[str, float] = {}        # zone_id → timestamp when last person left
+    self.table_turnover: Dict[str, int] = {}         # zone_id → occupy→leave cycle count
+    self.table_occupy_start: Dict[str, float] = {}   # zone_id → when current occupancy began
+    for tid in self.table_ids:
+      self.table_status[tid] = "empty"
+      self.table_turnover[tid] = 0
+
     # Zone insights tracking (track IDs that have already triggered insights)
     self.zone_insight_triggered: Dict[str, set[int]] = defaultdict(set)
     self.zone_insight_threshold = 600.0  # 10 minutes in seconds
@@ -546,12 +567,14 @@ class CameraAnalyticsEngine:
   def update_zones(self, zones_data: List[Dict]) -> None:
     """
     Update zone definitions dynamically from the frontend.
-    Thread-safe zone update.
+    Thread-safe zone update. Now respects zone type for table/queue semantics.
     """
     print(f"[INFO] Updating {len(zones_data)} zones dynamically...")
-    
+
     new_zones = {}
-    
+    new_table_ids = []
+    new_queue_id = None
+
     for zd in zones_data:
         # Frontend provides rect: x, y, width, height (normalized)
         # Backend needs polygon: [(x,y), (x+w,y), (x+w,y+h), (x,y+h)]
@@ -559,29 +582,49 @@ class CameraAnalyticsEngine:
         w, h = float(zd.get('width', 0)), float(zd.get('height', 0))
         zone_id = str(zd.get('id', 'unknown'))
         name = zd.get('name', f"Zone {zone_id}")
-        
+        zone_type = str(zd.get('type', 'entrance')).lower()
+
         polygon = [
             (x, y),
             (x + w, y),
             (x + w, y + h),
             (x, y + h)
         ]
-        
+
         new_zones[zone_id] = Zone(
             id=zone_id,
             name=name,
             polygon=polygon
         )
-        
+
+        # Route zone to correct category based on type
+        if zone_type == 'table':
+            new_table_ids.append(zone_id)
+        elif zone_type == 'queue':
+            new_queue_id = zone_id
+
     # Use frame lock to ensure we don't swap zones while processing a frame
-    # Although processing uses its own local vars mostly, it reads self.zone_definitions
     with self._frame_lock:
         self.zone_definitions = new_zones
-        # Also update table_ids and queue_id if necessary, but for now we just treat all as generic zones
-        # If we wanted to preserve "queue" or "table" semantics we'd need type info from frontend
-        self.table_ids = list(new_zones.keys())
-        
-    print(f"[INFO] ✓ Zones updated: {[z.name for z in new_zones.values()]}")
+        self.table_ids = new_table_ids
+        if new_queue_id:
+            self.queue_id = new_queue_id
+
+        # Initialize state for new tables
+        for tid in new_table_ids:
+            if tid not in self.table_status:
+                self.table_status[tid] = "empty"
+                self.table_turnover[tid] = 0
+        # Clean up removed tables
+        for old_tid in list(self.table_status.keys()):
+            if old_tid not in new_table_ids:
+                self.table_status.pop(old_tid, None)
+                self.table_turnover.pop(old_tid, None)
+                self.table_left_at.pop(old_tid, None)
+                self.table_occupy_start.pop(old_tid, None)
+
+    table_names = [new_zones[tid].name for tid in new_table_ids if tid in new_zones]
+    print(f"[INFO] ✓ Zones updated: {[z.name for z in new_zones.values()]} | Tables: {table_names}")
 
   def stop(self) -> None:
     """Stop the analytics engine"""
@@ -1309,20 +1352,20 @@ class CameraAnalyticsEngine:
               _t_face = time.time() - _t_face
               n_full = len(full_faces) if full_faces else 0
 
-              # Step 2: Match faces to YOLO persons
+              # Step 2: Match faces to YOLO persons (exclusive greedy assignment)
               matched_faces = {}  # {person_idx: face_obj}
               matched_tids = set()
               if full_faces:
+                # Build all candidate (person_idx, face_idx, score) tuples
+                candidates = []
                 for i in range(len(ids)):
                   x1, y1, x2, y2 = xyxys[i]
                   pw, ph = x2 - x1, y2 - y1
-                  best_face = None
-                  best_overlap = 0.0
                   tol_x = max(30, pw * 0.3)
                   tol_y = max(30, ph * 0.3)
                   head_y2 = y1 + ph * 0.75
 
-                  for face in full_faces:
+                  for j, face in enumerate(full_faces):
                     fx1, fy1, fx2, fy2 = face.bbox
                     fcx = (fx1 + fx2) / 2
                     fcy = (fy1 + fy2) / 2
@@ -1336,13 +1379,20 @@ class CameraAnalyticsEngine:
                       overlap_area = overlap_x * overlap_y
                       face_area = max(1, (fx2 - fx1) * (fy2 - fy1))
                       ratio = overlap_area / face_area
-                      if ratio > best_overlap:
-                        best_overlap = ratio
-                        best_face = face
+                      if ratio > 0:
+                        candidates.append((i, j, ratio))
 
-                  if best_face is not None:
-                    matched_faces[i] = best_face
-                    matched_tids.add(int(ids[i]))
+                # Greedy exclusive assignment: best score first, no face/person reuse
+                candidates.sort(key=lambda c: c[2], reverse=True)
+                used_persons = set()
+                used_faces = set()
+                for person_idx, face_idx, _score in candidates:
+                  if person_idx in used_persons or face_idx in used_faces:
+                    continue
+                  matched_faces[person_idx] = full_faces[face_idx]
+                  matched_tids.add(int(ids[person_idx]))
+                  used_persons.add(person_idx)
+                  used_faces.add(face_idx)
 
               # Step 3: MiVOLO batch inference — face+body dual input
               if _use_mivolo:
@@ -1353,17 +1403,17 @@ class CameraAnalyticsEngine:
                 batch_yaws = []
 
                 # Matched persons: face + body crops
-                # Cap total batch size to keep inference fast on crowded scenes
-                _MAX_MIVOLO_BATCH = 6  # ~108ms at 18ms/person, keeps inference >8 FPS
+                # Cap total batch size. 12 matches the RTX 5070 throughput envelope
+                # while still keeping MiVOLO inference comfortably under one frame budget.
+                _MAX_MIVOLO_BATCH = 12
                 for i, face in matched_faces.items():
                   if len(batch_tids) >= _MAX_MIVOLO_BATCH:
                     break
                   tid = int(ids[i])
-                  # Skip already-classified people (locked gender + known age)
+                  # Skip frozen demographics — fully classified, no need to re-process
                   existing = self.tracks.get(tid)
-                  if existing and existing.gender_locked and existing.age is not None:
-                    if existing.age_stability > 0.7:
-                      continue  # Fully classified — no need to re-process
+                  if existing and getattr(existing, 'demographics_frozen', False):
+                    continue
                   # Face crop from InsightFace bbox (with padding)
                   fx1, fy1, fx2, fy2 = face.bbox
                   fp = max(5, int((fx2 - fx1) * 0.15))  # 15% padding
@@ -1397,7 +1447,7 @@ class CameraAnalyticsEngine:
                   if tid in matched_tids:
                     continue
                   existing = self.tracks.get(tid)
-                  if existing and existing.gender_locked and existing.age is not None:
+                  if existing and getattr(existing, 'demographics_frozen', False):
                     continue
                   bx1, by1, bx2, by2 = xyxys[i]
                   bh, bw = by2 - by1, bx2 - bx1
@@ -2152,6 +2202,56 @@ class CameraAnalyticsEngine:
     
     return True
 
+  @staticmethod
+  def _filter_overlapping_boxes(boxes, track_ids, confs, containment_thresh=0.70, iou_merge_thresh=0.60):
+    """Remove nested/highly-overlapping person detections after YOLO NMS."""
+    n = len(boxes)
+    if n <= 1:
+      return boxes, track_ids, confs
+
+    # Compute areas
+    areas = np.empty(n)
+    for i in range(n):
+      x1, y1, x2, y2 = boxes[i]
+      areas[i] = max(0, x2 - x1) * max(0, y2 - y1)
+
+    suppress = set()
+    for i in range(n):
+      if i in suppress:
+        continue
+      for j in range(i + 1, n):
+        if j in suppress:
+          continue
+        # Intersection
+        ix1 = max(boxes[i][0], boxes[j][0])
+        iy1 = max(boxes[i][1], boxes[j][1])
+        ix2 = min(boxes[i][2], boxes[j][2])
+        iy2 = min(boxes[i][3], boxes[j][3])
+        inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+        if inter <= 0:
+          continue
+
+        smaller_area = min(areas[i], areas[j])
+        containment = inter / max(smaller_area, 1e-6)
+        union = areas[i] + areas[j] - inter
+        iou = inter / max(union, 1e-6)
+
+        if containment > containment_thresh or iou > iou_merge_thresh:
+          # Suppress the smaller box, or lower confidence if sizes are similar
+          if confs is not None and abs(areas[i] - areas[j]) / max(areas[i], areas[j], 1e-6) < 0.3:
+            # Similar size: suppress lower confidence
+            victim = i if confs[i] < confs[j] else j
+          else:
+            # Different size: suppress smaller (likely nested detection)
+            victim = i if areas[i] < areas[j] else j
+          suppress.add(victim)
+
+    if not suppress:
+      return boxes, track_ids, confs
+
+    keep = [i for i in range(n) if i not in suppress]
+    return boxes[keep], track_ids[keep], confs[keep] if confs is not None else None
+
   def _update_tracks(self, result, frame_w: int, frame_h: int, now: float) -> None:
     active_ids = set()
     if result.boxes.id is None:
@@ -2161,6 +2261,14 @@ class CameraAnalyticsEngine:
 
     boxes = result.boxes.xyxy.cpu().numpy()
     track_ids = result.boxes.id.int().cpu().numpy()
+    confs = result.boxes.conf.cpu().numpy() if result.boxes.conf is not None else None
+
+    # Post-NMS overlap filtering: remove nested/highly-overlapping detections
+    boxes, track_ids, confs = self._filter_overlapping_boxes(
+      boxes, track_ids, confs,
+      containment_thresh=self.config.post_nms_containment_thresh,
+      iou_merge_thresh=self.config.post_nms_iou_merge_thresh,
+    )
 
     if _DEBUG:
       _log.debug(f"[TRACK] Active IDs this frame: {list(track_ids)} (total tracks: {len(self.tracks)})")
@@ -2185,37 +2293,55 @@ class CameraAnalyticsEngine:
           anonymous_id=self._generate_anonymous_id(int(track_id), self.session_salt),
         )
         person.state = "entering"
-        # Restore demographics from recently dropped person with similar appearance
+        # Restore demographics from recently dropped person (scored matching)
         w = x2_norm - x1_norm
         h = y2_norm - y1_norm
-        aspect = round(w / max(h, 0.001), 1)
+        aspect = w / max(h, 0.001)
+        cx, cy = center_norm
         matched_key = None
-        for key, (old_person, drop_time) in self._dropped_demographics.items():
+        best_match_score = 0.0
+        for key, (old_person, drop_time, drop_center) in self._dropped_demographics.items():
           if now - drop_time > 120:
             continue
           old_aspect = float(key.split('_')[0])
-          if abs(aspect - old_aspect) < 0.3:
-            person.age_history = old_person.age_history.copy()
-            person.age_confidence_history = old_person.age_confidence_history.copy()
-            person.gender_history = old_person.gender_history.copy()
-            person.gender_confidence_history = old_person.gender_confidence_history.copy()
-            person.age = old_person.age
-            person.gender = old_person.gender
-            person.age_ema = old_person.age_ema
-            person.gender_confidence = old_person.gender_confidence
-            person.age_stability = old_person.age_stability
-            person.gender_stability = old_person.gender_stability
-            person.gender_locked = old_person.gender_locked
-            person._gender_consecutive_same = old_person._gender_consecutive_same
-            person._gender_consecutive_opposite = old_person._gender_consecutive_opposite
-            person._gender_last_vote = old_person._gender_last_vote
-            person._demo_update_count = old_person._demo_update_count
-            # Transfer counting flags to prevent double-counting
-            person.counted_in = old_person.counted_in
-            person.counted_out = old_person.counted_out
+          # Aspect ratio similarity (0 to 1)
+          aspect_sim = max(0.0, 1.0 - abs(aspect - old_aspect) / 0.5)
+          # Spatial proximity to where the person was last seen
+          if drop_center is not None:
+            dist = ((cx - drop_center[0])**2 + (cy - drop_center[1])**2)**0.5
+            spatial_sim = max(0.0, 1.0 - dist / 0.3)
+          else:
+            spatial_sim = 0.5
+          # Time recency (prefer recent drops)
+          time_factor = max(0.3, 1.0 - (now - drop_time) / 120.0)
+          # Combined score
+          score = aspect_sim * 0.3 + spatial_sim * 0.5 + time_factor * 0.2
+          if score > best_match_score and score > 0.5:
+            best_match_score = score
             matched_key = key
-            break
+
         if matched_key:
+          old_person = self._dropped_demographics[matched_key][0]
+          person.age_history = old_person.age_history.copy()
+          person.age_confidence_history = old_person.age_confidence_history.copy()
+          person.gender_history = old_person.gender_history.copy()
+          person.gender_confidence_history = old_person.gender_confidence_history.copy()
+          person.age = old_person.age
+          person.gender = old_person.gender
+          person.age_ema = old_person.age_ema
+          person.gender_confidence = old_person.gender_confidence
+          person.age_stability = old_person.age_stability
+          person.gender_stability = old_person.gender_stability
+          person.gender_locked = old_person.gender_locked
+          person.age_locked = getattr(old_person, 'age_locked', False)
+          person.demographics_frozen = getattr(old_person, 'demographics_frozen', False)
+          person._gender_consecutive_same = old_person._gender_consecutive_same
+          person._gender_consecutive_opposite = old_person._gender_consecutive_opposite
+          person._gender_last_vote = old_person._gender_last_vote
+          person._demo_update_count = old_person._demo_update_count
+          # Transfer counting flags to prevent double-counting
+          person.counted_in = old_person.counted_in
+          person.counted_out = old_person.counted_out
           self._dropped_demographics.pop(matched_key, None)
           # If the old person was counted in but drop incremented people_out, reverse it
           if person.counted_in and not person.counted_out:
@@ -2336,7 +2462,8 @@ class CameraAnalyticsEngine:
       person.active_zones.pop(zone_id, None)
 
   def _check_zone_insights(self, now: float) -> List[Dict[str, object]]:
-    """Check for persons who have been in zones for >10 minutes and generate insights"""
+    """Check for persons who have been in zones for >10 minutes and generate insights.
+    Also generates table-specific alerts (long occupancy, needs cleaning)."""
     insights = []
 
     for zone_id, active_members in self.zone_active_members.items():
@@ -2372,6 +2499,48 @@ class CameraAnalyticsEngine:
 
             insights.append(insight)
 
+    # Table-specific alerts
+    alert_threshold = self.config.table_long_occupancy_alert
+    for table_id in self.table_ids:
+      zone = self.zone_definitions.get(table_id)
+      if not zone:
+        continue
+      table_name = getattr(zone, 'name', table_id)
+
+      # Long occupancy alert
+      occ_start = self.table_occupy_start.get(table_id)
+      if occ_start:
+        occ_duration = now - occ_start
+        alert_key = f"table_long_{table_id}"
+        if occ_duration >= alert_threshold and alert_key not in self.zone_insight_triggered.get("__table_alerts__", set()):
+          self.zone_insight_triggered.setdefault("__table_alerts__", set()).add(alert_key)
+          insights.append({
+            "zoneId": table_id,
+            "zoneName": table_name,
+            "personId": "table_alert",
+            "duration": occ_duration,
+            "timestamp": now,
+            "type": "table_long_occupancy",
+            "message": f"{table_name} {int(occ_duration / 60)} dakikadir dolu — hesap sorulmali"
+          })
+
+      # Needs cleaning alert (3+ minutes)
+      left_at = self.table_left_at.get(table_id)
+      if left_at:
+        clean_duration = now - left_at
+        clean_key = f"table_clean_{table_id}_{int(left_at)}"
+        if clean_duration >= 180 and clean_key not in self.zone_insight_triggered.get("__table_alerts__", set()):
+          self.zone_insight_triggered.setdefault("__table_alerts__", set()).add(clean_key)
+          insights.append({
+            "zoneId": table_id,
+            "zoneName": table_name,
+            "personId": "table_alert",
+            "duration": clean_duration,
+            "timestamp": now,
+            "type": "table_needs_cleaning",
+            "message": f"{table_name} bosaldi, {int(clean_duration / 60)} dakikadir temizlenmedi"
+          })
+
     return insights
 
   def _update_heatmap(self, center_norm: Tuple[float, float]) -> None:
@@ -2380,7 +2549,9 @@ class CameraAnalyticsEngine:
     )
     self.heatmap[row, col] += 5
 
-  def _drop_stale_tracks(self, active_ids: set[int], now: float, ttl: float = 1.5) -> None:
+  def _drop_stale_tracks(self, active_ids: set[int], now: float, ttl: float = None) -> None:
+    if ttl is None:
+      ttl = self.config.track_stale_ttl
     for track_id in list(self.tracks.keys()):
       person = self.tracks[track_id]
       if track_id in active_ids:
@@ -2392,17 +2563,17 @@ class CameraAnalyticsEngine:
             f"[TRACK] DROP stale track_id={track_id} "
             f"(unseen for {age_since_seen:.1f}s, gender={person.gender}, age={person.age})"
           )
-        # Save demographics for re-entry matching
+        # Save demographics for re-entry matching (with spatial info)
         if person.gender != "unknown" or person.age is not None:
           w = person.bbox_norm[2] - person.bbox_norm[0]
           h = person.bbox_norm[3] - person.bbox_norm[1]
           aspect = round(w / max(h, 0.001), 1)
-          key = f"{aspect}_{person.gender}_{int(person.age or 0)}"
-          self._dropped_demographics[key] = (person, now)
+          key = f"{aspect}_{person.gender}_{int(person.age or 0)}_{track_id}"
+          self._dropped_demographics[key] = (person, now, person.center_norm)
           # Evict old entries (>120s)
           self._dropped_demographics = {
-            k: (p, t) for k, (p, t) in self._dropped_demographics.items()
-            if now - t < 120
+            k: v for k, v in self._dropped_demographics.items()
+            if now - v[1] < 120
           }
         if person.counted_in and not person.counted_out:
           self.people_out += 1
@@ -2422,7 +2593,11 @@ class CameraAnalyticsEngine:
     if self.frame_count < 300:
       print(f"[DEMO] Full-frame: {len(faces)} yuz, {len(tracks_snapshot)} kisi tracked")
 
+    # Build eligible tracks list (skip frozen/stable)
+    eligible_tracks = []
     for track_id, person in tracks_snapshot:
+      if getattr(person, 'demographics_frozen', False):
+        continue
       if not continuous_refinement:
         has_age = person.age is not None and len(person.age_history) >= 3
         has_gender = person.gender != "unknown" and len(person.gender_history) >= 5
@@ -2433,17 +2608,18 @@ class CameraAnalyticsEngine:
             and person._demo_update_count >= 10):
           if person._demo_update_count % 5 != 0:
             continue
+      eligible_tracks.append((track_id, person))
 
+    # Build all candidate (track_idx, face_idx, overlap_score) tuples
+    candidates = []
+    for ti, (track_id, person) in enumerate(eligible_tracks):
       x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
       px1 = x1_norm * frame_w
       py1 = y1_norm * frame_h
       px2 = x2_norm * frame_w
       py2 = y2_norm * frame_h
 
-      best_face = None
-      best_overlap = 0.0
-
-      for face in faces:
+      for fi, face in enumerate(faces):
         fx1, fy1, fx2, fy2 = face.bbox
         det_score = float(face.det_score) if hasattr(face, 'det_score') else 0.0
         if det_score < cfg.demo_min_confidence:
@@ -2464,35 +2640,44 @@ class CameraAnalyticsEngine:
           overlap_area = overlap_x * overlap_y
           face_area = max(1, (fx2 - fx1) * (fy2 - fy1))
           overlap_ratio = overlap_area / face_area
-          if overlap_ratio > best_overlap:
-            best_overlap = overlap_ratio
-            best_face = face
+          if overlap_ratio > 0:
+            candidates.append((ti, fi, overlap_ratio))
 
-      if best_face is not None:
-        age = float(best_face.age) if hasattr(best_face, 'age') and best_face.age is not None else None
-        det_score = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.0
-        gender = None
-        if hasattr(best_face, "gender") and best_face.gender is not None:
-          gender = "male" if round(float(best_face.gender)) == 1 else "female"
-        elif hasattr(best_face, "sex"):
-          if isinstance(best_face.sex, str):
-            gender = "male" if best_face.sex.upper() == 'M' else "female"
-          else:
-            gender = "male" if float(best_face.sex) > 0.5 else "female"
+    # Greedy exclusive assignment: best score first, no face/person reuse
+    candidates.sort(key=lambda c: c[2], reverse=True)
+    used_tracks = set()
+    used_faces_set = set()
+    for ti, fi, _score in candidates:
+      if ti in used_tracks or fi in used_faces_set:
+        continue
+      used_tracks.add(ti)
+      used_faces_set.add(fi)
 
-        if age is not None and gender is not None:
-          # Quality-based confidence
-          face_w_px = best_face.bbox[2] - best_face.bbox[0]
-          face_h_px = best_face.bbox[3] - best_face.bbox[1]
-          f_area = face_w_px * face_h_px
-          fr_area = frame_w * frame_h
-          sz_f = min(1.0, max(0.3, (f_area / max(1, fr_area)) / 0.001))
-          p_f = 0.8
-          if hasattr(best_face, 'pose') and best_face.pose is not None:
-            yaw = abs(float(best_face.pose[1]))
-            p_f = max(0.4, 1.0 - yaw / 120.0)
-          confidence = max(0.15, min(0.95, 0.85 * min(1.0, det_score / 0.5) * sz_f * p_f))
-          results.append((track_id, age, gender, confidence))
+      track_id, person = eligible_tracks[ti]
+      best_face = faces[fi]
+      age = float(best_face.age) if hasattr(best_face, 'age') and best_face.age is not None else None
+      det_score = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.0
+      gender = None
+      if hasattr(best_face, "gender") and best_face.gender is not None:
+        gender = "male" if round(float(best_face.gender)) == 1 else "female"
+      elif hasattr(best_face, "sex"):
+        if isinstance(best_face.sex, str):
+          gender = "male" if best_face.sex.upper() == 'M' else "female"
+        else:
+          gender = "male" if float(best_face.sex) > 0.5 else "female"
+
+      if age is not None and gender is not None:
+        face_w_px = best_face.bbox[2] - best_face.bbox[0]
+        face_h_px = best_face.bbox[3] - best_face.bbox[1]
+        f_area = face_w_px * face_h_px
+        fr_area = frame_w * frame_h
+        sz_f = min(1.0, max(0.3, (f_area / max(1, fr_area)) / 0.001))
+        p_f = 0.8
+        if hasattr(best_face, 'pose') and best_face.pose is not None:
+          yaw = abs(float(best_face.pose[1]))
+          p_f = max(0.4, 1.0 - yaw / 120.0)
+        confidence = max(0.15, min(0.95, 0.85 * min(1.0, det_score / 0.5) * sz_f * p_f))
+        results.append((track_id, age, gender, confidence))
 
     if self.frame_count < 300:
       print(f"[DEMO] Eslestirme: {len(results)}/{len(tracks_snapshot)} kisi icin yas/cinsiyet bulundu")
@@ -2531,9 +2716,12 @@ class CameraAnalyticsEngine:
       if self.frame_count < 300:
         print(f"[DEMO] Full-frame: {len(faces)} yuz bulundu, {len(tracks_snapshot)} kisi tracked")
 
-      # Step 2: Match faces to tracked persons by bbox overlap
+      # Step 2: Match faces to tracked persons (exclusive greedy assignment)
+      # Build eligible tracks list (skip frozen/stable)
+      eligible_tracks = []
       for track_id, person in tracks_snapshot:
-        # Skip stable tracks unless in continuous refinement mode
+        if getattr(person, 'demographics_frozen', False):
+          continue
         if not continuous_refinement:
           has_age = person.age is not None and len(person.age_history) >= 3
           has_gender = person.gender != "unknown" and len(person.gender_history) >= 5
@@ -2544,73 +2732,95 @@ class CameraAnalyticsEngine:
               and person._demo_update_count >= 10):
             if person._demo_update_count % 5 != 0:
               continue
+        eligible_tracks.append((track_id, person))
 
-        # Convert person bbox from normalized to pixel coordinates
+      # Build all candidate (track_idx, face_idx, overlap_score) tuples
+      candidates = []
+      for ti, (track_id, person) in enumerate(eligible_tracks):
         x1_norm, y1_norm, x2_norm, y2_norm = person.bbox_norm
         px1 = x1_norm * frame_w
         py1 = y1_norm * frame_h
         px2 = x2_norm * frame_w
         py2 = y2_norm * frame_h
 
-        # Find the best matching face for this person
-        best_face = None
-        best_overlap = 0.0
-
-        for face in faces:
+        for fi, face in enumerate(faces):
           fx1, fy1, fx2, fy2 = face.bbox
           det_score = float(face.det_score) if hasattr(face, 'det_score') else 0.0
           if det_score < cfg.demo_min_confidence:
             continue
 
-          # Check if face center is within the person's upper body region
           face_cx = (fx1 + fx2) / 2
           face_cy = (fy1 + fy2) / 2
-
-          # Face should be inside person bbox (with proportional tolerance)
           person_w = px2 - px1
           person_h = py2 - py1
           tol_x = max(30, person_w * 0.3)
           tol_y = max(30, person_h * 0.3)
           person_head_y2 = py1 + person_h * 0.75
+
           if (px1 - tol_x <= face_cx <= px2 + tol_x and
               py1 - tol_y <= face_cy <= person_head_y2 + tol_y):
-            # Calculate overlap score (face area within person bbox)
             overlap_x = max(0, min(fx2, px2) - max(fx1, px1))
             overlap_y = max(0, min(fy2, py2) - max(fy1, py1))
             overlap_area = overlap_x * overlap_y
             face_area = max(1, (fx2 - fx1) * (fy2 - fy1))
             overlap_ratio = overlap_area / face_area
+            if overlap_ratio > 0:
+              candidates.append((ti, fi, overlap_ratio))
 
-            if overlap_ratio > best_overlap:
-              best_overlap = overlap_ratio
-              best_face = face
+      # Greedy exclusive assignment: best score first, no face/person reuse
+      candidates.sort(key=lambda c: c[2], reverse=True)
+      used_tracks = set()
+      used_faces_set = set()
+      for ti, fi, _score in candidates:
+        if ti in used_tracks or fi in used_faces_set:
+          continue
+        used_tracks.add(ti)
+        used_faces_set.add(fi)
 
-        if best_face is not None:
-          age = float(best_face.age) if hasattr(best_face, 'age') and best_face.age is not None else None
-          det_score = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.0
+        track_id, person = eligible_tracks[ti]
+        best_face = faces[fi]
+        age = float(best_face.age) if hasattr(best_face, 'age') and best_face.age is not None else None
+        det_score = float(best_face.det_score) if hasattr(best_face, 'det_score') else 0.0
 
-          gender = None
-          if hasattr(best_face, "gender") and best_face.gender is not None:
-            gender = "male" if round(float(best_face.gender)) == 1 else "female"
-          elif hasattr(best_face, "sex"):
-            if isinstance(best_face.sex, str):
-              gender = "male" if best_face.sex.upper() == 'M' else "female"
-            else:
-              gender = "male" if float(best_face.sex) > 0.5 else "female"
+        # Gender: hysteresis band — values in the ambiguous middle zone are
+        # skipped this frame rather than forced into a category. This dramatically
+        # reduces flip-flop on uncertain faces (side poses, low-res, occlusion).
+        gender = None
+        gender_score = None
+        if hasattr(best_face, "gender") and best_face.gender is not None:
+          gender_score = float(best_face.gender)
+        elif hasattr(best_face, "sex"):
+          if isinstance(best_face.sex, str):
+            gender = "male" if best_face.sex.upper() == 'M' else "female"
+          else:
+            gender_score = float(best_face.sex)
 
-          if age is not None and gender is not None:
-            # Quality-based confidence
-            face_w_px = best_face.bbox[2] - best_face.bbox[0]
-            face_h_px = best_face.bbox[3] - best_face.bbox[1]
-            f_area = face_w_px * face_h_px
-            fr_area = frame_w * frame_h
-            sz_f = min(1.0, max(0.3, (f_area / max(1, fr_area)) / 0.001))
-            p_f = 0.8
-            if hasattr(best_face, 'pose') and best_face.pose is not None:
-              yaw = abs(float(best_face.pose[1]))
-              p_f = max(0.4, 1.0 - yaw / 120.0)
-            confidence = max(0.15, min(0.95, 0.85 * min(1.0, det_score / 0.5) * sz_f * p_f))
-            results.append((track_id, age, gender, confidence))
+        if gender_score is not None:
+          lo = getattr(self.config, 'demo_gender_lower_band', 0.35)
+          hi = getattr(self.config, 'demo_gender_upper_band', 0.65)
+          if gender_score >= hi:
+            gender = "male"
+          elif gender_score <= lo:
+            gender = "female"
+          # Inside the band → leave gender=None so it's ignored this frame.
+
+        if age is not None:
+          face_w_px = best_face.bbox[2] - best_face.bbox[0]
+          face_h_px = best_face.bbox[3] - best_face.bbox[1]
+          f_area = face_w_px * face_h_px
+          fr_area = frame_w * frame_h
+          sz_f = min(1.0, max(0.3, (f_area / max(1, fr_area)) / 0.001))
+          # Relaxed pose penalty: previously yaw/120 floored at 0.4.
+          # yaw/150 is softer so moderate side poses don't nuke confidence;
+          # final gender is still gated by the hysteresis band above.
+          p_f = 0.85
+          if hasattr(best_face, 'pose') and best_face.pose is not None:
+            yaw = abs(float(best_face.pose[1]))
+            p_f = max(0.45, 1.0 - yaw / 150.0)
+          confidence = max(0.15, min(0.95, 0.85 * min(1.0, det_score / 0.5) * sz_f * p_f))
+          # Emit even if gender ended up None — age can still be learned and
+          # a subsequent frame may supply a confident gender vote.
+          results.append((track_id, age, gender, confidence))
 
       if self.frame_count < 300:
         print(f"[DEMO] Eslestirme: {len(results)}/{len(tracks_snapshot)} kisi icin yas/cinsiyet bulundu")
@@ -2671,7 +2881,9 @@ class CameraAnalyticsEngine:
               age_conf *= max(0.30, 1.0 - (delta - 10.0) / 30.0)  # Graduated penalty
           person.update_age(age, confidence=age_conf,
                             ema_alpha=age_ema_alpha,
-                            min_confidence=age_voting_min_conf)
+                            min_confidence=age_voting_min_conf,
+                            lock_stability=cfg.demo_age_lock_stability,
+                            lock_min_samples=cfg.demo_age_lock_min_samples)
         if gender is not None and gender_conf > 0:
           person.update_gender(gender, confidence=gender_conf,
                                consensus_threshold=gender_consensus,
@@ -2679,8 +2891,49 @@ class CameraAnalyticsEngine:
                                min_confidence=gender_voting_min_conf,
                                lock_threshold=gender_lock_threshold)
 
+        # Freeze demographics once both age and gender are locked
+        if (not person.demographics_frozen
+            and person.age_locked and person.gender_locked):
+          person.demographics_frozen = True
+
     if self.frame_count % 90 == 0:
       print(f"[DEMO] Applied: {len(demo_results)} detected, {matched} applied to tracks", flush=True)
+
+  def _update_table_status(self, now: float) -> None:
+    """Update table occupancy state machine for each TABLE zone."""
+    cleaning_timeout = self.config.table_needs_cleaning_timeout
+    empty_timeout = self.config.table_empty_timeout
+
+    for table_id in self.table_ids:
+      if table_id not in self.zone_definitions:
+        continue
+      occupants = len(self.zone_active_members.get(table_id, {}))
+
+      if occupants > 0:
+        self.table_status[table_id] = "occupied"
+        if table_id not in self.table_occupy_start:
+          self.table_occupy_start[table_id] = now
+        self.table_left_at.pop(table_id, None)
+      else:
+        # Person just left — start cleanup timer
+        if table_id in self.table_occupy_start:
+          self.table_turnover.setdefault(table_id, 0)
+          self.table_turnover[table_id] += 1
+          del self.table_occupy_start[table_id]
+          self.table_left_at[table_id] = now
+
+        left_at = self.table_left_at.get(table_id)
+        if left_at is not None:
+          elapsed = now - left_at
+          if elapsed < cleaning_timeout:
+            self.table_status[table_id] = "needs_cleaning"
+          elif elapsed < empty_timeout:
+            self.table_status[table_id] = "needs_cleaning"
+          else:
+            self.table_status[table_id] = "empty"
+            self.table_left_at.pop(table_id, None)
+        else:
+          self.table_status[table_id] = "empty"
 
   def _build_metrics(self) -> CameraMetrics:
     # Decay heatmap over time
@@ -2723,6 +2976,12 @@ class CameraAnalyticsEngine:
         gender_key = person.gender if person.gender in {"male", "female"} else "unknown"
         gender_by_age[bucket][gender_key] += 1
 
+      # Surface best age confidence seen (from history) + current gender consensus.
+      age_conf = 0.0
+      if person.age_confidence_history:
+        age_conf = float(max(person.age_confidence_history))
+      gender_conf = float(getattr(person, 'gender_confidence', 0.0))
+
       active_people.append(
         ActivePersonSnapshot(
           id=person.track_id,
@@ -2730,6 +2989,11 @@ class CameraAnalyticsEngine:
           age_bucket=bucket if bucket != "unknown" else "unknown",
           gender=person.gender,
           dwell_seconds=dwell,
+          age_confidence=age_conf,
+          gender_confidence=gender_conf,
+          age_locked=bool(person.age_locked),
+          gender_locked=bool(getattr(person, 'gender_locked', False)),
+          age_stability=float(person.age_stability),
         )
       )
 
@@ -2746,6 +3010,9 @@ class CameraAnalyticsEngine:
       longest = float(np.max(durations)) if durations else 0.0
       metrics.queue = QueueSnapshot(active_count, avg_wait, longest)
 
+    # Update table occupancy state machine
+    self._update_table_status(now)
+
     table_snapshots: list[TableSnapshot] = []
 
     zone_snapshots: list[ZoneSnapshot] = []
@@ -2753,7 +3020,7 @@ class CameraAnalyticsEngine:
         durations = self.zone_completed_durations[zid]
         active = len(self.zone_active_members[zid])
         avg = float(np.mean(durations)) if durations else 0.0
-        
+
         zone_snapshots.append(ZoneSnapshot(
             id=zid,
             name=zone.name or zid,
@@ -2762,18 +3029,30 @@ class CameraAnalyticsEngine:
             avg_dwell_time=avg
         ))
     metrics.zones = zone_snapshots
-    for table in self.config.tables:
-      durations = self.zone_completed_durations[table.id]
-      active = len(self.zone_active_members[table.id])
+
+    # Build table snapshots from table_ids (populated by update_zones or config)
+    for table_id in self.table_ids:
+      if table_id not in self.zone_definitions:
+        continue
+      zone = self.zone_definitions[table_id]
+      durations = self.zone_completed_durations[table_id]
+      active = len(self.zone_active_members.get(table_id, {}))
       avg = float(np.mean(durations)) if durations else 0.0
       longest = float(np.max(durations)) if durations else 0.0
+
+      occ_start = self.table_occupy_start.get(table_id)
+      occ_duration = (now - occ_start) if occ_start else 0.0
+
       table_snapshots.append(
         TableSnapshot(
-          id=table.id,
-          name=table.name,
+          id=table_id,
+          name=zone.name,
           current_occupants=active,
           avg_stay_seconds=avg,
           longest_stay_seconds=longest,
+          status=self.table_status.get(table_id, "empty"),
+          occupancy_duration=occ_duration,
+          turnover_count=self.table_turnover.get(table_id, 0),
         )
       )
     metrics.tables = table_snapshots
@@ -2862,6 +3141,17 @@ class CameraAnalyticsEngine:
           "avgDwellTime": round(float(z.avg_dwell_time), 1)
         } for z in metrics.zones
       ],
+      "tables": [
+        {
+          "id": t.id,
+          "name": t.name,
+          "status": t.status,
+          "currentOccupants": _n(t.current_occupants),
+          "avgStaySeconds": round(float(t.avg_stay_seconds), 1),
+          "occupancyDuration": round(float(t.occupancy_duration), 1),
+          "turnoverCount": _n(t.turnover_count),
+        } for t in metrics.tables
+      ],
       "fps": round(float(metrics.fps), 1),
     }
 
@@ -2878,6 +3168,9 @@ class CameraAnalyticsEngine:
       dwell = max(0.0, now - person.first_seen)
 
       age_bucket = bucket_for_age(person.age)
+      age_conf = 0.0
+      if person.age_confidence_history:
+        age_conf = float(max(person.age_confidence_history))
       payload = {
         "id": f"track_{track_id}",
         "bbox": [float(x1), float(y1), float(width), float(height)],
@@ -2887,6 +3180,10 @@ class CameraAnalyticsEngine:
         "dwellSec": float(dwell),
         "state": person.state,
         "isStale": age_since_seen > 0.5,
+        "ageConfidence": round(age_conf, 2),
+        "genderConfidence": round(float(getattr(person, 'gender_confidence', 0.0)), 2),
+        "ageLocked": bool(person.age_locked),
+        "genderLocked": bool(getattr(person, 'gender_locked', False)),
       }
       track_payload.append(payload)
     return track_payload

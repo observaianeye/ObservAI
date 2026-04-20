@@ -455,6 +455,278 @@ router.post('/seed-demo', async (req: Request, res: Response) => {
   }
 });
 
+// ============================================================
+// TABLE OCCUPANCY ENDPOINTS
+// ============================================================
+
+// POST /api/analytics/table-events - Log table status transition
+router.post('/table-events', async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      zoneId: z.string().min(1),
+      cameraId: z.string().min(1),
+      status: z.enum(['occupied', 'needs_cleaning', 'empty']),
+      occupants: z.number().int().min(0).default(0),
+      startTime: z.string().datetime().optional(),
+      endTime: z.string().datetime().optional(),
+      duration: z.number().optional(),
+    });
+    const data = schema.parse(req.body);
+
+    const event = await prisma.tableEvent.create({
+      data: {
+        zoneId: data.zoneId,
+        cameraId: data.cameraId,
+        status: data.status,
+        occupants: data.occupants,
+        startTime: data.startTime ? new Date(data.startTime) : new Date(),
+        endTime: data.endTime ? new Date(data.endTime) : null,
+        duration: data.duration ?? null,
+      },
+    });
+
+    res.status(201).json(event);
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors });
+    }
+    console.error('[table-events] Error:', error);
+    res.status(500).json({ error: 'Failed to log table event' });
+  }
+});
+
+// GET /api/analytics/:cameraId/tables - Get table events for last 24h
+router.get('/:cameraId/tables', async (req: Request, res: Response) => {
+  try {
+    const { cameraId } = req.params;
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const events = await prisma.tableEvent.findMany({
+      where: {
+        cameraId,
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    // Aggregate stats per zone
+    const zoneStats: Record<string, { totalTurnovers: number; avgDuration: number; durations: number[] }> = {};
+    for (const event of events) {
+      if (!zoneStats[event.zoneId]) {
+        zoneStats[event.zoneId] = { totalTurnovers: 0, avgDuration: 0, durations: [] };
+      }
+      if (event.status === 'occupied' && event.duration) {
+        zoneStats[event.zoneId].totalTurnovers++;
+        zoneStats[event.zoneId].durations.push(event.duration);
+      }
+    }
+
+    // Calculate averages
+    const stats = Object.entries(zoneStats).map(([zoneId, s]) => ({
+      zoneId,
+      totalTurnovers: s.totalTurnovers,
+      avgDuration: s.durations.length > 0
+        ? Math.round(s.durations.reduce((a, b) => a + b, 0) / s.durations.length)
+        : 0,
+      utilizationPercent: Math.round((s.durations.reduce((a, b) => a + b, 0) / (24 * 3600)) * 100),
+    }));
+
+    res.json({ events: events.slice(0, 100), stats });
+  } catch (error: any) {
+    console.error('[tables] Error:', error);
+    res.status(500).json({ error: 'Failed to fetch table data' });
+  }
+});
+
+// ============================================================
+// TREND ANALYSIS ENDPOINTS
+// ============================================================
+
+// GET /api/analytics/:cameraId/trends/weekly - Weekly comparison
+router.get('/:cameraId/trends/weekly', async (req: Request, res: Response) => {
+  try {
+    const { cameraId } = req.params;
+    const now = new Date();
+    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+
+    const summaries = await prisma.analyticsSummary.findMany({
+      where: {
+        cameraId,
+        date: { gte: fourWeeksAgo },
+        hour: { not: null },
+      },
+      orderBy: [{ date: 'asc' }, { hour: 'asc' }],
+    });
+
+    // Group by weekday (0=Sunday ... 6=Saturday)
+    const weekdays: Record<number, { thisWeek: number[]; lastWeek: number[]; older: number[][] }> = {};
+    for (let d = 0; d < 7; d++) {
+      weekdays[d] = { thisWeek: new Array(24).fill(0), lastWeek: new Array(24).fill(0), older: [] };
+    }
+
+    const thisWeekStart = new Date(now);
+    thisWeekStart.setDate(now.getDate() - now.getDay());
+    thisWeekStart.setHours(0, 0, 0, 0);
+
+    const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    for (const s of summaries) {
+      const date = new Date(s.date);
+      const weekday = date.getDay();
+      const hour = s.hour ?? 0;
+
+      if (date >= thisWeekStart) {
+        weekdays[weekday].thisWeek[hour] = s.totalEntries;
+      } else if (date >= lastWeekStart) {
+        weekdays[weekday].lastWeek[hour] = s.totalEntries;
+      }
+    }
+
+    // Calculate changes per weekday
+    const result = Object.entries(weekdays).map(([day, data]) => {
+      const thisTotal = data.thisWeek.reduce((a, b) => a + b, 0);
+      const lastTotal = data.lastWeek.reduce((a, b) => a + b, 0);
+      const change = lastTotal > 0 ? Math.round(((thisTotal - lastTotal) / lastTotal) * 100) : 0;
+
+      return {
+        weekday: parseInt(day),
+        thisWeek: data.thisWeek,
+        lastWeek: data.lastWeek,
+        thisWeekTotal: thisTotal,
+        lastWeekTotal: lastTotal,
+        changePercent: change,
+      };
+    });
+
+    res.json({ weekdays: result });
+  } catch (error: any) {
+    console.error('[trends/weekly] Error:', error);
+    res.status(500).json({ error: 'Failed to fetch weekly trends' });
+  }
+});
+
+// GET /api/analytics/:cameraId/peak-hours - Peak and quiet hours
+router.get('/:cameraId/peak-hours', async (req: Request, res: Response) => {
+  try {
+    const { cameraId } = req.params;
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const summaries = await prisma.analyticsSummary.findMany({
+      where: {
+        cameraId,
+        date: { gte: thirtyDaysAgo },
+        hour: { not: null },
+      },
+    });
+
+    // Average entries per hour across all days
+    const hourlyTotals: number[] = new Array(24).fill(0);
+    const hourlyCounts: number[] = new Array(24).fill(0);
+
+    for (const s of summaries) {
+      const hour = s.hour ?? 0;
+      hourlyTotals[hour] += s.totalEntries;
+      hourlyCounts[hour]++;
+    }
+
+    const hourlyAvg = hourlyTotals.map((total, i) =>
+      hourlyCounts[i] > 0 ? Math.round(total / hourlyCounts[i]) : 0
+    );
+
+    // Find peak and quiet hours
+    const indexed = hourlyAvg.map((avg, hour) => ({ hour, avg }));
+    const sorted = [...indexed].sort((a, b) => b.avg - a.avg);
+
+    res.json({
+      hourlyProfile: hourlyAvg,
+      peakHours: sorted.slice(0, 3),
+      quietHours: sorted.filter(h => h.avg > 0).slice(-3).reverse(),
+      totalDays: new Set(summaries.map(s => s.date.toISOString().split('T')[0])).size,
+    });
+  } catch (error: any) {
+    console.error('[peak-hours] Error:', error);
+    res.status(500).json({ error: 'Failed to fetch peak hours' });
+  }
+});
+
+// GET /api/analytics/:cameraId/prediction - Traffic prediction for tomorrow
+router.get('/:cameraId/prediction', async (req: Request, res: Response) => {
+  try {
+    const { cameraId } = req.params;
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const targetWeekday = tomorrow.getDay();
+
+    // Get last 4 weeks of same weekday data
+    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+    const summaries = await prisma.analyticsSummary.findMany({
+      where: {
+        cameraId,
+        date: { gte: fourWeeksAgo },
+        hour: { not: null },
+      },
+      orderBy: [{ date: 'desc' }, { hour: 'asc' }],
+    });
+
+    // Filter to same weekday and group by week
+    const weeklyData: number[][] = [];
+    let currentWeek: number[] = new Array(24).fill(0);
+    let lastDate = '';
+
+    for (const s of summaries) {
+      const date = new Date(s.date);
+      if (date.getDay() !== targetWeekday) continue;
+
+      const dateStr = date.toISOString().split('T')[0];
+      if (lastDate && dateStr !== lastDate) {
+        weeklyData.push(currentWeek);
+        currentWeek = new Array(24).fill(0);
+      }
+      currentWeek[s.hour ?? 0] = s.totalEntries;
+      lastDate = dateStr;
+    }
+    if (lastDate) weeklyData.push(currentWeek);
+
+    if (weeklyData.length === 0) {
+      return res.json({
+        date: tomorrow.toISOString().split('T')[0],
+        weekday: targetWeekday,
+        hourlyPrediction: new Array(24).fill(0).map((_, hour) => ({ hour, predicted: 0 })),
+        confidence: 0,
+        dataWeeks: 0,
+        message: 'Yeterli veri yok — en az 1 haftalık veri gerekli',
+      });
+    }
+
+    // Weighted average: most recent week gets highest weight
+    const weights = [0.4, 0.3, 0.2, 0.1];
+    const totalWeight = weights.slice(0, weeklyData.length).reduce((a, b) => a + b, 0);
+
+    const prediction = new Array(24).fill(0);
+    for (let w = 0; w < Math.min(weeklyData.length, 4); w++) {
+      const weight = weights[w] / totalWeight;
+      for (let h = 0; h < 24; h++) {
+        prediction[h] += weeklyData[w][h] * weight;
+      }
+    }
+
+    const confidence = Math.min(95, weeklyData.length * 25);
+
+    res.json({
+      date: tomorrow.toISOString().split('T')[0],
+      weekday: targetWeekday,
+      hourlyPrediction: prediction.map((val, hour) => ({ hour, predicted: Math.round(val) })),
+      confidence,
+      dataWeeks: weeklyData.length,
+    });
+  } catch (error: any) {
+    console.error('[prediction] Error:', error);
+    res.status(500).json({ error: 'Failed to generate prediction' });
+  }
+});
+
 // Helper function to generate comparison summary
 function generateComparisonSummary(period1: any, period2: any): string {
   const trafficChange = period1.totalPeopleIn - period2.totalPeopleIn;

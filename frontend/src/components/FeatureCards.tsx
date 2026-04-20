@@ -17,7 +17,7 @@ function FeatureCard({ icon, title, description, gradient, delay = '0ms' }: Feat
   return (
     <div
       ref={ref}
-      className={`group glass rounded-2xl p-8 hover:shadow-2xl cursor-pointer transform transition-all duration-500 ${
+      className={`group surface-card rounded-2xl p-8 hover:border-brand-500/30 hover:shadow-glow-brand cursor-pointer transform transition-all duration-500 relative overflow-hidden ${
         isVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'
       }`}
       style={{ transitionDelay: isVisible ? delay : '0ms' }}
@@ -27,22 +27,22 @@ function FeatureCard({ icon, title, description, gradient, delay = '0ms' }: Feat
         {icon}
       </div>
 
-      <h3 className="text-xl font-bold text-gray-900 mb-3 group-hover:text-blue-600 transition-colors">
+      <h3 className="font-display text-xl font-semibold text-ink-0 mb-3 group-hover:text-brand-300 transition-colors">
         {title}
       </h3>
 
-      <p className="text-gray-600 leading-relaxed mb-6">
+      <p className="text-ink-3 leading-relaxed mb-6">
         {description}
       </p>
 
-      <div className="flex items-center text-blue-600 font-semibold text-sm group-hover:translate-x-2 transition-transform">
+      <div className="flex items-center text-brand-300 font-semibold text-sm group-hover:translate-x-2 transition-transform">
         Learn more
         <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
         </svg>
       </div>
 
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-500/5 via-violet-500/5 to-teal-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-brand-500/5 via-accent-500/5 to-violet-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
     </div>
   );
 }
@@ -52,58 +52,58 @@ export default function FeatureCards() {
 
   const features = [
     {
-      icon: <Camera className="w-7 h-7" />,
+      icon: <Camera className="w-7 h-7" strokeWidth={1.5} />,
       title: 'AI Camera Analytics',
       description: 'Real-time computer vision tracking for customer flow, queue management, and heat mapping. Monitor every corner of your restaurant.',
-      gradient: 'from-blue-500 to-blue-600'
+      gradient: 'from-brand-500 to-accent-500'
     },
     {
-      icon: <TrendingUp className="w-7 h-7" />,
+      icon: <TrendingUp className="w-7 h-7" strokeWidth={1.5} />,
       title: 'Sales Intelligence',
       description: 'Track revenue, transactions, and trends in real-time. Predictive analytics help you forecast and optimize pricing strategies.',
-      gradient: 'from-violet-500 to-violet-600'
+      gradient: 'from-violet-500 to-accent-500'
     },
     {
-      icon: <Users className="w-7 h-7" />,
+      icon: <Users className="w-7 h-7" strokeWidth={1.5} />,
       title: 'Labor Optimization',
       description: 'Smart scheduling, performance tracking, and payroll management. Reduce labor costs while maintaining optimal coverage.',
-      gradient: 'from-teal-500 to-teal-600'
+      gradient: 'from-accent-500 to-success'
     },
     {
-      icon: <Brain className="w-7 h-7" />,
+      icon: <Brain className="w-7 h-7" strokeWidth={1.5} />,
       title: 'AI Recommendations',
       description: 'Machine learning-powered insights suggest actions to improve operations, reduce waste, and increase profitability.',
-      gradient: 'from-blue-600 to-violet-600'
+      gradient: 'from-brand-500 to-violet-500'
     },
     {
-      icon: <Zap className="w-7 h-7" />,
+      icon: <Zap className="w-7 h-7" strokeWidth={1.5} />,
       title: 'Speed Analytics',
       description: 'Monitor service times, identify bottlenecks, and optimize kitchen operations for faster customer service.',
-      gradient: 'from-orange-500 to-red-500'
+      gradient: 'from-warning to-danger'
     },
     {
-      icon: <DollarSign className="w-7 h-7" />,
+      icon: <DollarSign className="w-7 h-7" strokeWidth={1.5} />,
       title: 'Spend Management',
       description: 'Track inventory costs, vendor spending, and identify savings opportunities. Full visibility into where every dollar goes.',
-      gradient: 'from-green-500 to-emerald-600'
+      gradient: 'from-success to-accent-500'
     },
     {
-      icon: <Shield className="w-7 h-7" />,
+      icon: <Shield className="w-7 h-7" strokeWidth={1.5} />,
       title: 'Secure & Compliant',
       description: 'Enterprise-grade security with role-based access control. Your data is encrypted and fully compliant with industry standards.',
-      gradient: 'from-gray-600 to-gray-700'
+      gradient: 'from-surface-3 to-surface-4'
     },
     {
-      icon: <Clock className="w-7 h-7" />,
+      icon: <Clock className="w-7 h-7" strokeWidth={1.5} />,
       title: 'Real-time Alerts',
       description: 'Instant notifications for critical events. Stay informed about issues before they impact your operations.',
-      gradient: 'from-rose-500 to-pink-600'
+      gradient: 'from-danger to-violet-500'
     }
   ];
 
   return (
-    <section className="relative py-24 overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-white via-blue-50/30 to-white" />
+    <section className="relative py-24 overflow-hidden bg-surface-0">
+      <div className="absolute inset-0 grid-floor opacity-30" />
 
       <div className="relative max-w-7xl mx-auto px-6">
         <div
@@ -112,13 +112,13 @@ export default function FeatureCards() {
             titleVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'
           }`}
         >
-          <div className="inline-block px-4 py-2 glass rounded-full text-sm font-semibold text-blue-600 mb-4">
+          <div className="inline-block px-4 py-2 surface-card rounded-full text-sm font-semibold text-brand-300 mb-4">
             Powerful Features
           </div>
-          <h2 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
+          <h2 className="font-display text-4xl lg:text-5xl font-semibold text-ink-0 mb-4 tracking-tight">
             Everything You Need to Succeed
           </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+          <p className="text-xl text-ink-3 max-w-2xl mx-auto">
             Comprehensive analytics tools designed specifically for modern restaurant operations.
           </p>
         </div>

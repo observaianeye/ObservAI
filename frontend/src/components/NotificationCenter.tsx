@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bell, AlertTriangle, AlertCircle, Info, CheckCircle, X, CheckCheck, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
+import { useLanguage } from '../contexts/LanguageContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -23,24 +24,26 @@ const WS_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function timeAgo(dateStr: string): string {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'Just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour}h ago`;
-  const diffDay = Math.floor(diffHour / 24);
-  return `${diffDay}d ago`;
+function makeTimeAgo(t: (key: string, vars?: Record<string, string | number>) => string) {
+  return (dateStr: string): string => {
+    const now = new Date();
+    const date = new Date(dateStr);
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return t('common.justNow');
+    if (diffMin < 60) return t('common.minutesAgo', { n: diffMin });
+    const diffHour = Math.floor(diffMin / 60);
+    if (diffHour < 24) return t('common.hoursAgo', { n: diffHour });
+    const diffDay = Math.floor(diffHour / 24);
+    return t('common.daysAgo', { n: diffDay });
+  };
 }
 
-const SEVERITY_STYLES: Record<string, { icon: any; bg: string; text: string }> = {
-  critical: { icon: AlertCircle, bg: 'bg-red-500/10', text: 'text-red-400' },
-  high: { icon: AlertTriangle, bg: 'bg-orange-500/10', text: 'text-orange-400' },
-  medium: { icon: Info, bg: 'bg-yellow-500/10', text: 'text-yellow-400' },
-  low: { icon: CheckCircle, bg: 'bg-green-500/10', text: 'text-green-400' },
+const SEVERITY_STYLES: Record<string, { icon: any; bg: string; text: string; ring: string }> = {
+  critical: { icon: AlertCircle, bg: 'bg-danger-500/10', text: 'text-danger-400', ring: 'ring-danger-500/30' },
+  high: { icon: AlertTriangle, bg: 'bg-warning-500/10', text: 'text-warning-400', ring: 'ring-warning-500/30' },
+  medium: { icon: Info, bg: 'bg-accent-500/10', text: 'text-accent-300', ring: 'ring-accent-500/30' },
+  low: { icon: CheckCircle, bg: 'bg-success-500/10', text: 'text-success-400', ring: 'ring-success-500/30' },
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -52,6 +55,8 @@ export default function NotificationCenter() {
   const [loading, setLoading] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const navigate = useNavigate();
+  const { t } = useLanguage();
+  const timeAgo = makeTimeAgo(t);
 
   // ─── Fetch Notifications ──────────────────────────────────────────────
 
@@ -66,9 +71,9 @@ export default function NotificationCenter() {
       }
     } catch {
       // Use demo data on error
-      setNotifications(getDemoNotifications());
+      setNotifications(getDemoNotifications(t));
     }
-  }, []);
+  }, [t]);
 
   const fetchUnreadCount = useCallback(async () => {
     try {
@@ -80,9 +85,9 @@ export default function NotificationCenter() {
         setUnreadCount(data.unreadCount || 0);
       }
     } catch {
-      setUnreadCount(getDemoNotifications().filter(n => !n.isRead).length);
+      setUnreadCount(getDemoNotifications(t).filter(n => !n.isRead).length);
     }
-  }, []);
+  }, [t]);
 
   // ─── Initialize ────────────────────────────────────────────────────────
 
@@ -163,105 +168,107 @@ export default function NotificationCenter() {
   const getIcon = (severity: string) => {
     const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.low;
     const Icon = style.icon;
-    return <Icon className={`w-5 h-5 ${style.text}`} />;
-  };
-
-  const getBg = (severity: string, isRead: boolean) => {
-    if (isRead) return 'bg-transparent';
-    return SEVERITY_STYLES[severity]?.bg || 'bg-white/5';
+    return (
+      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${style.bg} ring-1 ${style.ring}`}>
+        <Icon className={`w-4 h-4 ${style.text}`} />
+      </div>
+    );
   };
 
   return (
     <div className="relative">
-      {/* Bell Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-        aria-label="Notifications"
+        className="relative p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.04] rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+        aria-label={t('notif.ariaOpen')}
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-[0_0_8px_rgba(239,68,68,0.5)] animate-pulse">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-gradient-to-br from-danger-500 to-warning-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-[0_0_12px_rgba(239,68,68,0.45)] ring-2 ring-surface-1">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
 
-      {/* Dropdown Panel */}
       {isOpen && (
         <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setIsOpen(false)}
-          />
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
 
-          {/* Panel */}
-          <div className="absolute right-0 mt-2 w-96 bg-[#0d0e14]/95 backdrop-blur-xl rounded-xl shadow-2xl border border-white/10 z-50 max-h-[500px] flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-white/10">
-              <h3 className="text-sm font-bold text-white">Notifications</h3>
+          <div className="absolute right-0 mt-2 w-96 surface-card-elevated z-50 max-h-[520px] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
+              <div>
+                <h3 className="text-sm font-semibold text-ink-0">{t('notif.title')}</h3>
+                <p className="text-[11px] text-ink-3 mt-0.5">
+                  {unreadCount > 0 ? `${unreadCount} ${t('notif.unreadSuffix')}` : t('notif.allRead')}
+                </p>
+              </div>
               <div className="flex items-center gap-2">
                 {unreadCount > 0 && (
                   <button
                     onClick={markAllAsRead}
-                    className="text-[10px] font-semibold text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                    className="text-[10px] font-semibold text-brand-300 hover:text-brand-200 transition-colors flex items-center gap-1"
                   >
                     <CheckCheck className="w-3 h-3" />
-                    Mark all read
+                    {t('notif.markAllRead')}
                   </button>
                 )}
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-1 text-gray-500 hover:text-white rounded transition-colors"
+                  className="p-1 text-ink-4 hover:text-ink-0 rounded transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* Notification List */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
               {loading ? (
-                <div className="p-6 text-center">
-                  <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                <div className="p-10 text-center">
+                  <div className="w-6 h-6 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin mx-auto" />
                 </div>
               ) : notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 px-4">
-                  <Bell className="w-10 h-10 text-gray-600 mb-3" />
-                  <p className="text-sm text-gray-500">No notifications yet</p>
+                <div className="flex flex-col items-center justify-center py-12 px-4">
+                  <div className="w-12 h-12 rounded-2xl bg-surface-2/70 border border-white/[0.08] flex items-center justify-center mb-3">
+                    <Bell className="w-5 h-5 text-ink-4" />
+                  </div>
+                  <p className="text-sm text-ink-3">{t('notif.empty')}</p>
+                  <p className="text-xs text-ink-4 mt-1">{t('notif.emptySubtitle')}</p>
                 </div>
               ) : (
-                <div className="divide-y divide-white/5">
-                  {notifications.map(notification => (
+                <div className="divide-y divide-white/[0.04]">
+                  {notifications.map((notification) => (
                     <div
                       key={notification.id}
                       onClick={() => !notification.isRead && markAsRead(notification.id)}
-                      className={`p-3 cursor-pointer hover:bg-white/5 transition-colors ${
-                        getBg(notification.severity, notification.isRead)
+                      className={`p-3.5 cursor-pointer hover:bg-white/[0.04] transition-colors ${
+                        notification.isRead ? '' : 'bg-white/[0.02]'
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 mt-0.5">
-                          {getIcon(notification.severity)}
-                        </div>
+                        <div className="flex-shrink-0">{getIcon(notification.severity)}</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2 mb-0.5">
-                            <p className={`text-xs font-semibold truncate ${
-                              notification.isRead ? 'text-gray-500' : 'text-white'
-                            }`}>
+                            <p
+                              className={`text-xs font-semibold truncate ${
+                                notification.isRead ? 'text-ink-3' : 'text-ink-0'
+                              }`}
+                            >
                               {notification.title}
                             </p>
                             {!notification.isRead && (
-                              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full flex-shrink-0 mt-1 animate-pulse" />
+                              <div className="w-1.5 h-1.5 bg-brand-400 rounded-full flex-shrink-0 mt-1 animate-pulse" />
                             )}
                           </div>
-                          <p className={`text-xs leading-relaxed line-clamp-2 ${
-                            notification.isRead ? 'text-gray-600' : 'text-gray-400'
-                          }`}>
+                          <p
+                            className={`text-xs leading-relaxed line-clamp-2 ${
+                              notification.isRead ? 'text-ink-4' : 'text-ink-2'
+                            }`}
+                          >
                             {notification.message}
                           </p>
-                          <p className="text-[10px] text-gray-600 mt-1">{timeAgo(notification.createdAt)}</p>
+                          <p className="text-[10px] text-ink-4 mt-1 font-mono uppercase tracking-wider">
+                            {timeAgo(notification.createdAt)}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -270,13 +277,12 @@ export default function NotificationCenter() {
               )}
             </div>
 
-            {/* Footer */}
-            <div className="p-3 border-t border-white/10">
+            <div className="p-3 border-t border-white/[0.06] bg-surface-1/40">
               <button
                 onClick={goToNotificationsPage}
-                className="w-full py-2 text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-1"
+                className="w-full py-2 text-xs font-semibold text-brand-300 hover:text-brand-200 transition-colors flex items-center justify-center gap-1.5 rounded-lg hover:bg-white/[0.04]"
               >
-                View All Notifications
+                {t('notif.viewAll')}
                 <ExternalLink className="w-3 h-3" />
               </button>
             </div>
@@ -289,7 +295,7 @@ export default function NotificationCenter() {
 
 // ─── Demo Data ───────────────────────────────────────────────────────────────
 
-function getDemoNotifications(): Notification[] {
+function getDemoNotifications(t: (key: string, vars?: Record<string, string | number>) => string): Notification[] {
   const now = new Date();
   return [
     {
@@ -297,8 +303,8 @@ function getDemoNotifications(): Notification[] {
       cameraId: 'cam-01',
       type: 'crowd_surge',
       severity: 'critical',
-      title: 'Crowd Surge Detected',
-      message: 'Visitor entry rate is 2.3x the hourly average',
+      title: t('notif.demo.surgeTitle'),
+      message: t('notif.demo.surgeBody'),
       isRead: false,
       createdAt: new Date(now.getTime() - 3 * 60000).toISOString(),
     },
@@ -307,8 +313,8 @@ function getDemoNotifications(): Notification[] {
       cameraId: 'cam-01',
       type: 'occupancy_alert',
       severity: 'high',
-      title: 'High Occupancy Alert',
-      message: 'Current occupancy at 92% capacity (46/50)',
+      title: t('notif.demo.occupancyTitle'),
+      message: t('notif.demo.occupancyBody'),
       isRead: false,
       createdAt: new Date(now.getTime() - 8 * 60000).toISOString(),
     },
@@ -317,8 +323,8 @@ function getDemoNotifications(): Notification[] {
       cameraId: 'cam-01',
       type: 'trend',
       severity: 'medium',
-      title: 'Peak Hour Approaching',
-      message: 'Peak hour (14:00) approaching — average occupancy 38.5',
+      title: t('notif.demo.trendTitle'),
+      message: t('notif.demo.trendBody'),
       isRead: false,
       createdAt: new Date(now.getTime() - 25 * 60000).toISOString(),
     },
@@ -327,8 +333,8 @@ function getDemoNotifications(): Notification[] {
       cameraId: 'cam-01',
       type: 'demographic_trend',
       severity: 'low',
-      title: 'Demographic Profile Update',
-      message: 'Dominant profile today: male, 25-34 age group',
+      title: t('notif.demo.demographicTitle'),
+      message: t('notif.demo.demographicBody'),
       isRead: true,
       createdAt: new Date(now.getTime() - 60 * 60000).toISOString(),
     },

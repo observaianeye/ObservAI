@@ -3,14 +3,16 @@ import GenderChart from '../../components/camera/GenderChart';
 import AgeChart from '../../components/camera/AgeChart';
 import VisitorCountWidget from '../../components/camera/VisitorCountWidget';
 import DwellTimeWidget from '../../components/camera/DwellTimeWidget';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function CameraAnalyticsPage() {
+  const { t } = useLanguage();
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-400">Camera Analytics Dashboard</h1>
-          <p className="text-sm text-gray-600 mt-1">Real-time visitor insights and analytics</p>
+          <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('dashboard.home.title')}</h1>
+          <p className="text-sm text-ink-3 mt-1">{t('dashboard.home.subtitle')}</p>
         </div>
       </div>
 

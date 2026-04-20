@@ -88,7 +88,12 @@ lerna-debug.log*
 # Model files
 *.pt
 *.pth
+*.safetensors
 yolov8n.pt
+
+# Large model directories (must be downloaded locally)
+packages/camera-analytics/models/
+packages/camera-analytics/mivolo_repo/
 
 # Camera data
 packages/data/camera/latest_metrics.json

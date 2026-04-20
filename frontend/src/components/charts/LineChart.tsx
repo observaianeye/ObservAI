@@ -16,7 +16,7 @@ interface LineChartProps {
 export default function LineChart({
   data,
   height = 200,
-  color = 'rgb(59, 130, 246)',
+  color = '#1d6bff',
   showTooltip = true,
   animate = true
 }: LineChartProps) {
@@ -85,7 +85,7 @@ export default function LineChart({
                 fill={color}
                 className="transition-all duration-200 cursor-pointer"
                 style={{
-                  filter: isHovered ? 'drop-shadow(0 0 6px rgba(59, 130, 246, 0.6))' : 'none'
+                  filter: isHovered ? 'drop-shadow(0 0 6px rgba(29, 107, 255, 0.6))' : 'none'
                 }}
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
@@ -98,16 +98,19 @@ export default function LineChart({
                     width="70"
                     height="30"
                     rx="6"
-                    fill="#1f2937"
+                    fill="#13182a"
+                    stroke="rgba(255,255,255,0.08)"
+                    strokeWidth="0.5"
                     className="animate-fade-in-up"
                   />
                   <text
                     x={point.x}
                     y={point.y - 30}
                     textAnchor="middle"
-                    fill="white"
+                    fill="#e6ecff"
                     fontSize="10"
                     fontWeight="600"
+                    fontFamily="JetBrains Mono, ui-monospace, monospace"
                   >
                     {point.label}
                   </text>
@@ -115,8 +118,9 @@ export default function LineChart({
                     x={point.x}
                     y={point.y - 18}
                     textAnchor="middle"
-                    fill="white"
+                    fill="#b5c0d9"
                     fontSize="10"
+                    fontFamily="JetBrains Mono, ui-monospace, monospace"
                   >
                     {point.value.toLocaleString()}
                   </text>
@@ -130,7 +134,7 @@ export default function LineChart({
       <div className="flex items-center justify-between mt-3 px-4">
         {data.map((point, index) => (
           <div key={index} className="text-center">
-            <span className="text-xs text-gray-600 font-medium">{point.label}</span>
+            <span className="text-xs text-ink-3 font-mono font-medium">{point.label}</span>
           </div>
         ))}
       </div>

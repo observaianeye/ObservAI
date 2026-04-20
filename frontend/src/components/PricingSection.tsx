@@ -20,33 +20,33 @@ function PricingTier({ name, price, period, description, features, highlighted, 
   return (
     <div
       ref={ref}
-      className={`relative glass rounded-2xl p-8 transform transition-all duration-700 ${
+      className={`relative surface-card rounded-2xl p-8 transform transition-all duration-700 ${
         isVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'
       } ${
-        highlighted ? 'ring-2 ring-blue-500 shadow-2xl scale-105' : 'hover:shadow-xl'
+        highlighted ? 'ring-2 ring-brand-500/50 shadow-glow-brand-strong scale-105' : 'hover:border-brand-500/30 hover:shadow-glow-brand'
       }`}
       style={{ transitionDelay: isVisible ? delay : '0ms' }}
     >
       {highlighted && (
-        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-blue-500 to-violet-500 text-white text-sm font-semibold rounded-full">
+        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 px-4 py-1 bg-gradient-to-r from-brand-500 to-accent-500 text-white text-sm font-semibold rounded-full shadow-glow-brand">
           Most Popular
         </div>
       )}
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{name}</h3>
-          <p className="text-sm text-gray-600">{description}</p>
+          <h3 className="font-display text-2xl font-semibold text-ink-0 mb-1">{name}</h3>
+          <p className="text-sm text-ink-3">{description}</p>
         </div>
-        <div className={`p-3 rounded-xl ${highlighted ? 'bg-gradient-to-br from-blue-500 to-violet-500' : 'bg-gradient-to-br from-gray-400 to-gray-500'} text-white`}>
+        <div className={`p-3 rounded-xl ${highlighted ? 'bg-gradient-to-br from-brand-500 to-accent-500 shadow-glow-brand' : 'bg-gradient-to-br from-surface-3 to-surface-4'} text-white`}>
           {icon}
         </div>
       </div>
 
       <div className="mb-6">
         <div className="flex items-baseline">
-          <span className="text-5xl font-bold text-gray-900">{price}</span>
-          <span className="text-gray-600 ml-2">{period}</span>
+          <span className="font-display font-mono text-5xl font-semibold text-ink-0">{price}</span>
+          <span className="text-ink-3 ml-2 font-mono">{period}</span>
         </div>
       </div>
 
@@ -54,8 +54,8 @@ function PricingTier({ name, price, period, description, features, highlighted, 
         onClick={() => navigate('/register')}
         className={`w-full py-3 px-6 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 mb-8 ${
           highlighted
-            ? 'bg-gradient-to-r from-blue-500 to-violet-500 text-white hover:shadow-xl'
-            : 'bg-white text-gray-900 border-2 border-gray-200 hover:border-blue-500'
+            ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white hover:shadow-glow-brand-strong'
+            : 'bg-white/[0.04] text-ink-0 border border-white/[0.08] hover:border-brand-500/50 hover:bg-brand-500/10'
         }`}
       >
         Get Started
@@ -65,11 +65,11 @@ function PricingTier({ name, price, period, description, features, highlighted, 
         {features.map((feature, idx) => (
           <div key={idx} className="flex items-start space-x-3">
             <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${
-              highlighted ? 'bg-blue-100' : 'bg-gray-100'
+              highlighted ? 'bg-brand-500/20 border border-brand-500/30' : 'bg-white/[0.06] border border-white/[0.08]'
             }`}>
-              <Check className={`w-3 h-3 ${highlighted ? 'text-blue-600' : 'text-gray-600'}`} />
+              <Check className={`w-3 h-3 ${highlighted ? 'text-brand-300' : 'text-ink-3'}`} strokeWidth={2} />
             </div>
-            <span className="text-gray-700 text-sm">{feature}</span>
+            <span className="text-ink-2 text-sm">{feature}</span>
           </div>
         ))}
       </div>
@@ -87,7 +87,7 @@ export default function PricingSection() {
       price: '$199',
       period: '/month',
       description: 'Perfect for single locations',
-      icon: <Sparkles className="w-6 h-6" />,
+      icon: <Sparkles className="w-6 h-6" strokeWidth={1.5} />,
       features: [
         'Up to 2 camera feeds',
         'Real-time sales analytics',
@@ -102,7 +102,7 @@ export default function PricingSection() {
       price: '$499',
       period: '/month',
       description: 'For growing restaurants',
-      icon: <Zap className="w-6 h-6" />,
+      icon: <Zap className="w-6 h-6" strokeWidth={1.5} />,
       highlighted: true,
       features: [
         'Up to 8 camera feeds',
@@ -120,7 +120,7 @@ export default function PricingSection() {
       price: 'Custom',
       period: 'pricing',
       description: 'Multi-location chains',
-      icon: <Crown className="w-6 h-6" />,
+      icon: <Crown className="w-6 h-6" strokeWidth={1.5} />,
       features: [
         'Unlimited camera feeds',
         'White-label options',
@@ -135,11 +135,11 @@ export default function PricingSection() {
   ];
 
   return (
-    <section className="relative py-24 overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-white via-slate-50 to-white" />
+    <section className="relative py-24 overflow-hidden bg-surface-0">
+      <div className="absolute inset-0 grid-floor opacity-30" />
 
-      <div className="absolute top-20 left-20 w-96 h-96 bg-blue-400/10 rounded-full blur-3xl" />
-      <div className="absolute bottom-20 right-20 w-96 h-96 bg-violet-400/10 rounded-full blur-3xl" />
+      <div className="absolute top-20 left-20 w-96 h-96 bg-brand-500/10 rounded-full blur-3xl" />
+      <div className="absolute bottom-20 right-20 w-96 h-96 bg-violet-500/10 rounded-full blur-3xl" />
 
       <div className="relative max-w-7xl mx-auto px-6">
         <div
@@ -148,13 +148,13 @@ export default function PricingSection() {
             titleVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'
           }`}
         >
-          <div className="inline-block px-4 py-2 glass rounded-full text-sm font-semibold text-blue-600 mb-4">
+          <div className="inline-block px-4 py-2 surface-card rounded-full text-sm font-semibold text-brand-300 mb-4">
             Simple Pricing
           </div>
-          <h2 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
+          <h2 className="font-display text-4xl lg:text-5xl font-semibold text-ink-0 mb-4 tracking-tight">
             Choose Your Plan
           </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
+          <p className="text-xl text-ink-3 max-w-2xl mx-auto mb-8">
             Start with a 14-day free trial. No credit card required.
           </p>
         </div>
@@ -178,11 +178,11 @@ export default function PricingSection() {
         <div className="text-center">
           <button
             onClick={() => navigate('/register')}
-            className="inline-flex items-center px-8 py-4 glass text-gray-900 font-semibold rounded-xl hover-lift"
+            className="inline-flex items-center px-8 py-4 surface-card text-ink-0 font-semibold rounded-xl hover:border-brand-500/30 transition-all"
           >
             Not sure? Book a demo
             <svg className="w-5 h-5 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5l7 7-7 7" />
             </svg>
           </button>
         </div>

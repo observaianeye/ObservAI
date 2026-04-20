@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { DataModeProvider } from './contexts/DataModeContext';
 import { DashboardFilterProvider } from './contexts/DashboardFilterContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { LanguageProvider } from './contexts/LanguageContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import GlobalAlerts from './components/GlobalAlerts';
 import GlobalChatbot from './components/GlobalChatbot';
@@ -25,9 +26,13 @@ const AIInsightsPage = lazy(() => import('./pages/dashboard/AIInsightsPage'));
 const HistoricalAnalyticsPage = lazy(() => import('./pages/dashboard/HistoricalAnalyticsPage'));
 const NotificationsPage = lazy(() => import('./pages/dashboard/NotificationsPage'));
 const SettingsPage = lazy(() => import('./pages/dashboard/SettingsPage'));
+const TableOccupancyPage = lazy(() => import('./pages/dashboard/TableOccupancyPage'));
+const TrendsPage = lazy(() => import('./pages/dashboard/TrendsPage'));
+const StaffingPage = lazy(() => import('./pages/dashboard/StaffingPage'));
 
 function App() {
   return (
+    <LanguageProvider>
     <AuthProvider>
       <DataModeProvider>
         <DashboardFilterProvider>
@@ -99,6 +104,30 @@ function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/dashboard/tables"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><TableOccupancyPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/trends"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><TrendsPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/staffing"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout><StaffingPage /></DashboardLayout>
+                  </ProtectedRoute>
+                }
+              />
 
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
@@ -111,6 +140,7 @@ function App() {
         </DashboardFilterProvider>
       </DataModeProvider>
     </AuthProvider>
+    </LanguageProvider>
   );
 }
 

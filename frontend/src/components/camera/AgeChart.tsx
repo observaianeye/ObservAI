@@ -2,18 +2,18 @@ import { useState, useEffect, memo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, AnalyticsData } from '../../services/analyticsDataService';
 import { useDataMode } from '../../contexts/DataModeContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { GlassCard } from '../ui/GlassCard';
 
 const AgeChart = memo(function AgeChart() {
   const { dataMode } = useDataMode();
+  const { t } = useLanguage();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set mode in service
     analyticsDataService.setMode(dataMode);
 
-    // Load initial data
     const loadData = async () => {
       setLoading(true);
       const data = await analyticsDataService.getData();
@@ -23,12 +23,10 @@ const AgeChart = memo(function AgeChart() {
 
     loadData();
 
-    // Subscribe and get unsubscribe function
     const unsubscribe = analyticsDataService.startRealtimeUpdates((data) => {
       setData(data);
     });
 
-    // Cleanup on unmount
     return () => {
       unsubscribe();
     };
@@ -36,7 +34,6 @@ const AgeChart = memo(function AgeChart() {
 
   const ageBuckets = ['0-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+'];
 
-  // Prepare series data for stacked bar chart
   const maleData = ageBuckets.map(bucket =>
     data?.genderByAge?.[bucket]?.male || 0
   );
@@ -47,16 +44,20 @@ const AgeChart = memo(function AgeChart() {
     data?.genderByAge?.[bucket]?.unknown || 0
   );
 
+  const maleLabel = t('charts.gender.male');
+  const femaleLabel = t('charts.gender.female');
+  const unknownLabel = t('charts.gender.unknown');
+
   const option = {
-    // Disable animation in Live mode for smoother updates
     animation: dataMode === 'demo',
     title: {
-      text: 'Age & Gender Distribution',
+      text: t('charts.ageGender.title'),
       left: 'center',
       textStyle: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: 600,
-        color: '#ffffff'
+        color: '#ffffff',
+        fontFamily: '"Space Grotesk", Inter, sans-serif'
       }
     },
     tooltip: {
@@ -64,18 +65,20 @@ const AgeChart = memo(function AgeChart() {
       axisPointer: {
         type: 'shadow'
       },
-      backgroundColor: 'rgba(10, 11, 16, 0.9)',
-      borderColor: 'rgba(255, 255, 255, 0.1)',
+      backgroundColor: 'rgba(8, 12, 28, 0.92)',
+      borderColor: 'rgba(255, 255, 255, 0.08)',
       textStyle: {
-        color: '#fff'
+        color: '#e6ebff',
+        fontFamily: '"JetBrains Mono", monospace'
       }
     },
     legend: {
       bottom: 0,
       textStyle: {
-        color: '#9ca3af'
+        color: '#7e89a8',
+        fontFamily: 'Inter, sans-serif'
       },
-      data: ['Male', 'Female', 'Unknown']
+      data: [maleLabel, femaleLabel, unknownLabel]
     },
     grid: {
       left: '3%',
@@ -89,46 +92,50 @@ const AgeChart = memo(function AgeChart() {
       data: ageBuckets,
       axisLabel: {
         fontSize: 11,
-        color: '#9ca3af'
-      }
+        color: '#7e89a8',
+        fontFamily: '"JetBrains Mono", monospace'
+      },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } }
     },
     yAxis: {
       type: 'value',
-      name: 'Visitors',
+      name: t('charts.axis.visitors'),
       nameTextStyle: {
-        fontSize: 12,
-        color: '#9ca3af'
+        fontSize: 11,
+        color: '#7e89a8',
+        fontFamily: '"JetBrains Mono", monospace'
       },
       axisLabel: {
-        color: '#9ca3af'
+        color: '#7e89a8',
+        fontFamily: '"JetBrains Mono", monospace'
       },
       splitLine: {
         lineStyle: {
-          color: 'rgba(255, 255, 255, 0.1)'
+          color: 'rgba(255, 255, 255, 0.06)'
         }
       }
     },
     series: [
       {
-        name: 'Male',
+        name: maleLabel,
         type: 'bar',
         stack: 'total',
         data: maleData,
-        itemStyle: { color: '#3b82f6' }
+        itemStyle: { color: '#1d6bff' }
       },
       {
-        name: 'Female',
+        name: femaleLabel,
         type: 'bar',
         stack: 'total',
         data: femaleData,
-        itemStyle: { color: '#ec4899' }
+        itemStyle: { color: '#9a4dff' }
       },
       {
-        name: 'Unknown',
+        name: unknownLabel,
         type: 'bar',
         stack: 'total',
         data: unknownData,
-        itemStyle: { color: '#6b7280' }
+        itemStyle: { color: '#4a5576' }
       }
     ]
   };
@@ -139,13 +146,13 @@ const AgeChart = memo(function AgeChart() {
     <GlassCard variant="neon" className="p-6 h-full">
       {loading ? (
         <div className="h-[300px] flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-400"></div>
         </div>
       ) : totalVisitors === 0 ? (
-        <div className="h-[300px] flex flex-col items-center justify-center text-gray-400">
-          <p className="text-sm font-medium">No data available</p>
-          <p className="text-xs mt-1">
-            {dataMode === 'live' ? 'No camera connected or no visitors detected' : 'Switch to Demo mode to see sample data'}
+        <div className="h-[300px] flex flex-col items-center justify-center text-ink-3">
+          <p className="text-sm font-medium">{t('charts.empty.title')}</p>
+          <p className="text-xs mt-1 text-ink-4">
+            {dataMode === 'live' ? t('charts.empty.live') : t('charts.empty.demo')}
           </p>
         </div>
       ) : (

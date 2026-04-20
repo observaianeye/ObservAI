@@ -20,7 +20,7 @@ export default function HeatmapChart({
   data,
   xLabels,
   yLabels,
-  colorScale = { min: '#dbeafe', mid: '#3b82f6', max: '#1e3a8a' },
+  colorScale = { min: '#0b0f1f', mid: '#1d6bff', max: '#12bcff' },
   showTooltip = true,
   animate = true
 }: HeatmapChartProps) {
@@ -58,14 +58,12 @@ export default function HeatmapChart({
     return `rgb(${r}, ${g}, ${b})`;
   };
 
-  const cellSize = 100 / Math.max(xLabels.length, yLabels.length);
-
   return (
     <div className="w-full">
       <div className="flex">
         <div className="flex flex-col justify-around pr-2" style={{ width: '60px' }}>
           {yLabels.map((label, index) => (
-            <div key={index} className="text-xs text-gray-600 text-right font-medium">
+            <div key={index} className="text-xs text-ink-3 text-right font-mono font-medium">
               {label}
             </div>
           ))}
@@ -93,9 +91,9 @@ export default function HeatmapChart({
                     onMouseLeave={() => setHoveredCell(null)}
                   >
                     {showTooltip && isHovered && (
-                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-gray-900 text-white px-3 py-2 rounded-lg shadow-lg whitespace-nowrap text-xs font-medium z-10 animate-fade-in-up">
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-surface-1/95 backdrop-blur-xl border border-white/[0.08] text-ink-0 px-3 py-2 rounded-lg shadow-lg whitespace-nowrap text-xs font-mono font-medium z-10 animate-fade-in-up">
                         {cell.label || `${xLabels[cell.x]}, ${yLabels[cell.y]}`}: {cell.value}
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-surface-1"></div>
                       </div>
                     )}
                   </div>
@@ -106,7 +104,7 @@ export default function HeatmapChart({
 
           <div className="flex justify-around mt-2">
             {xLabels.map((label, index) => (
-              <div key={index} className="text-xs text-gray-600 font-medium text-center">
+              <div key={index} className="text-xs text-ink-3 font-mono font-medium text-center">
                 {label}
               </div>
             ))}
@@ -119,7 +117,7 @@ export default function HeatmapChart({
           <div className="w-16 h-3 rounded" style={{
             background: `linear-gradient(to right, ${colorScale.min}, ${colorScale.mid}, ${colorScale.max})`
           }}></div>
-          <div className="flex justify-between text-xs text-gray-600 w-24">
+          <div className="flex justify-between text-xs text-ink-3 font-mono w-24">
             <span>{minValue}</span>
             <span>{maxValue}</span>
           </div>

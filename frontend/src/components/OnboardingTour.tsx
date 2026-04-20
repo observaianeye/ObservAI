@@ -68,12 +68,12 @@ export default function OnboardingTour({ onComplete, onSkip }: OnboardingTourPro
       />
 
       <div
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+        className="relative bg-surface-1/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
         style={{ animation: 'slideUp 0.4s ease-out' }}
       >
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gray-200">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-white/[0.06]">
           <div
-            className="h-full bg-gradient-to-r from-blue-600 to-violet-600 transition-all duration-500"
+            className="h-full bg-gradient-to-r from-brand-500 via-accent-500 to-violet-500 transition-all duration-500"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -82,50 +82,50 @@ export default function OnboardingTour({ onComplete, onSkip }: OnboardingTourPro
           <div className="flex items-start justify-between mb-6">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
-                <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">
+                <span className="px-3 py-1 bg-brand-500/15 text-brand-300 text-xs font-bold rounded-full border border-brand-500/30 font-mono">
                   Step {currentStep + 1} of {tourSteps.length}
                 </span>
               </div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-3">{currentStepData.title}</h2>
-              <p className="text-lg text-gray-600 leading-relaxed">{currentStepData.description}</p>
+              <h2 className="font-display text-3xl font-semibold text-ink-0 mb-3 tracking-tight">{currentStepData.title}</h2>
+              <p className="text-lg text-ink-2 leading-relaxed">{currentStepData.description}</p>
             </div>
             <button
               onClick={onSkip}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-white/[0.06] rounded-lg transition-colors"
             >
-              <X className="w-6 h-6 text-gray-500" />
+              <X className="w-6 h-6 text-ink-3" strokeWidth={1.5} />
             </button>
           </div>
 
           {currentStep === 0 && (
-            <div className="my-8 p-6 bg-gradient-to-r from-blue-50 to-violet-50 rounded-xl border border-blue-200">
+            <div className="my-8 p-6 bg-gradient-to-r from-brand-500/10 to-violet-500/10 rounded-xl border border-brand-500/20">
               <div className="grid grid-cols-3 gap-4 text-center">
                 <div>
-                  <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <span className="text-2xl font-bold text-white">1</span>
+                  <div className="w-16 h-16 bg-brand-500 rounded-full flex items-center justify-center mx-auto mb-3 shadow-glow-brand">
+                    <span className="font-display text-2xl font-bold text-white">1</span>
                   </div>
-                  <p className="text-sm font-semibold text-gray-900">Learn the Basics</p>
+                  <p className="text-sm font-semibold text-ink-1">Learn the Basics</p>
                 </div>
                 <div>
-                  <div className="w-16 h-16 bg-violet-600 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <span className="text-2xl font-bold text-white">2</span>
+                  <div className="w-16 h-16 bg-violet-500 rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg">
+                    <span className="font-display text-2xl font-bold text-white">2</span>
                   </div>
-                  <p className="text-sm font-semibold text-gray-900">Explore Features</p>
+                  <p className="text-sm font-semibold text-ink-1">Explore Features</p>
                 </div>
                 <div>
-                  <div className="w-16 h-16 bg-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <Check className="w-8 h-8 text-white" />
+                  <div className="w-16 h-16 bg-success rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Check className="w-8 h-8 text-white" strokeWidth={1.5} />
                   </div>
-                  <p className="text-sm font-semibold text-gray-900">Get Started</p>
+                  <p className="text-sm font-semibold text-ink-1">Get Started</p>
                 </div>
               </div>
             </div>
           )}
 
           {currentStep > 0 && currentStep < tourSteps.length - 1 && (
-            <div className="my-8 aspect-video bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl flex items-center justify-center border-2 border-gray-300">
+            <div className="my-8 aspect-video bg-gradient-to-br from-surface-2 to-surface-1 rounded-xl flex items-center justify-center border border-white/[0.08]">
               <div className="text-center">
-                <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <div className="w-24 h-24 bg-surface-3/70 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg border border-white/[0.08]">
                   <span className="text-4xl">
                     {currentStep === 1 && '📊'}
                     {currentStep === 2 && '🧭'}
@@ -133,25 +133,25 @@ export default function OnboardingTour({ onComplete, onSkip }: OnboardingTourPro
                     {currentStep === 4 && '🤖'}
                   </span>
                 </div>
-                <p className="text-gray-600 font-medium">Feature Preview</p>
+                <p className="text-ink-3 font-medium">Feature Preview</p>
               </div>
             </div>
           )}
 
           {currentStep === tourSteps.length - 1 && (
-            <div className="my-8 p-8 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 text-center">
-              <div className="w-20 h-20 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Check className="w-10 h-10 text-white" />
+            <div className="my-8 p-8 bg-gradient-to-br from-success/10 to-brand-500/10 rounded-xl border border-success/30 text-center">
+              <div className="w-20 h-20 bg-success rounded-full flex items-center justify-center mx-auto mb-4">
+                <Check className="w-10 h-10 text-white" strokeWidth={1.5} />
               </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">You're Ready!</h3>
-              <p className="text-gray-600">Click below to start using ObservAI</p>
+              <h3 className="font-display text-2xl font-semibold text-ink-0 mb-2">You're Ready!</h3>
+              <p className="text-ink-2">Click below to start using ObservAI</p>
             </div>
           )}
 
-          <div className="flex items-center justify-between pt-6 border-t border-gray-200">
+          <div className="flex items-center justify-between pt-6 border-t border-white/[0.08]">
             <button
               onClick={onSkip}
-              className="px-6 py-3 text-gray-600 font-semibold hover:bg-gray-100 rounded-lg transition-colors"
+              className="px-6 py-3 text-ink-3 font-semibold hover:bg-white/[0.06] rounded-xl transition-colors"
             >
               Skip Tour
             </button>
@@ -160,18 +160,18 @@ export default function OnboardingTour({ onComplete, onSkip }: OnboardingTourPro
               {currentStep > 0 && (
                 <button
                   onClick={handlePrevious}
-                  className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 font-semibold rounded-lg transition-all flex items-center gap-2"
+                  className="px-6 py-3 bg-white/[0.06] hover:bg-white/[0.1] text-ink-1 font-semibold rounded-xl border border-white/[0.08] transition-all flex items-center gap-2"
                 >
-                  <ChevronLeft className="w-5 h-5" />
+                  <ChevronLeft className="w-5 h-5" strokeWidth={1.5} />
                   Previous
                 </button>
               )}
               <button
                 onClick={handleNext}
-                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-violet-600 hover:shadow-lg text-white font-semibold rounded-lg transition-all flex items-center gap-2"
+                className="px-6 py-3 bg-gradient-to-r from-brand-500 to-accent-500 hover:shadow-glow-brand text-white font-semibold rounded-xl transition-all flex items-center gap-2"
               >
                 {currentStep === tourSteps.length - 1 ? 'Get Started' : 'Next'}
-                {currentStep < tourSteps.length - 1 && <ChevronRight className="w-5 h-5" />}
+                {currentStep < tourSteps.length - 1 && <ChevronRight className="w-5 h-5" strokeWidth={1.5} />}
               </button>
             </div>
           </div>

@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
+import { GEMINI_MODEL_CANDIDATES, OLLAMA_MODEL_PRIORITY, isGeminiFallbackError } from '../lib/aiConfig';
 
 const router = Router();
 
@@ -15,6 +16,8 @@ const ChatRequestSchema = z.object({
   message: z.string().min(1),
   // UUID zorunluluğu kaldırıldı — 'sample-camera-1' gibi non-uuid ID'leri destekler
   cameraId: z.string().min(1).optional(),
+  // Frontend dil tercihi — yoksa heuristic devreye girer (geriye doğru uyumlu)
+  lang: z.enum(['tr', 'en']).optional(),
 });
 
 /**
@@ -112,9 +115,9 @@ async function getAvailableOllamaModel(ollamaUrl: string): Promise<string | null
       console.warn(`[AI] OLLAMA_MODEL=${envModel} not found, falling back to priority list`);
     }
 
-    // Priority order: llama3.1:8b preferred for best Turkish + analytics performance
-    const preferred = ['llama3.1:8b', 'llama3:8b', 'mistral', 'phi3', 'gemma2', 'qwen2'];
-    for (const p of preferred) {
+    // Priority list is defined in lib/aiConfig so the insight engine and
+    // the chat route share the same preference order.
+    for (const p of OLLAMA_MODEL_PRIORITY) {
       const found = models.find((m: string) => m.startsWith(p));
       if (found) return found;
     }
@@ -136,28 +139,41 @@ export async function callOllama(
     throw new Error('OLLAMA_NO_MODEL: No models available. Run: ollama pull llama3.1:8b');
   }
 
-  const res = await fetch(`${OLLAMA_URL}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      prompt,
-      stream: false,
-      options: {
-        temperature: opts?.temperature ?? 0.4,
-        num_predict: opts?.maxTokens ?? 1024,
-        num_gpu: parseInt(process.env.OLLAMA_NUM_GPU || '0', 10),
-        num_ctx: parseInt(process.env.OLLAMA_NUM_CTX || '2048', 10),
-      }
-    })
-  });
+  const timeoutMs = parseInt(process.env.OLLAMA_TIMEOUT_MS || '60000', 10);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: false,
+        options: {
+          temperature: opts?.temperature ?? 0.4,
+          num_predict: opts?.maxTokens ?? 1024,
+          num_gpu: parseInt(process.env.OLLAMA_NUM_GPU || '0', 10),
+          num_ctx: parseInt(process.env.OLLAMA_NUM_CTX || '2048', 10),
+        }
+      })
+    });
 
-  if (!res.ok) {
-    throw new Error(`Ollama error: ${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      throw new Error(`Ollama error: ${res.status} ${res.statusText}`);
+    }
+
+    const data: any = await res.json();
+    return { response: data.response, model };
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`Ollama timeout after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  const data: any = await res.json();
-  return { response: data.response, model };
 }
 
 /**
@@ -190,13 +206,13 @@ export async function checkOllamaHealth(): Promise<{
 
 router.post('/chat', async (req: Request, res: Response) => {
   try {
-    const { message, cameraId } = ChatRequestSchema.parse(req.body);
+    const { message, cameraId, lang } = ChatRequestSchema.parse(req.body);
 
     // Get recent analytics data for context
     const recentAnalytics = await getRecentAnalyticsContext(cameraId);
 
     // Build context prompt
-    const contextPrompt = buildContextPrompt(message, recentAnalytics);
+    const contextPrompt = buildContextPrompt(message, recentAnalytics, lang);
 
     const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
 
@@ -254,33 +270,28 @@ router.post('/chat', async (req: Request, res: Response) => {
     }
 
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    let modelName = 'gemini-2.5-flash';
-    try {
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(contextPrompt);
-      const response = await result.response;
-      return res.json({
-        message: response.text(),
-        timestamp: new Date().toISOString(),
-        model: modelName
-      });
-    } catch (primaryErr: unknown) {
-      const primaryErrMsg = primaryErr instanceof Error ? primaryErr.message.toLowerCase() : '';
-      if (primaryErrMsg.includes('quota') || primaryErrMsg.includes('429') || primaryErrMsg.includes('404') || primaryErrMsg.includes('resource_exhausted')) {
-        modelName = 'gemini-2.0-flash-001';
-      } else {
-        throw primaryErr;
+    // Walk the centralized candidate list. Each entry is tried once; quota /
+    // 404 errors fall through to the next, anything else is rethrown.
+    let lastErr: unknown = null;
+    for (const modelName of GEMINI_MODEL_CANDIDATES) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(contextPrompt);
+        const response = await result.response;
+        return res.json({
+          message: response.text(),
+          timestamp: new Date().toISOString(),
+          model: modelName,
+        });
+      } catch (err) {
+        lastErr = err;
+        if (!isGeminiFallbackError(err)) {
+          throw err;
+        }
+        console.warn(`[AI] Gemini model ${modelName} failed, trying next candidate`);
       }
     }
-
-    const model = genAI.getGenerativeModel({ model: modelName });
-    const result = await model.generateContent(contextPrompt);
-    const response = await result.response;
-    res.json({
-      message: response.text(),
-      timestamp: new Date().toISOString(),
-      model: modelName
-    });
+    throw lastErr ?? new Error('Gemini candidates exhausted');
 
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -355,8 +366,7 @@ router.get('/debug', async (req: Request, res: Response) => {
     result.gemini.status = 'no_key';
   } else {
     result.gemini.keyPrefix = key.slice(0, 8) + '...';
-    const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash-001'];
-    for (const m of candidates) {
+    for (const m of GEMINI_MODEL_CANDIDATES) {
       try {
         const genAI = new GoogleGenerativeAI(key);
         const model = genAI.getGenerativeModel({ model: m });
@@ -365,8 +375,7 @@ router.get('/debug', async (req: Request, res: Response) => {
         result.gemini.model = m;
         break;
       } catch (err: unknown) {
-        const errMsg = err instanceof Error ? err.message.toLowerCase() : '';
-        if (!errMsg.includes('quota') && !errMsg.includes('429') && !errMsg.includes('404')) {
+        if (!isGeminiFallbackError(err)) {
           result.gemini.status = 'error';
           result.gemini.error = err instanceof Error ? err.message : 'Unknown';
           break;
@@ -644,12 +653,21 @@ async function getZoneInsights(): Promise<string | null> {
 /**
  * Build the full context prompt for the AI model (Ollama or Gemini).
  * Optimized for speed, data accuracy, and bilingual quality.
+ *
+ * `lang` (when provided by the frontend) takes precedence over the heuristic.
  */
-function buildContextPrompt(userMessage: string, analyticsContext: string): string {
-  // Detect language from user message (simple heuristic)
-  const turkishChars = /[çğıöşüÇĞİÖŞÜ]/;
-  const turkishWords = /\b(merhaba|nasıl|nedir|kaç|kişi|bugün|şu an|müşteri|ziyaretçi|analiz|durum|hava|kuyruk|bekleme|yoğun|saat|cinsiyet|yaş|kadın|erkek|öneri|rapor|kafe)\b/i;
-  const isTurkish = turkishChars.test(userMessage) || turkishWords.test(userMessage);
+function buildContextPrompt(userMessage: string, analyticsContext: string, lang?: 'tr' | 'en'): string {
+  let isTurkish: boolean;
+  if (lang === 'tr') {
+    isTurkish = true;
+  } else if (lang === 'en') {
+    isTurkish = false;
+  } else {
+    // Heuristic fallback when frontend hasn't passed a preference.
+    const turkishChars = /[çğıöşüÇĞİÖŞÜ]/;
+    const turkishWords = /\b(merhaba|nasıl|nedir|kaç|kişi|bugün|şu an|müşteri|ziyaretçi|analiz|durum|hava|kuyruk|bekleme|yoğun|saat|cinsiyet|yaş|kadın|erkek|öneri|rapor|kafe)\b/i;
+    isTurkish = turkishChars.test(userMessage) || turkishWords.test(userMessage);
+  }
 
   const langInstruction = isTurkish
     ? `DİL: Tamamen Türkçe yanıt ver. Doğal, akıcı Türkçe kullan.`
