@@ -54,5 +54,33 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Unit tests (vitest)
+        env:
+          DATABASE_URL: file:./test.db
+        run: npm test
+
       - name: Build
         run: npm run build
+
+  python-analytics:
+    name: Python Analytics Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/camera-analytics
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install core deps (no GPU)
+        run: |
+          pip install --upgrade pip
+          pip install numpy opencv-python-headless pyyaml shapely pytest pytest-timeout pytest-benchmark
+
+      - name: Run unit tests (skip GPU-gated and real-video tests)
+        # GPU/integration tests rely on self-hosted runner — exclude here
+        run: pytest -v -m "not gpu and not integration and not fixture_video"

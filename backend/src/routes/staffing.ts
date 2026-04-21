@@ -5,8 +5,33 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
+import { authenticate } from '../middleware/authMiddleware';
 
 const router = Router();
+
+const MIN_DAYS_FOR_RECOMMENDATIONS = 3;
+
+/**
+ * Resolve a branchId that may be a literal UUID, "default", or empty/unknown.
+ * - "default" or unknown → user's isDefault branch, or first branch if none flagged
+ * - UUID → verified to belong to user
+ * Returns null when no usable branch exists.
+ */
+async function resolveBranchId(userId: string, raw: string | undefined): Promise<string | null> {
+  if (raw && raw !== 'default') {
+    const hit = await prisma.branch.findFirst({
+      where: { id: raw, userId },
+      select: { id: true },
+    });
+    if (hit) return hit.id;
+  }
+  const fallback = await prisma.branch.findFirst({
+    where: { userId },
+    orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+    select: { id: true },
+  });
+  return fallback?.id ?? null;
+}
 
 // POST /api/staffing - Save staff shifts (bulk)
 router.post('/', async (req: Request, res: Response) => {
@@ -101,13 +126,53 @@ router.get('/:branchId/history', async (req: Request, res: Response) => {
 });
 
 // GET /api/staffing/:branchId/recommendations - Staff optimization
-router.get('/:branchId/recommendations', async (req: Request, res: Response) => {
-  try {
-    const { branchId } = req.params;
-    const cameraId = req.query.cameraId as string;
+// cameraId is optional; when omitted (or "default") we aggregate across every
+// camera in the branch. Returns `needsMoreData: true` when fewer than
+// MIN_DAYS_FOR_RECOMMENDATIONS distinct days of analytics exist, so the UI
+// can render a progress state instead of a confusing empty chart.
+router.get('/:branchId/recommendations', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    if (!cameraId) {
-      return res.status(400).json({ error: 'cameraId query parameter required' });
+  try {
+    const rawBranchId = req.params.branchId;
+    const rawCameraId = typeof req.query.cameraId === 'string' ? req.query.cameraId : undefined;
+
+    const branchId = await resolveBranchId(userId, rawBranchId);
+    if (!branchId) {
+      return res.json({
+        recommendations: [],
+        summary: { understaffedHours: 0, overstaffedHours: 0, criticalHours: [] },
+        needsMoreData: true,
+        daysRemaining: MIN_DAYS_FOR_RECOMMENDATIONS,
+        reason: 'no_branch',
+      });
+    }
+
+    // Resolve camera scope — single camera or every camera in the branch.
+    let cameraIdFilter: { in: string[] } | string | undefined;
+    if (rawCameraId && rawCameraId !== 'default') {
+      const hit = await prisma.camera.findFirst({
+        where: { id: rawCameraId, branchId, createdBy: userId },
+        select: { id: true },
+      });
+      if (hit) cameraIdFilter = hit.id;
+    }
+    if (!cameraIdFilter) {
+      const cams = await prisma.camera.findMany({
+        where: { branchId, createdBy: userId },
+        select: { id: true },
+      });
+      if (cams.length === 0) {
+        return res.json({
+          recommendations: [],
+          summary: { understaffedHours: 0, overstaffedHours: 0, criticalHours: [] },
+          needsMoreData: true,
+          daysRemaining: MIN_DAYS_FOR_RECOMMENDATIONS,
+          reason: 'no_cameras',
+        });
+      }
+      cameraIdFilter = { in: cams.map((c) => c.id) };
     }
 
     // Get today's shifts
@@ -119,11 +184,30 @@ router.get('/:branchId/recommendations', async (req: Request, res: Response) => 
     const staffByHour: Record<number, number> = {};
     for (const s of shifts) staffByHour[s.hour] = s.staffCount;
 
-    // Get last 30 days average hourly traffic
+    // Get last 30 days hourly traffic summaries for the chosen camera scope.
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const summaries = await prisma.analyticsSummary.findMany({
-      where: { cameraId, date: { gte: thirtyDaysAgo }, hour: { not: null } },
+      where: {
+        cameraId: cameraIdFilter,
+        date: { gte: thirtyDaysAgo },
+        hour: { not: null },
+      },
     });
+
+    // Count distinct calendar days — recommendations need at least 3 days.
+    const distinctDays = new Set(summaries.map((s) => s.date.toISOString().slice(0, 10)));
+    const daysCollected = distinctDays.size;
+
+    if (daysCollected < MIN_DAYS_FOR_RECOMMENDATIONS) {
+      return res.json({
+        recommendations: [],
+        summary: { understaffedHours: 0, overstaffedHours: 0, criticalHours: [] },
+        needsMoreData: true,
+        daysCollected,
+        daysRemaining: MIN_DAYS_FOR_RECOMMENDATIONS - daysCollected,
+        reason: daysCollected === 0 ? 'no_analytics' : 'insufficient_history',
+      });
+    }
 
     const hourlyTotals: number[] = new Array(24).fill(0);
     const hourlyCounts: number[] = new Array(24).fill(0);
@@ -157,19 +241,21 @@ router.get('/:branchId/recommendations', async (req: Request, res: Response) => 
       recommendations.push({ hour: h, avgCustomers, staffCount: staff, ratio, status, optimal });
     }
 
-    const understaffedHours = recommendations.filter(r => r.status === 'understaffed');
-    const overstaffedHours = recommendations.filter(r => r.status === 'overstaffed');
+    const understaffedHours = recommendations.filter((r) => r.status === 'understaffed');
+    const overstaffedHours = recommendations.filter((r) => r.status === 'overstaffed');
 
     res.json({
       recommendations,
       summary: {
         understaffedHours: understaffedHours.length,
         overstaffedHours: overstaffedHours.length,
-        criticalHours: understaffedHours.filter(r => r.ratio > 20).map(r => r.hour),
+        criticalHours: understaffedHours.filter((r) => r.ratio > 20).map((r) => r.hour),
       },
+      needsMoreData: false,
+      daysCollected,
     });
-  } catch (error: any) {
-    console.error('[staffing/recommendations] Error:', error);
+  } catch (error: unknown) {
+    console.error('[staffing/recommendations] Error:', error instanceof Error ? error.message : error);
     res.status(500).json({ error: 'Failed to generate recommendations' });
   }
 });

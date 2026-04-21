@@ -3,7 +3,7 @@ import {
   Camera, Bell, Globe, Shield, User, Save, RotateCcw,
   Monitor, Wifi, AlertTriangle,
   CheckCircle, ChevronDown, ChevronUp, Sun, Moon,
-  Send, Mail, MessageSquare
+  Send, Mail, MessageSquare, Building2
 } from 'lucide-react';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,6 +11,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import type { Lang } from '../../i18n/strings';
 import { cameraBackendService, type BackendHealth } from '../../services/cameraBackendService';
+import { BranchSection } from '../../components/settings/BranchSection';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -581,6 +582,16 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Branches */}
+      <SettingsSection
+        title="Subeler"
+        icon={Building2}
+        iconBg="bg-violet-500/10"
+        iconColor="text-violet-300"
+      >
+        <BranchSection />
+      </SettingsSection>
 
       {/* Camera Settings */}
       <SettingsSection

@@ -31,7 +31,14 @@ demographics = [
 tensorrt = [
   "tensorrt-cu12>=10.0.0",
 ]
-dev = ["black>=23.3.0", "mypy>=1.6.0", "ruff>=0.1.0"]
+dev = [
+  "black>=23.3.0",
+  "mypy>=1.6.0",
+  "ruff>=0.1.0",
+  "pytest>=7.4.0",
+  "pytest-timeout>=2.2.0",
+  "pytest-benchmark>=4.0.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

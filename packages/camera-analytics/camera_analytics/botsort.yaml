@@ -1,13 +1,19 @@
 tracker_type: botsort
-track_high_thresh: 0.50
+# Stage 4: stricter high-threshold so weak detections don't spawn tracks
+track_high_thresh: 0.60
 track_low_thresh: 0.1
-new_track_thresh: 0.60
-track_buffer: 90
-match_thresh: 0.75
+# Stage 4: raise new-track barrier to reduce duplicate IDs on flicker
+new_track_thresh: 0.70
+# Stage 4: 90 → 150 frames (~3s → ~5s) — tolerate longer occlusions before ID reset
+track_buffer: 150
+# Stage 4: lower IoU threshold is actually MORE permissive for matching
+# (costs below threshold are matched). Reduces ID swaps on near-miss bboxes.
+match_thresh: 0.65
 fuse_score: True
 # BoT-SORT specific
 gmc_method: none
 proximity_thresh: 0.5
-appearance_thresh: 0.35
+# Stage 4: stronger ReID emphasis so appearance features pin the right ID under motion
+appearance_thresh: 0.50
 with_reid: True
 model: auto

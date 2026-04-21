@@ -1,64 +1,73 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Save, Tag, Camera, AlertCircle, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Trash2, Save, Tag, Camera, AlertCircle, RefreshCw, Square, Hexagon, Eraser, Check } from 'lucide-react';
 import { cameraBackendService, Zone } from '../../services/cameraBackendService';
 import { useToast } from '../../contexts/ToastContext';
 import { useLanguage } from '../../contexts/LanguageContext';
+import {
+  NormPoint,
+  polygonBounds,
+  polygonArea,
+  rectToPolygon,
+  simplifyPolygon,
+  rectsOverlap,
+  pointsToSvgString,
+} from './ZonePolygonUtils';
+
+type DrawMode = 'rect' | 'polygon' | 'freehand' | null;
 
 export default function ZoneCanvas() {
   const { showToast } = useToast();
   const { t } = useLanguage();
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // State
   const [zones, setZones] = useState<Zone[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawMode, setDrawMode] = useState<DrawMode>(null);
   const [loading, setLoading] = useState(false);
   const [backgroundImage, setBackgroundImage] = useState<string>('');
   const [captureError, setCaptureError] = useState<string>('');
   const [overlapError, setOverlapError] = useState<string>('');
   const [tempZoneOverlaps, setTempZoneOverlaps] = useState(false);
 
-  // Interaction State
+  // Rect drag state
+  const [rectStart, setRectStart] = useState<NormPoint | null>(null);
+  const [tempRect, setTempRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  // Polygon state (click-to-add points)
+  const [polygonPoints, setPolygonPoints] = useState<NormPoint[]>([]);
+  const [polygonHover, setPolygonHover] = useState<NormPoint | null>(null);
+
+  // Freehand state
+  const [freehandPoints, setFreehandPoints] = useState<NormPoint[]>([]);
+  const [freehandActive, setFreehandActive] = useState(false);
+
+  // Move/resize interaction state
   const [interactionState, setInteractionState] = useState<{
-    mode: 'drawing' | 'moving' | 'resizing' | null;
-    startPoint: { x: number; y: number } | null; // Screen coordinates (clientX, clientY)
+    mode: 'moving' | 'resizing' | null;
+    startPoint: { x: number; y: number } | null;
     activeZoneId: string | null;
-    initialZoneState: Zone | null; // For reverting or delta calc
-    resizeHandle: string | null; // 'nw', 'ne', 'sw', 'se'
+    initialZoneState: Zone | null;
+    resizeHandle: string | null;
   }>({
-    mode: null,
-    startPoint: null,
-    activeZoneId: null,
-    initialZoneState: null,
-    resizeHandle: null
+    mode: null, startPoint: null, activeZoneId: null, initialZoneState: null, resizeHandle: null,
   });
 
-  // Temporary New Zone (while drawing)
-  const [tempZone, setTempZone] = useState<Partial<Zone> | null>(null);
-
-  // Load Zones from Backend
   const loadZones = useCallback(async () => {
     try {
       setLoading(true);
-      // Try to connect if not connected
       if (!cameraBackendService.getConnectionStatus()) {
         cameraBackendService.connect();
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, 500));
       }
-
       const loadedZones = await cameraBackendService.getZones();
       setZones(loadedZones);
-      console.log('Loaded zones:', loadedZones);
-    } catch (error: any) {
-      console.error('Failed to load zones:', error);
-      // Fallback to localStorage just in case
+    } catch (error) {
       const saved = localStorage.getItem('cameraZones');
       if (saved) {
-        try {
-          setZones(JSON.parse(saved));
-        } catch { }
+        try { setZones(JSON.parse(saved)); } catch { /* noop */ }
       }
+      console.error('Failed to load zones:', error);
     } finally {
       setLoading(false);
     }
@@ -66,218 +75,339 @@ export default function ZoneCanvas() {
 
   useEffect(() => {
     loadZones();
-
-    // Load background
     const savedBackground = localStorage.getItem('zoneLabelingBackground');
     if (savedBackground) setBackgroundImage(savedBackground);
   }, [loadZones]);
 
-  // --- Interaction Handlers ---
+  // ESC to cancel drawing
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setDrawMode(null);
+        setPolygonPoints([]);
+        setPolygonHover(null);
+        setRectStart(null);
+        setTempRect(null);
+        setFreehandPoints([]);
+      } else if (e.key === 'Enter' && drawMode === 'polygon' && polygonPoints.length >= 3) {
+        commitPolygon();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
 
-  const getNormalizedPoint = (e: React.MouseEvent) => {
+  }, [drawMode, polygonPoints]);
+
+  const getNormalizedPoint = (clientX: number, clientY: number): NormPoint => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
     return {
-      x: (e.clientX - rect.left) / rect.width,
-      y: (e.clientY - rect.top) / rect.height
+      x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)),
     };
   };
 
-  const checkOverlap = (rect: { x: number; y: number; width: number; height: number }, excludeId?: string): boolean => {
-    return zones.some(z => {
+  const zoneBoundsRect = (z: Zone): { x: number; y: number; width: number; height: number } => {
+    if (z.shape === 'polygon' && z.points) {
+      return polygonBounds(z.points);
+    }
+    return { x: z.x, y: z.y, width: z.width, height: z.height };
+  };
+
+  const checkOverlap = (candidate: { x: number; y: number; width: number; height: number }, excludeId?: string): boolean => {
+    return zones.some((z) => {
       if (z.id === excludeId) return false;
-      const r1 = rect;
-      const r2 = { x: z.x, y: z.y, width: z.width, height: z.height };
-      return !(r1.x + r1.width <= r2.x || r2.x + r2.width <= r1.x || r1.y + r1.height <= r2.y || r2.y + r2.height <= r1.y);
+      return rectsOverlap(candidate, zoneBoundsRect(z));
     });
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  // ─── Commit helpers ──────────────────────────────────────────────────────
+  const colorForType = (type: Zone['type']): string => ({
+    entrance: '#3b82f6', exit: '#ef4444', queue: '#f59e0b', table: '#10b981',
+  }[type]);
+
+  const commitRect = () => {
+    if (!tempRect) return;
+    if (tempRect.width < 0.03 || tempRect.height < 0.03) {
+      setTempRect(null);
+      setRectStart(null);
+      return;
+    }
+    if (checkOverlap(tempRect)) {
+      setOverlapError(t('zones.canvas.overlapMsg') || 'Zone overlaps with an existing zone.');
+      setTimeout(() => setOverlapError(''), 3200);
+      setTempRect(null);
+      setRectStart(null);
+      return;
+    }
+    const newZone: Zone = {
+      id: Date.now().toString(),
+      name: `Zone ${zones.length + 1}`,
+      type: 'entrance',
+      x: tempRect.x, y: tempRect.y, width: tempRect.width, height: tempRect.height,
+      color: colorForType('entrance'),
+      shape: 'rect',
+    };
+    setZones([...zones, newZone]);
+    setSelectedZoneId(newZone.id);
+    showToast('success', `Zone created`);
+    setTempRect(null);
+    setRectStart(null);
+    setDrawMode(null);
+  };
+
+  const commitPolygon = () => {
+    if (polygonPoints.length < 3) return;
+    const bounds = polygonBounds(polygonPoints);
+    if (polygonArea(polygonPoints) < 0.002) {
+      setPolygonPoints([]);
+      return;
+    }
+    if (checkOverlap(bounds)) {
+      setOverlapError(t('zones.canvas.overlapMsg') || 'Zone overlaps with an existing zone.');
+      setTimeout(() => setOverlapError(''), 3200);
+      setPolygonPoints([]);
+      return;
+    }
+    const newZone: Zone = {
+      id: Date.now().toString(),
+      name: `Zone ${zones.length + 1}`,
+      type: 'entrance',
+      x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+      color: colorForType('entrance'),
+      shape: 'polygon',
+      points: polygonPoints,
+    };
+    setZones([...zones, newZone]);
+    setSelectedZoneId(newZone.id);
+    showToast('success', `Zone created`);
+    setPolygonPoints([]);
+    setPolygonHover(null);
+    setDrawMode(null);
+  };
+
+  const commitFreehand = () => {
+    if (freehandPoints.length < 6) {
+      setFreehandPoints([]);
+      setFreehandActive(false);
+      return;
+    }
+    const simplified = simplifyPolygon(freehandPoints, 0.008);
+    if (simplified.length < 3) {
+      setFreehandPoints([]);
+      setFreehandActive(false);
+      return;
+    }
+    const bounds = polygonBounds(simplified);
+    if (polygonArea(simplified) < 0.002) {
+      setFreehandPoints([]);
+      setFreehandActive(false);
+      return;
+    }
+    if (checkOverlap(bounds)) {
+      setOverlapError(t('zones.canvas.overlapMsg') || 'Zone overlaps with an existing zone.');
+      setTimeout(() => setOverlapError(''), 3200);
+      setFreehandPoints([]);
+      setFreehandActive(false);
+      return;
+    }
+    const newZone: Zone = {
+      id: Date.now().toString(),
+      name: `Zone ${zones.length + 1}`,
+      type: 'entrance',
+      x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+      color: colorForType('entrance'),
+      shape: 'polygon',
+      points: simplified,
+    };
+    setZones([...zones, newZone]);
+    setSelectedZoneId(newZone.id);
+    showToast('success', `Zone created`);
+    setFreehandPoints([]);
+    setFreehandActive(false);
+    setDrawMode(null);
+  };
+
+  // ─── Mouse handlers ──────────────────────────────────────────────────────
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (loading) return;
-
-    // Prevent default to stop text selection
-    e.preventDefault();
-    e.stopPropagation(); // Important to stop event bubbling
-
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    // If we are already in an interaction, ignore
     if (interactionState.mode) return;
+    e.preventDefault();
+    e.stopPropagation();
 
-    // If "Add Zone" mode is active
-    if (isDrawing) {
-      const { x, y } = getNormalizedPoint(e);
-      setInteractionState({
-        mode: 'drawing',
-        startPoint: { x: e.clientX, y: e.clientY },
-        activeZoneId: 'temp',
-        initialZoneState: null,
-        resizeHandle: null
-      });
-      setTempZone({
-        id: Date.now().toString(),
-        name: `Zone ${zones.length + 1}`,
-        type: 'entrance',
-        x, y, width: 0, height: 0,
-        color: '#3b82f6'
-      });
-      setSelectedZoneId(null);
+    const pt = getNormalizedPoint(e.clientX, e.clientY);
+
+    if (drawMode === 'rect') {
+      setRectStart(pt);
+      setTempRect({ x: pt.x, y: pt.y, width: 0, height: 0 });
+      return;
+    }
+    if (drawMode === 'polygon') {
+      // Left click adds a vertex
+      setPolygonPoints((prev) => [...prev, pt]);
+      return;
+    }
+    if (drawMode === 'freehand') {
+      setFreehandActive(true);
+      setFreehandPoints([pt]);
       return;
     }
 
-    // Default: Deselect
     setSelectedZoneId(null);
   };
 
-  const startMoving = (e: React.MouseEvent, zone: Zone) => {
-    e.stopPropagation();
-    if (isDrawing) return;
-
-    setSelectedZoneId(zone.id);
-    setInteractionState({
-      mode: 'moving',
-      startPoint: { x: e.clientX, y: e.clientY },
-      activeZoneId: zone.id,
-      initialZoneState: { ...zone },
-      resizeHandle: null
-    });
-  };
-
-  const startResizing = (e: React.MouseEvent, zone: Zone, handle: string) => {
-    e.stopPropagation();
-    if (isDrawing) return;
-
-    setInteractionState({
-      mode: 'resizing',
-      startPoint: { x: e.clientX, y: e.clientY },
-      activeZoneId: zone.id,
-      initialZoneState: { ...zone },
-      resizeHandle: handle
-    });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect || !interactionState.mode || !interactionState.startPoint) return;
+    if (!rect) return;
+    const pt = getNormalizedPoint(e.clientX, e.clientY);
 
+    if (drawMode === 'rect' && rectStart) {
+      const x = Math.min(rectStart.x, pt.x);
+      const y = Math.min(rectStart.y, pt.y);
+      const w = Math.abs(pt.x - rectStart.x);
+      const h = Math.abs(pt.y - rectStart.y);
+      setTempRect({ x, y, width: w, height: h });
+      setTempZoneOverlaps(checkOverlap({ x, y, width: w, height: h }));
+      return;
+    }
+    if (drawMode === 'polygon' && polygonPoints.length > 0) {
+      setPolygonHover(pt);
+      return;
+    }
+    if (drawMode === 'freehand' && freehandActive) {
+      setFreehandPoints((prev) => {
+        const last = prev[prev.length - 1];
+        if (!last || Math.abs(last.x - pt.x) + Math.abs(last.y - pt.y) > 0.006) {
+          return [...prev, pt];
+        }
+        return prev;
+      });
+      return;
+    }
+
+    // Move / resize
+    if (!interactionState.mode || !interactionState.startPoint) return;
     const deltaX = (e.clientX - interactionState.startPoint.x) / rect.width;
     const deltaY = (e.clientY - interactionState.startPoint.y) / rect.height;
 
-    if (interactionState.mode === 'drawing' && tempZone) {
-      const rawStart = getNormalizedPoint({ clientX: interactionState.startPoint.x, clientY: interactionState.startPoint.y } as any);
-      const current = getNormalizedPoint(e);
-
-      const x = Math.min(rawStart.x, current.x);
-      const y = Math.min(rawStart.y, current.y);
-      const w = Math.abs(current.x - rawStart.x);
-      const h = Math.abs(current.y - rawStart.y);
-
-      setTempZone({ ...tempZone, x, y, width: w, height: h });
-      setTempZoneOverlaps(checkOverlap({ x, y, width: w, height: h }));
-    }
-    else if (interactionState.mode === 'moving' && interactionState.initialZoneState) {
+    if (interactionState.mode === 'moving' && interactionState.initialZoneState) {
       const init = interactionState.initialZoneState;
-      let newX = init.x + deltaX;
-      let newY = init.y + deltaY;
-
-      // Clamp to bounds
-      newX = Math.max(0, Math.min(newX, 1 - init.width));
-      newY = Math.max(0, Math.min(newY, 1 - init.height));
-
-      // Prevent overlap during move
-      if (checkOverlap({ x: newX, y: newY, width: init.width, height: init.height }, init.id)) return;
-
-      // Update zone list optimistically
-      setZones(zones.map(z => z.id === init.id ? { ...z, x: newX, y: newY } : z));
-    }
-    else if (interactionState.mode === 'resizing' && interactionState.initialZoneState) {
+      const initBounds = zoneBoundsRect(init);
+      let newX = initBounds.x + deltaX;
+      let newY = initBounds.y + deltaY;
+      newX = Math.max(0, Math.min(newX, 1 - initBounds.width));
+      newY = Math.max(0, Math.min(newY, 1 - initBounds.height));
+      const shift = { x: newX - initBounds.x, y: newY - initBounds.y };
+      if (checkOverlap({ x: newX, y: newY, width: initBounds.width, height: initBounds.height }, init.id)) return;
+      setZones(zones.map((z) => {
+        if (z.id !== init.id) return z;
+        if (z.shape === 'polygon' && z.points) {
+          const points = z.points.map((p) => ({ x: p.x + shift.x, y: p.y + shift.y }));
+          const b = polygonBounds(points);
+          return { ...z, points, x: b.x, y: b.y, width: b.width, height: b.height };
+        }
+        return { ...z, x: newX, y: newY };
+      }));
+    } else if (interactionState.mode === 'resizing' && interactionState.initialZoneState) {
       const init = interactionState.initialZoneState;
       const handle = interactionState.resizeHandle;
-      let { x, y, width: w, height: h } = init;
-
-      // Calculate change
+      let { x, y, width: w, height: h } = { x: init.x, y: init.y, width: init.width, height: init.height };
       if (handle?.includes('e')) w += deltaX;
       if (handle?.includes('w')) { x += deltaX; w -= deltaX; }
       if (handle?.includes('s')) h += deltaY;
       if (handle?.includes('n')) { y += deltaY; h -= deltaY; }
-
-      // Constraint: Min size
       if (w < 0.02) w = 0.02;
       if (h < 0.02) h = 0.02;
-
-      // Prevent overlap during resize
       if (checkOverlap({ x, y, width: w, height: h }, init.id)) return;
-
-      // Update zone
-      setZones(zones.map(z => z.id === init.id ? { ...z, x, y, width: w, height: h } : z));
+      setZones(zones.map((z) => {
+        if (z.id !== init.id) return z;
+        if (z.shape === 'polygon' && z.points) {
+          // Scale polygon points to new bounds
+          const prevB = polygonBounds(init.points || [{ x: init.x, y: init.y }, { x: init.x + init.width, y: init.y + init.height }]);
+          const scaled = (z.points || []).map((p) => ({
+            x: x + ((p.x - prevB.x) / (prevB.width || 1)) * w,
+            y: y + ((p.y - prevB.y) / (prevB.height || 1)) * h,
+          }));
+          return { ...z, points: scaled, x, y, width: w, height: h };
+        }
+        return { ...z, x, y, width: w, height: h };
+      }));
     }
   };
 
-  const handleMouseUp = () => {
-    if (interactionState.mode === 'drawing' && tempZone) {
-      if (tempZone.width && tempZone.width > 0.05 && tempZone.height && tempZone.height > 0.05) {
-        if (checkOverlap({ x: tempZone.x || 0, y: tempZone.y || 0, width: tempZone.width, height: tempZone.height })) {
-          setOverlapError('Zone overlaps with an existing zone. Please draw in an empty area.');
-          setTimeout(() => setOverlapError(''), 4000);
-        } else {
-          setOverlapError('');
-          setZones([...zones, tempZone as Zone]);
-          showToast('success', `Zone created`);
-        }
-      }
-      setTempZone(null);
-      setTempZoneOverlaps(false);
-      setIsDrawing(false);
+  const handleCanvasMouseUp = () => {
+    if (drawMode === 'rect' && rectStart) {
+      commitRect();
+      return;
     }
+    if (drawMode === 'freehand' && freehandActive) {
+      commitFreehand();
+      return;
+    }
+    setInteractionState({ mode: null, startPoint: null, activeZoneId: null, initialZoneState: null, resizeHandle: null });
+  };
 
-    // Reset interaction
+  const handleCanvasDoubleClick = () => {
+    if (drawMode === 'polygon' && polygonPoints.length >= 3) {
+      commitPolygon();
+    }
+  };
+
+  const handleCanvasContextMenu = (e: React.MouseEvent) => {
+    if (drawMode === 'polygon' && polygonPoints.length >= 3) {
+      e.preventDefault();
+      commitPolygon();
+    }
+  };
+
+  const startMoving = (e: React.MouseEvent, zone: Zone) => {
+    e.stopPropagation();
+    if (drawMode) return;
+    setSelectedZoneId(zone.id);
     setInteractionState({
-      mode: null,
-      startPoint: null,
-      activeZoneId: null,
-      initialZoneState: null,
-      resizeHandle: null
+      mode: 'moving', startPoint: { x: e.clientX, y: e.clientY }, activeZoneId: zone.id,
+      initialZoneState: { ...zone }, resizeHandle: null,
+    });
+  };
+  const startResizing = (e: React.MouseEvent, zone: Zone, handle: string) => {
+    e.stopPropagation();
+    if (drawMode) return;
+    const b = zoneBoundsRect(zone);
+    setInteractionState({
+      mode: 'resizing', startPoint: { x: e.clientX, y: e.clientY }, activeZoneId: zone.id,
+      initialZoneState: { ...zone, x: b.x, y: b.y, width: b.width, height: b.height },
+      resizeHandle: handle,
     });
   };
 
-  // --- CRUD Operations ---
-
+  // ─── CRUD ─────────────────────────────────────────────────────────────────
   const deleteZone = (id: string) => {
-    setZones(zones.filter(z => z.id !== id));
+    setZones(zones.filter((z) => z.id !== id));
     if (selectedZoneId === id) setSelectedZoneId(null);
   };
 
-  const updateZoneName = (id: string, name: string) => {
-    setZones(zones.map(z => z.id === id ? { ...z, name } : z));
-  };
+  const updateZoneName = (id: string, name: string) =>
+    setZones(zones.map((z) => (z.id === id ? { ...z, name } : z)));
 
-  const updateZoneType = (id: string, type: 'entrance' | 'exit' | 'queue' | 'table') => {
-    const colorMap: Record<string, string> = {
-      entrance: '#3b82f6',
-      exit: '#ef4444',
-      queue: '#f59e0b',
-      table: '#10b981',
-    };
-    const color = colorMap[type] || '#3b82f6';
-    setZones(zones.map(z => z.id === id ? { ...z, type, color } : z));
+  const updateZoneType = (id: string, type: Zone['type']) => {
+    const color = colorForType(type);
+    setZones(zones.map((z) => (z.id === id ? { ...z, type, color } : z)));
   };
 
   const saveZones = async () => {
     try {
       setLoading(true);
-
-      // 1. Save to Backend via Socket
-      await cameraBackendService.saveZones(zones);
-
-      // 2. Save to LocalStorage (backup)
-      localStorage.setItem('cameraZones', JSON.stringify(zones));
-
-      console.log('Zones saved successfully');
-      showToast('success', `Successfully saved ${zones.length} zone${zones.length !== 1 ? 's' : ''}!`);
-    } catch (error: any) {
-      console.error('Failed to save zones:', error);
-      showToast('error', `Failed to save: ${error.message}`);
+      // Ensure rect zones also have `shape: 'rect'` filled for backend normalization
+      const normalized = zones.map((z) => {
+        if (z.shape === 'polygon' && z.points) return z;
+        return { ...z, shape: 'rect' as const, points: rectToPolygon(z.x, z.y, z.width, z.height) };
+      });
+      await cameraBackendService.saveZones(normalized);
+      localStorage.setItem('cameraZones', JSON.stringify(normalized));
+      showToast('success', `Saved ${zones.length} zone${zones.length !== 1 ? 's' : ''}`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      showToast('error', `Failed to save: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -288,25 +418,29 @@ export default function ZoneCanvas() {
     try {
       if (!cameraBackendService.getConnectionStatus()) {
         cameraBackendService.connect();
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((r) => setTimeout(r, 1000));
       }
       const imageData = await cameraBackendService.getSnapshot();
       setBackgroundImage(imageData);
       localStorage.setItem('zoneLabelingBackground', imageData);
-    } catch (error: any) {
-      setCaptureError(error.message || 'Failed to capture camera snapshot.');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      setCaptureError(msg || 'Failed to capture camera snapshot.');
     }
   };
 
+  const cursorClass = drawMode ? 'cursor-crosshair' : 'cursor-default';
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="font-display text-xl font-semibold text-gradient-brand tracking-tight">{t('zones.canvas.title')}</h2>
           <p className="text-sm text-ink-3 mt-1">{t('zones.canvas.subtitle')}</p>
         </div>
-        <div className="flex items-center space-x-3">
-          <button onClick={loadZones} className="p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.06] rounded-xl border border-white/[0.08]" title={t('zones.canvas.reload')}>
+        <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+          <button onClick={loadZones} className="p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.06] rounded-xl border border-white/[0.08] transition-colors" title={t('zones.canvas.reload')}>
             <RefreshCw strokeWidth={1.5} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
           <button
@@ -315,16 +449,6 @@ export default function ZoneCanvas() {
           >
             <Camera strokeWidth={1.5} className="w-4 h-4" />
             <span>{t('zones.canvas.capture')}</span>
-          </button>
-          <button
-            onClick={() => { setIsDrawing(!isDrawing); setSelectedZoneId(null); }}
-            className={`px-4 py-2 rounded-xl font-medium text-sm transition-all flex items-center space-x-2 ${isDrawing
-              ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white shadow-glow-brand'
-              : 'bg-white/[0.03] border border-brand-500/30 text-ink-1 hover:bg-white/[0.06]'
-              }`}
-          >
-            <Plus strokeWidth={1.5} className="w-4 h-4" />
-            <span>{isDrawing ? t('zones.canvas.drawingMode') : t('zones.canvas.addZone')}</span>
           </button>
           <button
             onClick={saveZones}
@@ -337,43 +461,84 @@ export default function ZoneCanvas() {
         </div>
       </div>
 
-      {captureError && (
-        <div className="bg-danger-500/10 border border-danger-500/30 rounded-xl p-4 flex items-start space-x-3">
-          <AlertCircle strokeWidth={1.5} className="w-5 h-5 text-danger-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-danger-200">{t('zones.canvas.captureFailed')}</p>
-            <p className="text-sm text-danger-300 mt-1">{captureError}</p>
-          </div>
-        </div>
-      )}
+      {/* Drawing mode toolbar */}
+      <motion.div
+        layout
+        className="inline-flex items-center gap-2 p-1.5 rounded-xl bg-surface-1/60 backdrop-blur border border-white/[0.08]"
+      >
+        <DrawModeButton active={drawMode === 'rect'} onClick={() => setDrawMode(drawMode === 'rect' ? null : 'rect')} icon={<Square className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawRect') || 'Rectangle'} />
+        <DrawModeButton active={drawMode === 'polygon'} onClick={() => setDrawMode(drawMode === 'polygon' ? null : 'polygon')} icon={<Hexagon className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawPolygon') || 'Polygon'} />
+        <DrawModeButton active={drawMode === 'freehand'} onClick={() => setDrawMode(drawMode === 'freehand' ? null : 'freehand')} icon={<Eraser className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawFreehand') || 'Freehand'} />
+        <div className="w-px h-6 bg-white/[0.08] mx-1"></div>
+        {drawMode === 'polygon' && polygonPoints.length >= 3 && (
+          <button
+            onClick={commitPolygon}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-success-500/20 text-success-200 border border-success-500/40 hover:bg-success-500/30 transition-colors flex items-center gap-1.5"
+          >
+            <Check className="w-3.5 h-3.5" strokeWidth={2} />
+            {t('zones.canvas.finishPolygon') || 'Finish'}
+          </button>
+        )}
+        <span className="text-xs text-ink-3 px-2">
+          {drawMode === 'polygon'
+            ? (t('zones.canvas.polygonHint') || 'Tikla nokta ekle, cift tikla/Enter ile tamamla, ESC iptal')
+            : drawMode === 'freehand'
+              ? (t('zones.canvas.freehandHint') || 'Basili tut ve serbestce ciz')
+              : drawMode === 'rect'
+                ? (t('zones.canvas.rectHint') || 'Tikla ve surukleyerek dikdortgen ciz')
+                : (t('zones.canvas.pickMode') || 'Bir cizim modu sec')}
+        </span>
+      </motion.div>
 
-      {overlapError && (
-        <div className="bg-danger-500/15 border border-danger-500/40 rounded-xl p-4 flex items-start space-x-3">
-          <AlertCircle strokeWidth={1.5} className="w-5 h-5 text-danger-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-danger-200">{t('zones.canvas.zoneOverlap')}</p>
-            <p className="text-sm text-danger-300 mt-1">{overlapError}</p>
-          </div>
-        </div>
-      )}
+      {/* Error toasts */}
+      <AnimatePresence>
+        {captureError && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="bg-danger-500/10 border border-danger-500/30 rounded-xl p-4 flex items-start space-x-3"
+          >
+            <AlertCircle strokeWidth={1.5} className="w-5 h-5 text-danger-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-danger-200">{t('zones.canvas.captureFailed')}</p>
+              <p className="text-sm text-danger-300 mt-1">{captureError}</p>
+            </div>
+          </motion.div>
+        )}
+        {overlapError && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="bg-danger-500/15 border border-danger-500/40 rounded-xl p-4 flex items-start space-x-3"
+          >
+            <AlertCircle strokeWidth={1.5} className="w-5 h-5 text-danger-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-danger-200">{t('zones.canvas.zoneOverlap')}</p>
+              <p className="text-sm text-danger-300 mt-1">{overlapError}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <div className="rounded-xl border-2 border-brand-500/30 overflow-hidden shadow-[0_0_15px_rgba(29,107,255,0.12)] hover:shadow-glow-brand hover:border-brand-500/50 backdrop-blur-md bg-surface-0/80 select-none">
             <div
               ref={canvasRef}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              className={`relative bg-surface-0 aspect-video ${isDrawing ? 'cursor-crosshair' : 'cursor-default'}`}
+              onMouseDown={handleCanvasMouseDown}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+              onMouseLeave={handleCanvasMouseUp}
+              onDoubleClick={handleCanvasDoubleClick}
+              onContextMenu={handleCanvasContextMenu}
+              className={`relative bg-surface-0 aspect-video ${cursorClass}`}
               style={{
                 backgroundImage: backgroundImage
                   ? `url(${backgroundImage})`
                   : 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Crect width=\'20\' height=\'20\' fill=\'%23374151\'/%3E%3Cpath d=\'M0 0h20v20H0z\' fill=\'none\' stroke=\'%234b5563\' stroke-width=\'1\'/%3E%3C/svg%3E")',
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                backgroundRepeat: 'no-repeat'
+                backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat',
               }}
             >
               {!backgroundImage && (
@@ -385,83 +550,127 @@ export default function ZoneCanvas() {
                 </div>
               )}
 
-              {/* Render Zones */}
-              {zones.map((zone) => {
-                const isSelected = selectedZoneId === zone.id;
-
-                return (
-                  <div
-                    key={zone.id}
-                    onMouseDown={(e) => startMoving(e, zone)}
-                    className={`absolute border-2 rounded transition-opacity hover:opacity-90 ${isSelected ? 'z-10 ring-2 ring-white ring-opacity-50' : 'z-0'}`}
-                    style={{
-                      left: `${zone.x * 100}%`,
-                      top: `${zone.y * 100}%`,
-                      width: `${zone.width * 100}%`,
-                      height: `${zone.height * 100}%`,
-                      borderColor: zone.color,
-                      backgroundColor: `${zone.color}20`,
-                      cursor: isDrawing ? 'crosshair' : 'move'
-                    }}
-                  >
-                    <div
-                      className="absolute top-0 left-0 px-2 py-1 text-xs font-semibold text-white rounded-br pointer-events-none"
-                      style={{ backgroundColor: zone.color }}
+              {/* Existing zones */}
+              <AnimatePresence>
+                {zones.map((zone) => {
+                  const isSelected = selectedZoneId === zone.id;
+                  const isPoly = zone.shape === 'polygon' && zone.points && zone.points.length >= 3;
+                  return (
+                    <motion.div
+                      key={zone.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                      onMouseDown={(e) => startMoving(e, zone)}
+                      className={`absolute transition-shadow ${isSelected ? 'z-10' : 'z-0'}`}
+                      style={{
+                        left: `${(isPoly ? polygonBounds(zone.points!).x : zone.x) * 100}%`,
+                        top: `${(isPoly ? polygonBounds(zone.points!).y : zone.y) * 100}%`,
+                        width: `${(isPoly ? polygonBounds(zone.points!).width : zone.width) * 100}%`,
+                        height: `${(isPoly ? polygonBounds(zone.points!).height : zone.height) * 100}%`,
+                        cursor: drawMode ? 'crosshair' : 'move',
+                        filter: isSelected ? `drop-shadow(0 0 14px ${zone.color}90)` : undefined,
+                      }}
                     >
-                      {zone.name}
-                    </div>
+                      {isPoly ? (
+                        <svg className="absolute inset-0 w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+                          <polygon
+                            points={zone.points!.map((p) => {
+                              const b = polygonBounds(zone.points!);
+                              return `${((p.x - b.x) / (b.width || 1)) * 100},${((p.y - b.y) / (b.height || 1)) * 100}`;
+                            }).join(' ')}
+                            fill={`${zone.color}33`}
+                            stroke={zone.color}
+                            strokeWidth={isSelected ? 0.7 : 0.4}
+                            vectorEffect="non-scaling-stroke"
+                            style={{ strokeDasharray: isSelected ? 'none' : '2 1' }}
+                          />
+                        </svg>
+                      ) : (
+                        <div
+                          className={`absolute inset-0 border-2 rounded ${isSelected ? 'ring-2 ring-white/50' : ''}`}
+                          style={{ borderColor: zone.color, backgroundColor: `${zone.color}20` }}
+                        />
+                      )}
+                      <div
+                        className="absolute top-0 left-0 px-2 py-1 text-xs font-semibold text-white rounded-br pointer-events-none"
+                        style={{ backgroundColor: zone.color }}
+                      >
+                        {zone.name}
+                      </div>
+                      {isSelected && !drawMode && (
+                        <>
+                          <ResizeHandle pos="nw" onMouseDown={(e) => startResizing(e, zone, 'nw')} />
+                          <ResizeHandle pos="ne" onMouseDown={(e) => startResizing(e, zone, 'ne')} />
+                          <ResizeHandle pos="sw" onMouseDown={(e) => startResizing(e, zone, 'sw')} />
+                          <ResizeHandle pos="se" onMouseDown={(e) => startResizing(e, zone, 'se')} />
+                        </>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
 
-                    {/* Resize Handles (only if selected) */}
-                    {isSelected && !isDrawing && (
-                      <>
-                        {/* Corners */}
-                        <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-white/[0.08] rounded-full cursor-nw-resize"
-                          onMouseDown={(e) => startResizing(e, zone, 'nw')}></div>
-                        <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-white/[0.08] rounded-full cursor-ne-resize"
-                          onMouseDown={(e) => startResizing(e, zone, 'ne')}></div>
-                        <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-white/[0.08] rounded-full cursor-sw-resize"
-                          onMouseDown={(e) => startResizing(e, zone, 'sw')}></div>
-                        <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-white/[0.08] rounded-full cursor-se-resize"
-                          onMouseDown={(e) => startResizing(e, zone, 'se')}></div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* Temp Zone Drawing */}
-              {tempZone && tempZone.width !== undefined && (
+              {/* Temp rect */}
+              {tempRect && (
                 <div
-                  className={`absolute border-2 border-dashed rounded pointer-events-none ${tempZoneOverlaps ? 'bg-danger/20 border-danger' : 'bg-brand-500/20 border-brand-500'}`}
+                  className={`absolute border-2 border-dashed rounded pointer-events-none ${tempZoneOverlaps ? 'bg-danger-500/20 border-danger-500' : 'bg-brand-500/20 border-brand-500'}`}
                   style={{
-                    left: `${(tempZone.x || 0) * 100}%`,
-                    top: `${(tempZone.y || 0) * 100}%`,
-                    width: `${(tempZone.width || 0) * 100}%`,
-                    height: `${(tempZone.height || 0) * 100}%`
+                    left: `${tempRect.x * 100}%`, top: `${tempRect.y * 100}%`,
+                    width: `${tempRect.width * 100}%`, height: `${tempRect.height * 100}%`,
+                    boxShadow: tempZoneOverlaps ? undefined : '0 0 22px rgba(29,107,255,0.35)',
                   }}
                 />
+              )}
+
+              {/* Polygon preview */}
+              {drawMode === 'polygon' && polygonPoints.length > 0 && (
+                <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  {polygonHover && polygonPoints.length >= 1 && (
+                    <polyline
+                      points={pointsToSvgString([...polygonPoints, polygonHover])}
+                      fill={polygonPoints.length >= 2 ? 'rgba(29,107,255,0.15)' : 'none'}
+                      stroke="#1d6bff"
+                      strokeWidth={0.5}
+                      vectorEffect="non-scaling-stroke"
+                      strokeDasharray="1.5 1"
+                    />
+                  )}
+                  {polygonPoints.map((p, i) => (
+                    <circle
+                      key={i}
+                      cx={p.x * 100} cy={p.y * 100} r={0.8}
+                      fill="#fff" stroke="#1d6bff" strokeWidth={0.4}
+                      vectorEffect="non-scaling-stroke"
+                    >
+                      <animate attributeName="r" from="0.5" to="0.8" dur="0.25s" fill="freeze" />
+                    </circle>
+                  ))}
+                </svg>
+              )}
+
+              {/* Freehand preview */}
+              {drawMode === 'freehand' && freehandPoints.length > 1 && (
+                <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <polyline
+                    points={pointsToSvgString(freehandPoints)}
+                    fill="rgba(29,107,255,0.10)"
+                    stroke="#1d6bff"
+                    strokeWidth={0.5}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
               )}
             </div>
           </div>
 
           <div className="mt-4 px-4 py-3 surface-card rounded-xl flex items-center justify-between">
             <div className="flex items-center space-x-4 text-xs">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-brand-500 rounded"></div>
-                <span className="text-ink-2">{t('zones.canvas.entranceZone')}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-danger-500 rounded"></div>
-                <span className="text-ink-2">{t('zones.canvas.exitZone')}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#ffb547' }}></div>
-                <span className="text-ink-2">{t('zones.canvas.queueZone')}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#1fc98a' }}></div>
-                <span className="text-ink-2">{t('zones.canvas.tableZone')}</span>
-              </div>
+              <LegendSwatch color="#3b82f6" label={t('zones.canvas.entranceZone')} />
+              <LegendSwatch color="#ef4444" label={t('zones.canvas.exitZone')} />
+              <LegendSwatch color="#f59e0b" label={t('zones.canvas.queueZone')} />
+              <LegendSwatch color="#10b981" label={t('zones.canvas.tableZone')} />
             </div>
             <div className="text-xs text-ink-3 font-mono">
               {t('zones.canvas.zonesDefined', { n: zones.length })}
@@ -469,6 +678,7 @@ export default function ZoneCanvas() {
           </div>
         </div>
 
+        {/* Side panel: zone list */}
         <div className="space-y-4">
           <div className="surface-card rounded-xl p-4 h-full flex flex-col">
             <h3 className="font-display text-sm font-semibold text-ink-0 mb-3 flex items-center">
@@ -479,51 +689,101 @@ export default function ZoneCanvas() {
               <p className="text-sm text-ink-3 text-center py-4">{t('zones.canvas.noZonesYet')}</p>
             ) : (
               <div className="space-y-2 overflow-y-auto flex-1 pr-1 custom-scrollbar">
-                {zones.map((zone) => (
-                  <div
-                    key={zone.id}
-                    className={`p-3 rounded-xl border transition-all cursor-pointer ${selectedZoneId === zone.id
-                      ? 'border-brand-500/60 bg-brand-500/15 shadow-glow-brand'
-                      : 'border-white/[0.08] hover:border-white/[0.16] bg-white/[0.03]'
-                      }`}
-                    onClick={() => setSelectedZoneId(zone.id)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <input
-                        type="text"
-                        value={zone.name}
-                        onChange={(e) => updateZoneName(zone.id, e.target.value)}
-                        className="text-sm font-semibold text-ink-0 bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-brand-500/40 rounded px-1 -ml-1 flex-1"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteZone(zone.id);
-                        }}
-                        className="text-danger-400 hover:text-danger-300 p-1 hover:bg-danger-500/10 rounded-lg transition-colors"
-                      >
-                        <Trash2 strokeWidth={1.5} className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <select
-                      value={zone.type}
-                      onChange={(e) => updateZoneType(zone.id, e.target.value as 'entrance' | 'exit' | 'queue' | 'table')}
-                      className="w-full text-xs px-2 py-1 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-                      onClick={(e) => e.stopPropagation()}
+                <AnimatePresence>
+                  {zones.map((zone) => (
+                    <motion.div
+                      key={zone.id}
+                      layout
+                      initial={{ opacity: 0, x: 12 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -12 }}
+                      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                      className={`p-3 rounded-xl border transition-all cursor-pointer ${selectedZoneId === zone.id ? 'border-brand-500/60 bg-brand-500/15 shadow-glow-brand' : 'border-white/[0.08] hover:border-white/[0.16] bg-white/[0.03]'}`}
+                      onClick={() => setSelectedZoneId(zone.id)}
                     >
-                      <option value="entrance">{t('zones.canvas.type.entrance')}</option>
-                      <option value="exit">{t('zones.canvas.type.exit')}</option>
-                      <option value="queue">{t('zones.canvas.type.queue')}</option>
-                      <option value="table">{t('zones.canvas.type.table')}</option>
-                    </select>
-                  </div>
-                ))}
+                      <div className="flex items-start justify-between mb-2 gap-2">
+                        <input
+                          type="text"
+                          value={zone.name}
+                          onChange={(e) => updateZoneName(zone.id, e.target.value)}
+                          className="text-sm font-semibold text-ink-0 bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-brand-500/40 rounded px-1 -ml-1 flex-1 min-w-0"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/[0.05] text-ink-3 border border-white/[0.08]">
+                          {zone.shape === 'polygon' ? <Hexagon className="w-3 h-3" /> : <Square className="w-3 h-3" />}
+                          {zone.shape === 'polygon' ? 'poly' : 'rect'}
+                        </span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteZone(zone.id); }}
+                          className="text-danger-400 hover:text-danger-300 p-1 hover:bg-danger-500/10 rounded-lg transition-colors"
+                        >
+                          <Trash2 strokeWidth={1.5} className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <select
+                        value={zone.type}
+                        onChange={(e) => updateZoneType(zone.id, e.target.value as Zone['type'])}
+                        className="w-full text-xs px-2 py-1 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <option value="entrance">{t('zones.canvas.type.entrance')}</option>
+                        <option value="exit">{t('zones.canvas.type.exit')}</option>
+                        <option value="queue">{t('zones.canvas.type.queue')}</option>
+                        <option value="table">{t('zones.canvas.type.table')}</option>
+                      </select>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
             )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DrawModeButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.96 }}
+      onClick={onClick}
+      className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+        active
+          ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white shadow-glow-brand'
+          : 'bg-transparent text-ink-2 hover:text-ink-0 hover:bg-white/[0.05]'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </motion.button>
+  );
+}
+
+function ResizeHandle({ pos, onMouseDown }: { pos: 'nw' | 'ne' | 'sw' | 'se'; onMouseDown: (e: React.MouseEvent) => void }) {
+  const cls = {
+    nw: '-top-1.5 -left-1.5 cursor-nw-resize',
+    ne: '-top-1.5 -right-1.5 cursor-ne-resize',
+    sw: '-bottom-1.5 -left-1.5 cursor-sw-resize',
+    se: '-bottom-1.5 -right-1.5 cursor-se-resize',
+  }[pos];
+  return (
+    <motion.div
+      initial={{ scale: 0 }}
+      animate={{ scale: 1 }}
+      exit={{ scale: 0 }}
+      transition={{ duration: 0.18 }}
+      className={`absolute w-3 h-3 bg-white border border-white/40 rounded-full shadow-md ${cls}`}
+      onMouseDown={onMouseDown}
+    />
+  );
+}
+
+function LegendSwatch({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center space-x-2">
+      <div className="w-3 h-3 rounded" style={{ backgroundColor: color }} />
+      <span className="text-ink-2">{label}</span>
     </div>
   );
 }

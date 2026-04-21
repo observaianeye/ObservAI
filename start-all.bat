@@ -2,6 +2,11 @@
 REM ObservAI - Unified Startup Script (Windows)
 REM Starts all services in parallel with proper port management
 
+REM Switch the console to UTF-8 so box-drawing chars and emoji render correctly.
+REM Without this, Turkish/European default code pages (CP857, CP437) turn box
+REM chars into mojibake like "ÔòöÔòÉ".
+chcp 65001 >nul 2>&1
+
 setlocal enabledelayedexpansion
 
 REM Get script directory
@@ -84,15 +89,35 @@ if not exist "packages\camera-analytics\venv" (
 echo %GREEN%✓ All dependencies installed%NC%
 echo.
 
+REM Create log directory early so redirects in the Ollama block succeed.
+REM Previously mkdir was after Ollama start - if logs\ did not exist yet,
+REM "ollama serve > logs\ollama.log" would fail silently and Ollama would die.
+if not exist "logs" mkdir logs
+
 REM ══════════════════════════════════════════════════════════════
-REM  OLLAMA — Check, Start, and Ensure Model is Ready
+REM  OLLAMA - Check, Start, and Ensure Model is Ready
 REM ══════════════════════════════════════════════════════════════
 
 echo %BLUE%Checking Ollama AI service...%NC%
 
-REM Read preferred model from backend/.env or fallback
-set "OLLAMA_MODEL=llama3.1:8b"
-if exist "backend\.env" for /f "tokens=2 delims==" %%M in ('findstr /I "^OLLAMA_MODEL=" "backend\.env" 2^>nul') do set "OLLAMA_MODEL=%%M"
+REM Primary / fallback models (Stage 6 — qwen3:14b → llama3.1:8b).
+REM Primary is overridable via backend\.env (OLLAMA_MODEL=...); fallback is fixed.
+set "OLLAMA_PRIMARY_MODEL=qwen3:14b"
+set "OLLAMA_FALLBACK_MODEL=llama3.1:8b"
+if exist "backend\.env" for /f "tokens=2 delims==" %%M in ('findstr /I "^OLLAMA_MODEL=" "backend\.env" 2^>nul') do set "OLLAMA_PRIMARY_MODEL=%%M"
+set "OLLAMA_MODEL=!OLLAMA_PRIMARY_MODEL!"
+
+REM GPU acceleration - if nvidia-smi is present, push all layers to the GPU.
+REM NOTE: Inside an IF/ELSE block any unescaped ) closes the block prematurely,
+REM so we keep the echoes paren-free here. Use dashes/colons instead.
+nvidia-smi >nul 2>&1
+if errorlevel 1 (
+    echo       %YELLOW%WARN: nvidia-smi not found - Ollama will run on CPU, slow for 14B models.%NC%
+    set "OLLAMA_NUM_GPU=0"
+) else (
+    set "OLLAMA_NUM_GPU=999"
+    echo       %GREEN%GPU detected - enabling full layer offload, OLLAMA_NUM_GPU=999.%NC%
+)
 
 REM Check if ollama is installed
 where ollama >nul 2>&1
@@ -108,14 +133,14 @@ if not errorlevel 1 (
     goto :ollama_check_model
 )
 
-REM Ollama is not running — start it
+REM Ollama is not running — start it with GPU env vars.
 echo       %YELLOW%Ollama is not running. Starting...%NC%
-start "ObservAI Ollama" /min cmd /c "ollama serve > "%SCRIPT_DIR%logs\ollama.log" 2>&1"
+start "ObservAI Ollama" /min cmd /c "set OLLAMA_NUM_GPU=!OLLAMA_NUM_GPU!&& ollama serve > "%SCRIPT_DIR%logs\ollama.log" 2>&1"
 
-REM Wait for Ollama to become ready - max 15 seconds
+REM Wait for Ollama to become ready - max 30 seconds (14B model takes longer to initialize)
 set "OLLAMA_READY=0"
 :ollama_wait_loop
-if !OLLAMA_READY! GEQ 15 goto :ollama_wait_done
+if !OLLAMA_READY! GEQ 30 goto :ollama_wait_done
 curl -s -o nul http://localhost:11434/ >nul 2>&1
 if not errorlevel 1 goto :ollama_started_ok
 timeout /t 1 /nobreak >nul
@@ -127,28 +152,50 @@ echo       %GREEN%Ollama started successfully.%NC%
 goto :ollama_check_model
 
 :ollama_wait_done
-echo %RED%Ollama failed to start within 15 seconds.%NC%
+echo %RED%Ollama failed to start within 30 seconds.%NC%
 echo %YELLOW%   AI chatbot and insights will not work.%NC%
 goto :skip_ollama
 
 :ollama_check_model
-REM Check if the required model is available
-ollama list 2>nul | findstr /I "!OLLAMA_MODEL!" >nul 2>&1
+REM Try primary first, then fall back if the pull fails (e.g. no network / disk space).
+ollama list 2>nul | findstr /I "!OLLAMA_PRIMARY_MODEL!" >nul 2>&1
 if not errorlevel 1 (
-    echo       %GREEN%Model !OLLAMA_MODEL! is ready.%NC%
-    goto :ollama_done
+    set "OLLAMA_MODEL=!OLLAMA_PRIMARY_MODEL!"
+    echo       %GREEN%Model !OLLAMA_PRIMARY_MODEL! is ready.%NC%
+    goto :ollama_warmup
 )
 
-echo       %YELLOW%Model !OLLAMA_MODEL! not found. Downloading - this may take a few minutes...%NC%
-ollama pull !OLLAMA_MODEL!
+echo       %YELLOW%Pulling primary model !OLLAMA_PRIMARY_MODEL! (this may take several minutes)...%NC%
+ollama pull !OLLAMA_PRIMARY_MODEL!
+if not errorlevel 1 (
+    set "OLLAMA_MODEL=!OLLAMA_PRIMARY_MODEL!"
+    echo       %GREEN%Model !OLLAMA_PRIMARY_MODEL! downloaded.%NC%
+    goto :ollama_warmup
+)
+
+echo       %YELLOW%Primary pull failed — trying fallback !OLLAMA_FALLBACK_MODEL!...%NC%
+ollama list 2>nul | findstr /I "!OLLAMA_FALLBACK_MODEL!" >nul 2>&1
+if not errorlevel 1 (
+    set "OLLAMA_MODEL=!OLLAMA_FALLBACK_MODEL!"
+    echo       %GREEN%Fallback model !OLLAMA_FALLBACK_MODEL! already present.%NC%
+    goto :ollama_warmup
+)
+ollama pull !OLLAMA_FALLBACK_MODEL!
 if errorlevel 1 (
-    echo %RED%Failed to download model !OLLAMA_MODEL!.%NC%
+    echo %RED%Failed to download both primary and fallback models.%NC%
     goto :skip_ollama
 )
-echo       %GREEN%Model !OLLAMA_MODEL! downloaded successfully.%NC%
+set "OLLAMA_MODEL=!OLLAMA_FALLBACK_MODEL!"
+echo       %GREEN%Fallback model !OLLAMA_FALLBACK_MODEL! downloaded.%NC%
+
+:ollama_warmup
+REM Warm-up request — loads weights into VRAM so the first user chat is snappy.
+echo       %BLUE%Warming up !OLLAMA_MODEL! (first token pre-load)...%NC%
+curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "{\"model\":\"!OLLAMA_MODEL!\",\"prompt\":\"hi\",\"stream\":false,\"options\":{\"num_predict\":4}}" >nul 2>&1
+echo       %GREEN%Warm-up complete.%NC%
 
 :ollama_done
-echo %GREEN%Ollama AI ready%NC%
+echo %GREEN%Ollama AI ready (model: !OLLAMA_MODEL!)%NC%
 echo.
 
 :skip_ollama
@@ -178,6 +225,11 @@ if not exist "node_modules\cross-env" (
     echo       %YELLOW%⚠️  Installing cross-env...%NC%
     call npm install cross-env --save-dev >nul 2>&1
 )
+
+REM Regenerate Prisma client if schema.prisma is newer than the generated client.
+REM Keeps new models (e.g. Stage 6 ChatMessage) in sync without a manual step.
+echo       %BLUE%Regenerating Prisma client if schema changed...%NC%
+call npx prisma generate >nul 2>&1
 
 start "ObservAI Backend API" /min cmd /c "npm run start:node > ..\logs\backend-api.log 2>&1"
 timeout /t 2 /nobreak >nul

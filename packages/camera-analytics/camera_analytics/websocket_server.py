@@ -74,10 +74,17 @@ class AnalyticsWebSocketServer:
         self.on_start_stream = None
         self.on_stop_stream = None
         self.on_snapshot = None
-        self.on_get_frame = None  # For MJPEG streaming (direct frame access)
+        self.on_get_frame = None  # For MJPEG inference-mode (annotated frame)
+        self.on_get_smooth_frame = None  # Stage 2: smooth-mode frame (raw + interp. overlay)
         self.on_change_source = None
         self.on_toggle_heatmap = None  # Toggle heatmap
         self.on_update_zones = None    # Update zones dynamically
+
+        # Default MJPEG mode if the client doesn't pass ?mode=... Leave as
+        # "inference" until smooth mode is validated on live cameras, then flip
+        # via OBSERVAI_MJPEG_MODE env.
+        import os as _os
+        self._default_mjpeg_mode = _os.environ.get("OBSERVAI_MJPEG_MODE", "inference").lower()
 
         # Setup event handlers
         self._setup_handlers()
@@ -101,8 +108,19 @@ class AnalyticsWebSocketServer:
 
         # MJPEG stream HTTP handler (non-Socket.IO route)
         async def mjpeg_handler(request):
-            """MJPEG stream endpoint for browser video display (30 FPS)"""
-            logger.info("MJPEG stream requested")
+            """MJPEG stream endpoint.
+
+            ?mode=inference (default) — annotated frame at inference rate (~20-25 FPS)
+            ?mode=smooth             — raw capture + interpolated bbox overlay (~60 FPS)
+            """
+            mode = request.query.get("mode", self._default_mjpeg_mode).lower()
+            if mode not in ("smooth", "inference"):
+                mode = "inference"
+            # Smooth mode requires the smooth-frame callback; fall back to
+            # inference if the engine didn't wire it up.
+            if mode == "smooth" and self.on_get_smooth_frame is None:
+                mode = "inference"
+            logger.info(f"MJPEG stream requested (mode={mode})")
 
             response = web.StreamResponse(
                 status=200,
@@ -120,11 +138,12 @@ class AnalyticsWebSocketServer:
             _last_frame_hash = [0]     # Track frame changes via pixel hash
             _last_jpeg_bytes = [None]  # Cache last encoded JPEG for keepalive resend
             _last_send_time = [0.0]    # Time of last frame send
+            # JPEG quality 82: marginally larger than 75 but noticeably less
+            # blocky on live video — still well under bandwidth limits.
+            _JPEG_QUALITY = 82
 
-            def _get_and_encode():
-                """Get frame + JPEG encode off the event loop.
-                Returns (jpeg_bytes, is_new) — reuses cached JPEG for keepalive.
-                """
+            def _get_and_encode_inference():
+                """Inference mode: annotated frame + change-detection keepalive."""
                 import time as _time
                 if not self.on_get_frame:
                     return None, False
@@ -134,14 +153,32 @@ class AnalyticsWebSocketServer:
                 # Quick change detection: hash a sparse sample of pixels
                 h = hash(frame[::64, ::64, 0].tobytes())
                 if h == _last_frame_hash[0]:
-                    # Frame unchanged — return cached JPEG for keepalive if >300ms since last send
                     if _time.time() - _last_send_time[0] > 0.3:
                         return _last_jpeg_bytes[0], False  # Keepalive resend
                     return None, False  # Skip — recent enough
                 _last_frame_hash[0] = h
-                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY])
                 _last_jpeg_bytes[0] = buf.tobytes()
                 return _last_jpeg_bytes[0], True
+
+            def _get_and_encode_smooth():
+                """Smooth mode: raw frame + interpolated overlay, re-encoded every tick.
+
+                The bbox position shifts continuously with interpolation so we
+                cannot dedupe by hash — just re-encode the latest raw+overlay.
+                """
+                import time as _time
+                cb = self.on_get_smooth_frame
+                if not cb:
+                    return None, False
+                frame = cb(_time.time())
+                if frame is None:
+                    return _last_jpeg_bytes[0], False  # keepalive
+                _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY])
+                _last_jpeg_bytes[0] = buf.tobytes()
+                return _last_jpeg_bytes[0], True
+
+            _get_and_encode = _get_and_encode_smooth if mode == "smooth" else _get_and_encode_inference
 
             try:
                 import cv2
@@ -152,7 +189,6 @@ class AnalyticsWebSocketServer:
                     jpeg_bytes, is_new = await asyncio.to_thread(_get_and_encode)
 
                     if jpeg_bytes is not None:
-                        # Write MJPEG frame (new frame or keepalive)
                         try:
                             await response.write(
                                 b'--frame\r\n'
@@ -170,8 +206,11 @@ class AnalyticsWebSocketServer:
                                 break
                             raise e
 
-                    # Adaptive sleep: fast when frames change, slower when idle
-                    await asyncio.sleep(0.025 if is_new else 0.050)
+                    # Smooth: push ~60 FPS (17 ms). Inference: keep original cadence.
+                    if mode == "smooth":
+                        await asyncio.sleep(0.017 if is_new else 0.033)
+                    else:
+                        await asyncio.sleep(0.025 if is_new else 0.050)
             except asyncio.CancelledError:
                 logger.info("MJPEG stream cancelled")
             except Exception as e:

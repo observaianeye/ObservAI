@@ -1,6 +1,7 @@
-import { Camera, Circle, Monitor, Wifi, Upload, Trash2, Loader2, Smartphone, Play } from 'lucide-react';
+import { Camera, Circle, Monitor, Wifi, Upload, Trash2, Loader2, Smartphone, Play, Youtube, Plus, Check } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 
@@ -16,6 +17,15 @@ interface SavedCamera {
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+const SOURCE_TYPE_META: Record<SourceType, { gradient: string; accentColor: string }> = {
+  webcam: { gradient: 'from-brand-500/25 via-brand-500/10 to-transparent', accentColor: '#1d6bff' },
+  phone: { gradient: 'from-violet-500/25 via-violet-500/10 to-transparent', accentColor: '#8b5cf6' },
+  file: { gradient: 'from-cyan-500/25 via-cyan-500/10 to-transparent', accentColor: '#06b6d4' },
+  rtsp: { gradient: 'from-accent-500/25 via-accent-500/10 to-transparent', accentColor: '#12bcff' },
+  screen: { gradient: 'from-amber-500/25 via-amber-500/10 to-transparent', accentColor: '#f59e0b' },
+  youtube: { gradient: 'from-danger-500/25 via-danger-500/10 to-transparent', accentColor: '#ef4444' },
+};
 
 export default function CameraSelectionPage() {
   const { user } = useAuth();
@@ -43,17 +53,15 @@ export default function CameraSelectionPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchCameras();
-  }, [fetchCameras]);
+  useEffect(() => { fetchCameras(); }, [fetchCameras]);
 
   const sourceTypes = [
-    { value: 'webcam', label: t('cameraSelection.type.webcam.label'), icon: Camera, description: t('cameraSelection.type.webcam.desc') },
-    { value: 'phone', label: t('cameraSelection.type.phone.label'), icon: Smartphone, description: t('cameraSelection.type.phone.desc') },
-    { value: 'file', label: t('cameraSelection.type.file.label'), icon: Upload, description: t('cameraSelection.type.file.desc') },
-    { value: 'rtsp', label: t('cameraSelection.type.rtsp.label'), icon: Wifi, description: t('cameraSelection.type.rtsp.desc') },
-    { value: 'screen', label: t('cameraSelection.type.screen.label'), icon: Monitor, description: t('cameraSelection.type.screen.desc') },
-    { value: 'youtube', label: t('cameraSelection.type.youtube.label'), icon: Camera, description: t('cameraSelection.type.youtube.desc') },
+    { value: 'webcam' as SourceType, label: t('cameraSelection.type.webcam.label'), icon: Camera, description: t('cameraSelection.type.webcam.desc') },
+    { value: 'phone' as SourceType, label: t('cameraSelection.type.phone.label'), icon: Smartphone, description: t('cameraSelection.type.phone.desc') },
+    { value: 'file' as SourceType, label: t('cameraSelection.type.file.label'), icon: Upload, description: t('cameraSelection.type.file.desc') },
+    { value: 'rtsp' as SourceType, label: t('cameraSelection.type.rtsp.label'), icon: Wifi, description: t('cameraSelection.type.rtsp.desc') },
+    { value: 'screen' as SourceType, label: t('cameraSelection.type.screen.label'), icon: Monitor, description: t('cameraSelection.type.screen.desc') },
+    { value: 'youtube' as SourceType, label: t('cameraSelection.type.youtube.label'), icon: Youtube, description: t('cameraSelection.type.youtube.desc') },
   ];
 
   const handleAddSource = async () => {
@@ -61,10 +69,8 @@ export default function CameraSelectionPage() {
       setError(t('cameraSelection.errorMissing'));
       return;
     }
-
     setIsSaving(true);
     setError('');
-
     try {
       const res = await fetch(`${API_URL}/api/cameras`, {
         method: 'POST',
@@ -74,10 +80,9 @@ export default function CameraSelectionPage() {
           name: sourceName,
           sourceType: sourceType.toUpperCase(),
           sourceValue: sourceValue,
-          createdBy: user?.id
-        })
+          createdBy: user?.id,
+        }),
       });
-
       if (res.ok) {
         setSourceName('');
         setSourceValue(sourceType === 'webcam' ? '0' : '');
@@ -97,10 +102,10 @@ export default function CameraSelectionPage() {
     try {
       const res = await fetch(`${API_URL}/api/cameras/${id}`, {
         method: 'DELETE',
-        credentials: 'include'
+        credentials: 'include',
       });
       if (res.ok || res.status === 204) {
-        setCameras(prev => prev.filter(c => c.id !== id));
+        setCameras((prev) => prev.filter((c) => c.id !== id));
       }
     } catch (err) {
       console.error('Failed to delete camera:', err);
@@ -111,7 +116,7 @@ export default function CameraSelectionPage() {
     try {
       const res = await fetch(`${API_URL}/api/cameras/activate/${cameraId}`, {
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
       });
       if (res.ok) {
         await fetchCameras();
@@ -123,7 +128,7 @@ export default function CameraSelectionPage() {
   };
 
   const getSourceIcon = (type: string) => {
-    const st = sourceTypes.find(s => s.value === type.toLowerCase());
+    const st = sourceTypes.find((s) => s.value === (type.toLowerCase() as SourceType));
     return st ? st.icon : Camera;
   };
 
@@ -139,7 +144,7 @@ export default function CameraSelectionPage() {
     }
   };
 
-  const getSourceDescription = () => t(`cameraSelection.placeholder.${sourceType}`);
+  const activeMeta = SOURCE_TYPE_META[sourceType];
 
   return (
     <div className="space-y-6">
@@ -149,38 +154,89 @@ export default function CameraSelectionPage() {
       </div>
 
       {/* Add New Source */}
-      <div className="surface-card rounded-xl p-6">
-        <h2 className="font-display text-lg font-semibold text-ink-0 mb-4">{t('cameraSelection.addNew')}</h2>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+        className="relative overflow-hidden surface-card rounded-2xl p-6"
+      >
+        {/* Ambient gradient that shifts with selected source */}
+        <motion.div
+          key={sourceType}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4 }}
+          className={`pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full blur-3xl bg-gradient-to-br ${activeMeta.gradient}`}
+        />
 
-        <div className="mb-6">
+        <h2 className="relative font-display text-lg font-semibold text-ink-0 mb-4 flex items-center gap-2">
+          <Plus className="w-5 h-5 text-brand-300" strokeWidth={1.5} />
+          {t('cameraSelection.addNew')}
+        </h2>
+
+        <div className="relative mb-6">
           <label className="block text-sm font-medium text-ink-2 mb-3">{t('cameraSelection.page.sourceLabel')}</label>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-            {sourceTypes.map((st) => {
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {sourceTypes.map((st, i) => {
               const Icon = st.icon;
               const active = sourceType === st.value;
+              const meta = SOURCE_TYPE_META[st.value];
               return (
-                <button
+                <motion.button
                   key={st.value}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.045, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                  whileHover={{ y: -3 }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={() => {
-                    setSourceType(st.value as SourceType);
+                    setSourceType(st.value);
                     setSourceValue(st.value === 'webcam' ? '0' : st.value === 'screen' ? 'screen' : st.value === 'phone' ? 'http://' : '');
                   }}
-                  className={`p-4 rounded-xl border-2 transition-all ${
+                  className={`relative p-4 rounded-xl border-2 transition-colors text-left overflow-hidden ${
                     active
-                      ? 'border-brand-500/60 bg-brand-500/15 shadow-glow-brand'
+                      ? 'border-brand-500/60 bg-brand-500/10'
                       : 'border-white/[0.08] hover:border-white/[0.16] bg-white/[0.03]'
                   }`}
+                  style={active ? { boxShadow: `0 0 22px ${meta.accentColor}33, inset 0 0 0 1px ${meta.accentColor}40` } : undefined}
                 >
-                  <Icon strokeWidth={1.5} className={`w-6 h-6 mx-auto mb-2 ${active ? 'text-brand-300' : 'text-ink-3'}`} />
-                  <p className={`text-sm font-medium ${active ? 'text-brand-200' : 'text-ink-2'}`}>{st.label}</p>
-                  <p className="text-xs text-ink-4 mt-1">{st.description}</p>
-                </button>
+                  {active && (
+                    <motion.div
+                      layoutId="sourceTypeGlow"
+                      className="absolute inset-0 pointer-events-none rounded-xl"
+                      style={{
+                        background: `radial-gradient(circle at 30% 20%, ${meta.accentColor}30, transparent 70%)`,
+                      }}
+                    />
+                  )}
+                  <div className="relative">
+                    <div
+                      className={`w-10 h-10 rounded-lg flex items-center justify-center mb-2 transition-colors`}
+                      style={{
+                        backgroundColor: active ? `${meta.accentColor}25` : 'rgba(255,255,255,0.04)',
+                      }}
+                    >
+                      <Icon strokeWidth={1.5} className="w-5 h-5" style={{ color: active ? meta.accentColor : undefined }} />
+                    </div>
+                    <p className={`text-sm font-semibold ${active ? 'text-ink-0' : 'text-ink-2'}`}>{st.label}</p>
+                    <p className="text-xs text-ink-4 mt-0.5 line-clamp-2">{st.description}</p>
+                  </div>
+                  {active && (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="absolute top-2 right-2 w-5 h-5 rounded-full bg-brand-500 flex items-center justify-center shadow-glow-brand"
+                    >
+                      <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                    </motion.div>
+                  )}
+                </motion.button>
               );
             })}
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="relative space-y-4">
           <div>
             <label className="block text-sm font-medium text-ink-2 mb-2">{t('cameraSelection.sourceName')}</label>
             <input
@@ -188,7 +244,7 @@ export default function CameraSelectionPage() {
               value={sourceName}
               onChange={(e) => setSourceName(e.target.value)}
               placeholder={t('cameraSelection.sourceNamePh')}
-              className="w-full px-4 py-2 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 placeholder:text-ink-4 transition-all"
+              className="w-full px-4 py-2.5 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 placeholder:text-ink-4 transition-all"
             />
           </div>
 
@@ -199,90 +255,139 @@ export default function CameraSelectionPage() {
               value={sourceValue}
               onChange={(e) => setSourceValue(e.target.value)}
               placeholder={getSourcePlaceholder()}
-              className="w-full px-4 py-2 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 font-mono text-sm placeholder:text-ink-4 transition-all"
+              className="w-full px-4 py-2.5 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 font-mono text-sm placeholder:text-ink-4 transition-all"
             />
-            <p className="mt-2 text-xs text-ink-4">{getSourceDescription()}</p>
+            <p className="mt-2 text-xs text-ink-4">{t(`cameraSelection.placeholder.${sourceType}`)}</p>
           </div>
 
-          {error && (
-            <p className="text-sm text-danger-400">{error}</p>
-          )}
+          <AnimatePresence>
+            {error && (
+              <motion.p
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                className="text-sm text-danger-400"
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
 
-          <button
+          <motion.button
+            whileTap={{ scale: 0.98 }}
             onClick={handleAddSource}
             disabled={isSaving}
-            className="w-full px-4 py-2.5 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-medium hover:shadow-glow-brand transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full px-4 py-3 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-semibold hover:shadow-glow-brand transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" strokeWidth={2} />}
             {isSaving ? t('cameraSelection.saving') : t('cameraSelection.addSource')}
-          </button>
+          </motion.button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Saved Cameras */}
       <div>
-        <h2 className="font-display text-lg font-semibold text-ink-0 mb-4">
-          {t('cameraSelection.configured')} {cameras.length > 0 && `(${cameras.length})`}
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-lg font-semibold text-ink-0">
+            {t('cameraSelection.configured')} {cameras.length > 0 && <span className="text-ink-3 font-normal">({cameras.length})</span>}
+          </h2>
+        </div>
 
         {isLoading ? (
-          <div className="text-center py-8">
+          <div className="text-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-brand-400 mx-auto" />
             <p className="text-sm text-ink-3 mt-2">{t('cameraSelection.loading')}</p>
           </div>
         ) : cameras.length === 0 ? (
-          <div className="surface-card rounded-xl p-8 text-center">
-            <Camera strokeWidth={1.5} className="w-10 h-10 text-ink-4 mx-auto mb-3" />
-            <p className="text-ink-3">{t('cameraSelection.emptyTitle')}</p>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="surface-card rounded-2xl p-10 text-center"
+          >
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-500/10 mb-4">
+              <Camera strokeWidth={1.5} className="w-7 h-7 text-brand-300" />
+            </div>
+            <p className="text-ink-2 font-medium">{t('cameraSelection.emptyTitle')}</p>
             <p className="text-sm text-ink-4 mt-1">{t('cameraSelection.emptyHint')}</p>
-          </div>
+          </motion.div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {cameras.map((camera) => {
-              const Icon = getSourceIcon(camera.sourceType);
-              return (
-                <div key={camera.id} className="surface-card rounded-xl p-6 hover:border-brand-500/30 transition-colors">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-12 h-12 bg-brand-500/15 rounded-xl flex items-center justify-center">
-                      <Icon strokeWidth={1.5} className="w-6 h-6 text-brand-300" />
+            <AnimatePresence>
+              {cameras.map((camera, i) => {
+                const Icon = getSourceIcon(camera.sourceType);
+                const meta = SOURCE_TYPE_META[camera.sourceType.toLowerCase() as SourceType] || SOURCE_TYPE_META.webcam;
+                return (
+                  <motion.div
+                    key={camera.id}
+                    layout
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ delay: i * 0.05, duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+                    whileHover={{ y: -3 }}
+                    className="relative group surface-card rounded-2xl p-6 overflow-hidden"
+                    style={{ boxShadow: camera.isActive ? `0 0 22px ${meta.accentColor}22` : undefined }}
+                  >
+                    <div
+                      className="pointer-events-none absolute -top-12 -right-10 w-40 h-40 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ background: `radial-gradient(circle, ${meta.accentColor}44, transparent 70%)` }}
+                    />
+                    <div className="relative flex items-start justify-between mb-4">
+                      <div
+                        className="w-12 h-12 rounded-xl flex items-center justify-center"
+                        style={{ backgroundColor: `${meta.accentColor}20` }}
+                      >
+                        <Icon strokeWidth={1.5} className="w-6 h-6" style={{ color: meta.accentColor }} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {camera.isActive && (
+                          <motion.span
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-success-500/20 text-success-300 border border-success-500/30"
+                          >
+                            <motion.span
+                              animate={{ scale: [1, 1.3, 1] }}
+                              transition={{ repeat: Infinity, duration: 1.6 }}
+                              className="w-1.5 h-1.5 rounded-full bg-success-400"
+                            />
+                            LIVE
+                          </motion.span>
+                        )}
+                        <Circle className={`w-2.5 h-2.5 ${camera.isActive ? 'text-success-400 fill-success-400' : 'text-ink-4 fill-ink-4'}`} />
+                        <span className="text-[11px] text-ink-3 capitalize font-mono">{camera.sourceType.toLowerCase()}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Circle className={`w-3 h-3 ${camera.isActive ? 'text-success-400 fill-success-400' : 'text-ink-4 fill-ink-4'}`} />
-                      <span className="text-xs text-ink-3 capitalize font-mono">{camera.sourceType.toLowerCase()}</span>
+                    <h3 className="relative text-base font-semibold text-ink-0 mb-1 truncate" title={camera.name}>{camera.name}</h3>
+                    <p className="relative text-xs text-ink-4 mb-4 font-mono break-all line-clamp-2" title={camera.sourceValue}>{camera.sourceValue}</p>
+                    <div className="relative flex gap-2">
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => handleActivate(camera.id)}
+                        className="flex-1 px-3 py-2 bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-xl text-sm font-medium hover:bg-brand-500/25 transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Play className="w-3.5 h-3.5" strokeWidth={1.5} />
+                        {t('cameraSelection.activate')}
+                      </motion.button>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(`python -m camera_analytics.run_with_websocket --source "${camera.sourceValue}"`)}
+                        className="px-3 py-2 bg-white/[0.04] text-ink-2 rounded-xl text-sm font-medium hover:bg-white/[0.08] transition-colors border border-white/[0.08]"
+                        title={t('cameraSelection.copyCmd')}
+                      >
+                        {t('cameraSelection.copy')}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(camera.id)}
+                        className="px-3 py-2 text-danger-400 hover:bg-danger-500/10 rounded-xl transition-colors border border-white/[0.08]"
+                        title={t('cameraSelection.delete')}
+                      >
+                        <Trash2 className="w-4 h-4" strokeWidth={1.5} />
+                      </button>
                     </div>
-                  </div>
-                  <h3 className="text-base font-semibold text-ink-0 mb-1">{camera.name}</h3>
-                  <p className="text-xs text-ink-4 mb-4 font-mono break-all">{camera.sourceValue}</p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleActivate(camera.id)}
-                      className="flex-1 px-3 py-2 bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-xl text-sm font-medium hover:bg-brand-500/25 transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <Play className="w-3.5 h-3.5" strokeWidth={1.5} />
-                      {t('cameraSelection.activate')}
-                    </button>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(
-                          `python -m camera_analytics.run_with_websocket --source "${camera.sourceValue}"`
-                        );
-                      }}
-                      className="px-3 py-2 bg-white/[0.04] text-ink-2 rounded-xl text-sm font-medium hover:bg-white/[0.08] transition-colors border border-white/[0.08]"
-                      title={t('cameraSelection.copyCmd')}
-                    >
-                      {t('cameraSelection.copy')}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(camera.id)}
-                      className="px-3 py-2 text-danger-400 hover:bg-danger-500/10 rounded-xl transition-colors border border-white/[0.08]"
-                      title={t('cameraSelection.delete')}
-                    >
-                      <Trash2 className="w-4 h-4" strokeWidth={1.5} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         )}
       </div>

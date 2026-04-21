@@ -1,9 +1,14 @@
 /**
  * Python Backend Manager
  * Spawns and manages the camera-analytics Python process.
+ *
+ * Stage 7 addition: health polling + EventEmitter.
+ * Emits 'python_backend_offline' after 3 consecutive health failures,
+ * and 'python_backend_online' when connectivity returns.
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import { EventEmitter } from 'events';
 import path from 'path';
 
 interface BackendConfig {
@@ -17,12 +22,25 @@ interface BackendStatus {
   pid?: number;
   config?: BackendConfig;
   startedAt?: string;
+  healthy?: boolean;
+  lastHealthCheck?: string;
+  consecutiveFailures?: number;
 }
 
-class PythonBackendManager {
+const HEALTH_POLL_INTERVAL_MS = 10_000;
+const HEALTH_TIMEOUT_MS = 2_000;
+const OFFLINE_THRESHOLD = 3;
+
+class PythonBackendManager extends EventEmitter {
   private process: ChildProcess | null = null;
   private config: BackendConfig | null = null;
   private startedAt: string | null = null;
+
+  private healthTimer: NodeJS.Timeout | null = null;
+  private consecutiveFailures = 0;
+  private lastHealthy: boolean | null = null;
+  private lastHealthCheck: string | null = null;
+  private offlineEmitted = false;
 
   async start(config: BackendConfig): Promise<boolean> {
     if (this.process) {
@@ -161,7 +179,69 @@ class PythonBackendManager {
       pid: this.process?.pid,
       config: this.config ?? undefined,
       startedAt: this.startedAt ?? undefined,
+      healthy: this.lastHealthy ?? undefined,
+      lastHealthCheck: this.lastHealthCheck ?? undefined,
+      consecutiveFailures: this.consecutiveFailures,
     };
+  }
+
+  private async probeHealth(port: number): Promise<boolean> {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+    try {
+      const resp = await fetch(`http://localhost:${port}/health`, { signal: controller.signal });
+      return resp.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  startHealthMonitor(port: number = 5001): void {
+    if (this.healthTimer) return;
+
+    const tick = async () => {
+      const healthy = await this.probeHealth(port);
+      this.lastHealthCheck = new Date().toISOString();
+
+      if (healthy) {
+        if (this.consecutiveFailures > 0 || this.offlineEmitted) {
+          console.log('[PythonManager] health recovered, backend online');
+          this.emit('python_backend_online');
+          this.offlineEmitted = false;
+        }
+        this.consecutiveFailures = 0;
+      } else {
+        this.consecutiveFailures += 1;
+        if (this.consecutiveFailures >= OFFLINE_THRESHOLD && !this.offlineEmitted) {
+          console.warn(`[PythonManager] health failed ${this.consecutiveFailures}x, emitting offline event`);
+          this.emit('python_backend_offline', {
+            consecutiveFailures: this.consecutiveFailures,
+            port,
+            at: this.lastHealthCheck,
+          });
+          this.offlineEmitted = true;
+        }
+      }
+      this.lastHealthy = healthy;
+    };
+
+    tick().catch(() => { /* best-effort */ });
+    this.healthTimer = setInterval(() => {
+      tick().catch(() => { /* best-effort */ });
+    }, HEALTH_POLL_INTERVAL_MS);
+    console.log(`[PythonManager] health monitor started (poll=${HEALTH_POLL_INTERVAL_MS}ms, threshold=${OFFLINE_THRESHOLD})`);
+  }
+
+  stopHealthMonitor(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+    this.consecutiveFailures = 0;
+    this.offlineEmitted = false;
+    this.lastHealthy = null;
   }
 }
 

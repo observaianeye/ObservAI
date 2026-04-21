@@ -16,6 +16,16 @@ interface AIStatus {
   provider: string;
   ollama: { status: string; model: string | null };
   available: boolean;
+  // Stage 6 — true when backend has ENABLE_AI_STREAMING=true AND provider=ollama.
+  streamingEnabled?: boolean;
+}
+
+/** Generate a short opaque ID — good enough for a per-browser chat conversation. */
+function newConversationId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return (crypto as Crypto).randomUUID();
+  }
+  return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 // 65s — slightly longer than backend OLLAMA_TIMEOUT_MS so user sees the
@@ -30,6 +40,15 @@ export default function GlobalChatbot() {
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = sessionStorage.getItem('chatMessages');
     return saved ? JSON.parse(saved) : [];
+  });
+  // conversationId persists across sessions (localStorage, not sessionStorage) so
+  // the backend can thread follow-ups like "peki cinsiyet dağılımı?" correctly.
+  const [conversationId, setConversationId] = useState<string>(() => {
+    const existing = localStorage.getItem('chatConversationId');
+    if (existing) return existing;
+    const fresh = newConversationId();
+    localStorage.setItem('chatConversationId', fresh);
+    return fresh;
   });
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -130,46 +149,113 @@ export default function GlobalChatbot() {
     abortRef.current = controller;
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+    // Streaming path is only taken when backend announces streamingEnabled in /status.
+    const useStream = aiStatus?.streamingEnabled === true;
+    const endpoint = useStream ? '/api/ai/chat/stream' : '/api/ai/chat';
+
     try {
-      const response = await fetch(`${API_URL}/api/ai/chat`, {
+      const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ message: messageText, lang }),
+        body: JSON.stringify({ message: messageText, lang, conversationId }),
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
+      if (useStream && response.ok && response.body) {
+        // SSE path — swap the "__thinking__" placeholder for an empty bubble we
+        // append chunks to. We never push a second assistant bubble; we mutate
+        // this one in place so the UI looks like a typewriter.
+        const assistantId = `${Date.now()}-stream`;
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== loadingId);
+          return [...filtered, {
+            id: assistantId,
+            type: 'assistant' as const,
+            content: '',
+            timestamp: new Date(),
+          }];
+        });
 
-      // Read body once — only as JSON if the content-type says so. Some upstream
-      // failures (502/504 from a proxy) return HTML, which json() would throw on.
-      const ct = response.headers.get('content-type') || '';
-      const data = ct.includes('application/json') ? await response.json().catch(() => ({})) : {};
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let errored = false;
 
-      let content: string;
-      let isError = false;
+        readLoop: while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
 
-      if (response.ok && data.message) {
-        content = data.message;
+          // SSE event separator is a blank line; split and parse each `data: {...}` entry.
+          const events = buffer.split('\n\n');
+          buffer = events.pop() ?? '';
+          for (const evt of events) {
+            const line = evt.split('\n').find(l => l.startsWith('data:'));
+            if (!line) continue;
+            try {
+              const payload = JSON.parse(line.slice(5).trim()) as
+                | { type: 'chunk'; content: string }
+                | { type: 'done'; model: string; fullResponse: string }
+                | { type: 'error'; error: string; errorCode?: string };
+              if (payload.type === 'chunk') {
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId ? { ...m, content: m.content + payload.content } : m
+                ));
+              } else if (payload.type === 'error') {
+                errored = true;
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId ? { ...m, content: payload.error || t('chatbot.unavailable'), isError: true } : m
+                ));
+                break readLoop;
+              } else if (payload.type === 'done') {
+                break readLoop;
+              }
+            } catch {
+              // Ignore malformed SSE frames — the stream may recover.
+            }
+          }
+        }
+
+        clearTimeout(timeoutId);
+        if (!errored) {
+          // No-op: the bubble already has the full text appended chunk-by-chunk.
+        }
       } else {
-        isError = true;
-        content = data.error || `${t('chatbot.unavailable')} (HTTP ${response.status})`;
-      }
+        clearTimeout(timeoutId);
 
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== loadingId);
-        return [...filtered, {
-          id: (Date.now() + 1).toString(),
-          type: 'assistant' as const,
-          content,
-          timestamp: new Date(),
-          isError,
-        }];
-      });
+        // Non-streaming JSON path (pre-Stage-6 behaviour).
+        const ct = response.headers.get('content-type') || '';
+        const data = ct.includes('application/json') ? await response.json().catch(() => ({})) : {};
+
+        let content: string;
+        let isError = false;
+
+        if (response.ok && data.message) {
+          content = data.message;
+        } else {
+          isError = true;
+          content = data.error || `${t('chatbot.unavailable')} (HTTP ${response.status})`;
+        }
+
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== loadingId);
+          return [...filtered, {
+            id: (Date.now() + 1).toString(),
+            type: 'assistant' as const,
+            content,
+            timestamp: new Date(),
+            isError,
+          }];
+        });
+      }
     } catch (error) {
       clearTimeout(timeoutId);
       const isAbort = (error as Error)?.name === 'AbortError';
       setMessages(prev => {
+        // Remove the thinking placeholder if it's still there (non-streaming path
+        // never swapped it out). In the streaming path the id changed already, so
+        // this filter simply no-ops for that case.
         const filtered = prev.filter(m => m.id !== loadingId);
         return [...filtered, {
           id: (Date.now() + 1).toString(),
@@ -192,6 +278,10 @@ export default function GlobalChatbot() {
     abortRef.current?.abort();
     setMessages([]);
     sessionStorage.removeItem('chatMessages');
+    // Rotate conversationId so the next turn starts a fresh context on the backend.
+    const fresh = newConversationId();
+    localStorage.setItem('chatConversationId', fresh);
+    setConversationId(fresh);
     setShowQuickActions(true);
   };
 

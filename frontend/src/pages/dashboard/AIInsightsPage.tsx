@@ -225,24 +225,34 @@ export default function AIInsightsPage() {
 
       const cameraId = cameraIdRef.current;
 
-      const [insightsRes, unreadRes, recsRes] = await Promise.all([
+      // Use Promise.allSettled so one failing endpoint doesn't stall the others.
+      // This fixes the "stuck on Loading insights..." bug when any sub-call fails.
+      const [insightsRes, unreadRes, recsRes] = await Promise.allSettled([
         fetchJSON<{ insights: Insight[] }>(`/api/insights?limit=50`),
         fetchJSON<{ unreadCount: number }>(`/api/insights/unread-count`),
         fetchJSON<{ recommendations: string[]; source: string }>(`/api/insights/recommendations${cameraId ? `?cameraId=${cameraId}` : ''}`),
       ]);
 
-      setInsights(insightsRes.insights || []);
-      setUnreadCount(unreadRes.unreadCount || 0);
-      setRecommendations(recsRes.recommendations || []);
-      setRecSource(recsRes.source || 'demo');
+      setInsights(insightsRes.status === 'fulfilled' ? insightsRes.value.insights || [] : []);
+      setUnreadCount(unreadRes.status === 'fulfilled' ? unreadRes.value.unreadCount || 0 : 0);
+      if (recsRes.status === 'fulfilled') {
+        setRecommendations(recsRes.value.recommendations || []);
+        setRecSource(recsRes.value.source || 'demo');
+      }
 
       if (cameraId) {
-        const [statsRes, trendsRes] = await Promise.all([
+        const [statsRes, trendsRes] = await Promise.allSettled([
           fetchJSON<StatsResult>(`/api/insights/stats/${cameraId}?period=${period}`),
           fetchJSON<TrendAnalysis>(`/api/insights/trends/${cameraId}`),
         ]);
-        setStats(statsRes);
-        setTrends(trendsRes);
+        if (statsRes.status === 'fulfilled') setStats(statsRes.value);
+        if (trendsRes.status === 'fulfilled') setTrends(trendsRes.value);
+      }
+
+      // Surface a soft error only if ALL calls failed
+      const anySuccess = [insightsRes, unreadRes, recsRes].some((r) => r.status === 'fulfilled');
+      if (!anySuccess) {
+        setError(t('insight.page.loadFailed') || 'Icgorii verileri alinamadi');
       }
     } catch (err: any) {
       console.error('[AIInsightsPage] Load error:', err);

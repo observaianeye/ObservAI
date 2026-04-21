@@ -5,32 +5,133 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
+import { validateAnalyticsPayload } from '../lib/analyticsValidator';
+import { sendTelegramMessage } from '../services/telegramService';
+import { sendAlertEmail } from '../services/emailService';
 
 const router = Router();
 
-// Validation schema
-const CreateAnalyticsLogSchema = z.object({
-  cameraId: z.string().min(1),
-  peopleIn: z.number().int().min(0),
-  peopleOut: z.number().int().min(0),
-  currentCount: z.number().int().min(0),
-  demographics: z.record(z.any()).optional(),
-  queueCount: z.number().int().optional(),
-  avgWaitTime: z.number().optional(),
-  longestWaitTime: z.number().optional(),
-  fps: z.number().optional(),
-  heatmap: z.any().optional(),
-  activePeople: z.any().optional()
-});
+/**
+ * Fire a cleaning alert to every staff member currently on shift for the
+ * branch that owns this camera. ADIM 20 requirement: CLEANING transition
+ * must reach the right people, logged end-to-end in NotificationLog.
+ *
+ * "On shift right now" = StaffAssignment rows whose date is today AND whose
+ * shiftStart/shiftEnd window contains the current wall-clock time, status
+ * not declined. Telegram + email both attempted in parallel.
+ */
+async function notifyCleaningRequested(input: {
+  zoneId: string;
+  cameraId: string;
+  occupants: number;
+}): Promise<void> {
+  const camera = await prisma.camera.findUnique({
+    where: { id: input.cameraId },
+    select: { branchId: true, name: true },
+  });
+  if (!camera?.branchId) return; // no branch → nobody to notify
 
-// POST /api/analytics - Log analytics data
+  const zone = await prisma.zone.findUnique({
+    where: { id: input.zoneId },
+    select: { name: true },
+  });
+
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(todayStart);
+  todayEnd.setDate(todayEnd.getDate() + 1);
+
+  const assignments = await prisma.staffAssignment.findMany({
+    where: {
+      branchId: camera.branchId,
+      date: { gte: todayStart, lt: todayEnd },
+      status: { not: 'declined' },
+    },
+    include: { staff: true },
+  });
+
+  if (assignments.length === 0) return;
+
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const onShift = assignments.filter((a) => {
+    const [sh, sm] = a.shiftStart.split(':').map(Number);
+    const [eh, em] = a.shiftEnd.split(':').map(Number);
+    const start = sh * 60 + sm;
+    const end = eh * 60 + em;
+    return start <= end
+      ? nowMin >= start && nowMin < end
+      : nowMin >= start || nowMin < end; // overnight shift
+  });
+
+  if (onShift.length === 0) return;
+
+  const tableLabel = zone?.name ?? 'Masa';
+  const cameraLabel = camera.name ?? 'Kamera';
+  const title = `Temizlik gerekli: ${tableLabel}`;
+  const body = `${cameraLabel} uzerinde ${tableLabel} temizlik bekliyor. ${
+    input.occupants > 0 ? `Son doluluk: ${input.occupants} kisi.` : ''
+  }`.trim();
+
+  await Promise.all(onShift.map(async (a) => {
+    const staff = a.staff;
+
+    if (staff.telegramChatId) {
+      const tg = await sendTelegramMessage(
+        staff.telegramChatId,
+        title,
+        body,
+        'high',
+        cameraLabel,
+      );
+      await prisma.notificationLog.create({
+        data: {
+          userId: staff.userId,
+          staffId: staff.id,
+          assignmentId: a.id,
+          event: 'alert',
+          channel: 'telegram',
+          target: staff.telegramChatId,
+          success: tg.success,
+          error: tg.error ?? null,
+          payload: JSON.stringify({ reason: 'cleaning_requested', zoneId: input.zoneId, tableLabel }),
+        },
+      }).catch(() => {});
+    }
+
+    if (staff.email) {
+      const em = await sendAlertEmail(staff.email, title, body, 'high', cameraLabel);
+      await prisma.notificationLog.create({
+        data: {
+          userId: staff.userId,
+          staffId: staff.id,
+          assignmentId: a.id,
+          event: 'alert',
+          channel: 'email',
+          target: staff.email,
+          success: em.success,
+          error: em.error ?? null,
+          payload: JSON.stringify({ reason: 'cleaning_requested', zoneId: input.zoneId, tableLabel }),
+        },
+      }).catch(() => {});
+    }
+  }));
+}
+
+// POST /api/analytics - Log analytics data (Stage 7: stronger validation gate)
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const data = CreateAnalyticsLogSchema.parse(req.body);
+    const result = validateAnalyticsPayload(req.body);
+    if (!result.ok || !result.payload) {
+      console.warn('[analytics] payload rejected:', result.reasons.join('; '));
+      return res.status(400).json({ error: 'Validation failed', reasons: result.reasons });
+    }
 
+    const data = result.payload;
     const log = await prisma.analyticsLog.create({
       data: {
         cameraId: data.cameraId,
+        ...(data.timestamp ? { timestamp: data.timestamp } : {}),
         peopleIn: data.peopleIn,
         peopleOut: data.peopleOut,
         currentCount: data.currentCount,
@@ -40,15 +141,12 @@ router.post('/', async (req: Request, res: Response) => {
         longestWaitTime: data.longestWaitTime,
         fps: data.fps,
         heatmap: data.heatmap ? JSON.stringify(data.heatmap) : undefined,
-        activePeople: data.activePeople ? JSON.stringify(data.activePeople) : undefined
-      }
+        activePeople: data.activePeople ? JSON.stringify(data.activePeople) : undefined,
+      },
     });
 
     res.status(201).json(log);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation error', details: error.errors });
-    }
     console.error('Error creating analytics log:', error);
     res.status(500).json({ error: 'Failed to create analytics log' });
   }
@@ -151,10 +249,14 @@ router.get('/compare', async (req: Request, res: Response) => {
       });
     }
 
-    // Calculate percentage changes
-    const calculateChange = (current: number, previous: number) => {
-      if (previous === 0) return current > 0 ? 100 : 0;
-      return Math.round(((current - previous) / previous) * 10000) / 100;
+    // Calculate percentage changes. Returns null when the previous period has
+    // zero baseline — a -100% or +100% flag in that case is misleading (user
+    // sees "-98.99% DOWN" even when there simply wasn't any data before).
+    const calculateChange = (current: number, previous: number): number | null => {
+      if (previous === 0 || !Number.isFinite(previous)) return null;
+      const raw = ((current - previous) / previous) * 100;
+      if (!Number.isFinite(raw)) return null;
+      return Math.round(raw * 100) / 100;
     };
 
     const comparison = {
@@ -167,10 +269,11 @@ router.get('/compare', async (req: Request, res: Response) => {
         avgQueueCount: calculateChange(period1Stats.avgQueueCount, period2Stats.avgQueueCount),
         avgWaitTime: calculateChange(period1Stats.avgWaitTime, period2Stats.avgWaitTime),
         maxWaitTime: calculateChange(period1Stats.maxWaitTime, period2Stats.maxWaitTime),
-        avgFps: calculateChange(period1Stats.avgFps, period2Stats.avgFps)
+        avgFps: calculateChange(period1Stats.avgFps, period2Stats.avgFps),
       },
+      priorPeriodHasData: period2Stats.totalPeopleIn > 0 || period2Stats.dataPoints > 0,
       comparisonType: comparisonType || 'custom',
-      summary: generateComparisonSummary(period1Stats, period2Stats)
+      summary: generateComparisonSummary(period1Stats, period2Stats),
     };
 
     res.json(comparison);
@@ -228,22 +331,41 @@ router.get('/:cameraId', async (req: Request, res: Response) => {
 });
 
 // GET /api/analytics/:cameraId/summary - Get aggregated summary
+// Query params:
+//   ?date=YYYY-MM-DD           → single day (original behavior)
+//   ?startDate=&endDate=        → range (inclusive)
+//   ?granularity=daily|hourly   → filter by aggregation level (default: both)
 router.get('/:cameraId/summary', async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
-    const { date } = req.query;
+    const { date, startDate, endDate, granularity } = req.query as {
+      date?: string; startDate?: string; endDate?: string; granularity?: string;
+    };
 
     const where: any = { cameraId };
     if (date) {
-      where.date = new Date(date as string);
+      where.date = new Date(date);
+    } else if (startDate || endDate) {
+      where.date = {};
+      if (startDate) where.date.gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        where.date.lte = end;
+      }
+    }
+    if (granularity === 'daily') {
+      where.hour = null;
+    } else if (granularity === 'hourly') {
+      where.hour = { not: null };
     }
 
     const summaries = await prisma.analyticsSummary.findMany({
       where,
       orderBy: [
-        { date: 'desc' },
-        { hour: 'asc' }
-      ]
+        { date: 'asc' },
+        { hour: 'asc' },
+      ],
     });
 
     res.json(summaries);
@@ -355,60 +477,105 @@ function generateDemoComparisonStats(startDate: Date, endDate: Date): any {
   };
 }
 
-// POST /api/analytics/seed-demo - Generate 30 days of realistic historical data
+// POST /api/analytics/seed-demo - Generate realistic historical data.
+//
+// Parameters (body):
+//   cameraId  — target camera id (default: "sample-camera-1")
+//   days      — how many past days to synthesise (default: 90, clamp 1..180)
+//   clear     — if false, append only where a timestamp doesn't exist
+//
+// Shape:
+//   - Hours 08:00–22:00 active. 00–07 and 23 are near-zero (cafe closed).
+//   - Peak windows 12–14 and 18–20.
+//   - Day-of-week factor: Fri/Sat 1.4x, Sun 1.1x, Tue/Wed 0.8x.
+//   - Gender split ~55/45 with Gaussian noise; age buckets sum to ~100%.
 router.post('/seed-demo', async (req: Request, res: Response) => {
   try {
     const cameraId = (req.body?.cameraId as string) || 'sample-camera-1';
+    const rawDays = Number(req.body?.days ?? 90);
+    const days = Math.max(1, Math.min(180, Number.isFinite(rawDays) ? rawDays : 90));
+    const clear = req.body?.clear !== false;
 
-    // Delete existing data for clean seed
-    await prisma.$executeRawUnsafe(`DELETE FROM analytics_logs WHERE cameraId = ?`, cameraId);
+    if (clear) {
+      await prisma.$executeRawUnsafe(`DELETE FROM analytics_logs WHERE cameraId = ?`, cameraId);
+    }
 
+    // Hour-of-day multiplier: closed 00–06 and 23, peaks at lunch + dinner.
     const getHourlyMultiplier = (hour: number, isWeekend: boolean): number => {
-      const weekday = [0.05,0.03,0.02,0.02,0.03,0.10,0.25,0.45,0.60,0.55,0.50,0.70,
-                       1.00,0.90,0.65,0.55,0.60,0.80,0.95,0.90,0.75,0.55,0.35,0.15];
-      const weekend = [0.10,0.05,0.05,0.03,0.02,0.05,0.15,0.25,0.40,0.55,0.70,0.85,
-                       1.00,0.95,0.90,0.85,0.80,0.85,0.95,1.00,0.90,0.75,0.55,0.30];
+      const weekday = [
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.02, 0.08, 0.35, 0.45, 0.50, 0.80,
+        1.00, 0.95, 0.55, 0.45, 0.55, 0.75, 1.00, 0.95, 0.70, 0.45, 0.20, 0.05,
+      ];
+      const weekend = [
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.02, 0.05, 0.20, 0.40, 0.65, 0.90,
+        1.00, 0.95, 0.85, 0.75, 0.75, 0.85, 1.00, 1.00, 0.85, 0.65, 0.40, 0.10,
+      ];
       return isWeekend ? weekend[hour] : weekday[hour];
     };
 
+    // Day-of-week factor: Mon=1 ... Sun=0. Weekend + Friday spike, mid-week dip.
+    const dayFactor = (dow: number): number => {
+      switch (dow) {
+        case 5: case 6: return 1.4; // Fri, Sat
+        case 0: return 1.1;         // Sun
+        case 1: return 1.0;         // Mon
+        case 2: case 3: return 0.8; // Tue, Wed
+        case 4: return 1.0;         // Thu
+        default: return 1.0;
+      }
+    };
+
     const randG = (mean: number, std: number) => {
-      // Box-Muller
       const u = 1 - Math.random(), v = Math.random();
       return mean + std * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
     };
-
     const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
     const now = new Date();
     const endDate = new Date(now);
     endDate.setHours(23, 55, 0, 0);
     const startDate = new Date(endDate);
-    startDate.setDate(startDate.getDate() - 30);
+    startDate.setDate(startDate.getDate() - days);
 
-    const entries: any[] = [];
+    const entries: Array<{
+      id: string; cameraId: string; timestamp: string;
+      peopleIn: number; peopleOut: number; currentCount: number;
+      demographics: string; queueCount: number | null; avgWaitTime: number | null; fps: number;
+    }> = [];
     let currentTime = new Date(startDate);
     let occupancy = 0;
     const MAX_OCC = 45;
 
     while (currentTime <= endDate) {
       const hour = currentTime.getHours();
-      const isWeekend = currentTime.getDay() === 0 || currentTime.getDay() === 6;
-      const dayNoise = 1 + 0.2 * Math.sin(currentTime.getDate() * 0.7);
-      const mult = getHourlyMultiplier(hour, isWeekend) * dayNoise * clamp(randG(1, 0.12), 0.5, 1.6);
+      const dow = currentTime.getDay();
+      const isWeekend = dow === 0 || dow === 6;
+      const mult = getHourlyMultiplier(hour, isWeekend) * dayFactor(dow)
+                 * clamp(randG(1, 0.12), 0.5, 1.6);
 
       const peopleIn = Math.max(0, Math.round(8 * mult * clamp(randG(1, 0.2), 0.4, 2)));
       const peopleOut = Math.max(0, Math.round(peopleIn * clamp(randG(0.85, 0.15), 0.4, 1.2)));
       occupancy = clamp(occupancy + peopleIn - peopleOut, 0, MAX_OCC);
-      if (mult < 0.1 && Math.random() > 0.3) { occupancy = 0; }
+      if (mult < 0.05) occupancy = 0; // closed hour → zero out
 
       const male = Math.round(occupancy * clamp(randG(0.55, 0.08), 0.3, 0.75));
-      const female = occupancy - male;
+      const female = Math.max(0, occupancy - male);
+      const ageTotal = occupancy;
       const demographics = {
         gender: { male, female, unknown: 0 },
-        age: occupancy > 0 ? { '18-24': Math.round(occupancy*0.20), '25-34': Math.round(occupancy*0.35), '35-44': Math.round(occupancy*0.25), '45-54': Math.round(occupancy*0.12), '55+': Math.max(0, occupancy - Math.round(occupancy*0.92)) } : {}
+        age: ageTotal > 0 ? {
+          '0-17':  Math.round(ageTotal * 0.08),
+          '18-24': Math.round(ageTotal * 0.22),
+          '25-34': Math.round(ageTotal * 0.34),
+          '35-44': Math.round(ageTotal * 0.22),
+          '45-54': Math.round(ageTotal * 0.10),
+          '55+':   Math.max(0, ageTotal - Math.round(ageTotal * 0.96)),
+        } : {},
       };
 
-      const queueCount = (occupancy > 20 && mult > 0.7) ? Math.max(0, Math.round((occupancy-15)*clamp(randG(0.4,0.1),0.1,0.8))) : null;
+      const queueCount = (occupancy > 20 && mult > 0.7)
+        ? Math.max(0, Math.round((occupancy - 15) * clamp(randG(0.4, 0.1), 0.1, 0.8)))
+        : null;
       const avgWaitTime = queueCount && queueCount > 0 ? Math.max(10, randG(45, 15)) : null;
       const fps = clamp(randG(28.5, 1.5), 20, 35);
 
@@ -438,16 +605,36 @@ router.post('/seed-demo', async (req: Request, res: Response) => {
           `INSERT INTO analytics_logs (id, cameraId, timestamp, peopleIn, peopleOut, currentCount, demographics, queueCount, avgWaitTime, fps)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           e.id, e.cameraId, e.timestamp, e.peopleIn, e.peopleOut, e.currentCount,
-          e.demographics, e.queueCount ?? null, e.avgWaitTime ?? null, e.fps
+          e.demographics, e.queueCount ?? null, e.avgWaitTime ?? null, e.fps,
         );
       }
       inserted += batch.length;
     }
 
+    // Fold raw logs into daily + hourly AnalyticsSummary rows so Historical and
+    // Trends pages have data immediately (otherwise the user waits for the
+    // next cron tick). Best-effort; summary failure should not fail the seed.
+    try {
+      const { runHourlyAggregationFor, runDailyAggregationFor } = await import('../services/analyticsAggregator');
+      const cursor = new Date(startDate);
+      while (cursor <= endDate) {
+        for (let h = 0; h < 24; h++) {
+          const hourStart = new Date(cursor);
+          hourStart.setHours(h, 0, 0, 0);
+          await runHourlyAggregationFor(hourStart);
+        }
+        await runDailyAggregationFor(cursor);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    } catch (err) {
+      console.warn('[seed-demo] aggregation pass failed:', err instanceof Error ? err.message : err);
+    }
+
     res.json({
       success: true,
-      message: `Seeded ${inserted} data points (30 days) for camera ${cameraId}`,
+      message: `Seeded ${inserted} data points (${days} days) for camera ${cameraId}`,
       totalEntries: inserted,
+      days,
     });
   } catch (error: any) {
     console.error('[seed-demo] Error:', error);
@@ -459,7 +646,14 @@ router.post('/seed-demo', async (req: Request, res: Response) => {
 // TABLE OCCUPANCY ENDPOINTS
 // ============================================================
 
-// POST /api/analytics/table-events - Log table status transition
+// POST /api/analytics/table-events - Log table status transition.
+//
+// The Python analytics engine posts here on every state transition. We persist
+// the event, then — if this is a transition *into* needs_cleaning — notify
+// every staff member currently on shift via Telegram + email (ADIM 20).
+// Dedupe guard: only fire when the previous event for the same zone wasn't
+// already needs_cleaning, so repeated posts for the same cleaning cycle
+// don't spam the staff.
 router.post('/table-events', async (req: Request, res: Response) => {
   try {
     const schema = z.object({
@@ -473,6 +667,15 @@ router.post('/table-events', async (req: Request, res: Response) => {
     });
     const data = schema.parse(req.body);
 
+    // Check the previous event for this zone to decide whether this post is a
+    // *transition into* needs_cleaning (vs a duplicate of an already-pending
+    // cleaning record).
+    const prior = await prisma.tableEvent.findFirst({
+      where: { zoneId: data.zoneId, cameraId: data.cameraId },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true },
+    });
+
     const event = await prisma.tableEvent.create({
       data: {
         zoneId: data.zoneId,
@@ -484,6 +687,19 @@ router.post('/table-events', async (req: Request, res: Response) => {
         duration: data.duration ?? null,
       },
     });
+
+    // Fire-and-forget cleaning notification. Wrapped so a dispatcher failure
+    // doesn't cause the Python → backend POST to 500; the event is already
+    // persisted, which is the ground truth.
+    if (data.status === 'needs_cleaning' && prior?.status !== 'needs_cleaning') {
+      notifyCleaningRequested({
+        zoneId: data.zoneId,
+        cameraId: data.cameraId,
+        occupants: data.occupants,
+      }).catch((err) => {
+        console.error('[table-events] cleaning notify failed:', err instanceof Error ? err.message : err);
+      });
+    }
 
     res.status(201).json(event);
   } catch (error: any) {
@@ -727,15 +943,29 @@ router.get('/:cameraId/prediction', async (req: Request, res: Response) => {
   }
 });
 
-// Helper function to generate comparison summary
+// Helper function to generate comparison summary. When the prior period has no
+// data we skip the percentage sentence entirely — reporting "NaN%" or a fake
+// +100% is worse than leaving the comparison out.
 function generateComparisonSummary(period1: any, period2: any): string {
+  const occupancy1 = (period1.avgCurrentCount ?? 0).toFixed(1);
+  const occupancy2 = (period2.avgCurrentCount ?? 0).toFixed(1);
+  const peakSentence = `Peak hour shifted from ${period2.peakHour} to ${period1.peakHour}.`;
+
+  if (!period2.totalPeopleIn || period2.totalPeopleIn === 0) {
+    return (
+      `Period 1 recorded ${period1.totalPeopleIn} visitors; prior period had no comparable data. ` +
+      `Average occupancy was ${occupancy1} vs ${occupancy2}. ${peakSentence}`
+    );
+  }
+
   const trafficChange = period1.totalPeopleIn - period2.totalPeopleIn;
   const trafficDirection = trafficChange > 0 ? 'increase' : 'decrease';
   const trafficPercent = Math.abs(Math.round((trafficChange / period2.totalPeopleIn) * 100));
 
-  return `Period 1 showed a ${trafficPercent}% ${trafficDirection} in total visitors compared to Period 2. ` +
-    `Average occupancy was ${period1.avgCurrentCount.toFixed(1)} vs ${period2.avgCurrentCount.toFixed(1)}. ` +
-    `Peak hour shifted from ${period2.peakHour} to ${period1.peakHour}.`;
+  return (
+    `Period 1 showed a ${trafficPercent}% ${trafficDirection} in total visitors compared to Period 2. ` +
+    `Average occupancy was ${occupancy1} vs ${occupancy2}. ${peakSentence}`
+  );
 }
 
 export default router;

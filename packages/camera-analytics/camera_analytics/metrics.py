@@ -106,6 +106,61 @@ class ActivePersonSnapshot:
 
 
 @dataclass
+class BenchmarkMetrics:
+  """Headless benchmark report — for pytest and regression tracking.
+
+  Populated by `run --benchmark-mode`. Serialized to
+  `logs/benchmark_<timestamp>.json` and consumed by test harness.
+  """
+  duration_s: float = 0.0
+  frames_processed: int = 0
+  # FPS statistics — display (MJPEG encode loop) and inference (YOLO pass) are reported separately
+  fps_mean: float = 0.0
+  fps_p95: float = 0.0
+  fps_min: float = 0.0
+  inference_fps_mean: float = 0.0
+  inference_fps_p95: float = 0.0
+  # Tracking stability — ratio of unique track IDs to max concurrent persons (1.0 = perfect)
+  id_churn_rate: float = 0.0
+  unique_track_ids: int = 0
+  max_concurrent_persons: int = 0
+  # Zone counting — mean |backend_count - ground_truth| per second (None when no truth provided)
+  zone_count_delta_mean: Optional[float] = None
+  # Demographic accuracy
+  gender_f1: Optional[float] = None
+  age_mae: Optional[float] = None
+  # Metadata
+  source: str = ""
+  model: str = ""
+  config_path: str = ""
+  timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+  def to_dict(self) -> Dict[str, object]:
+    return {
+      "duration_s": round(float(self.duration_s), 2),
+      "frames_processed": int(self.frames_processed),
+      "fps_mean": round(float(self.fps_mean), 2),
+      "fps_p95": round(float(self.fps_p95), 2),
+      "fps_min": round(float(self.fps_min), 2),
+      "inference_fps_mean": round(float(self.inference_fps_mean), 2),
+      "inference_fps_p95": round(float(self.inference_fps_p95), 2),
+      "id_churn_rate": round(float(self.id_churn_rate), 3),
+      "unique_track_ids": int(self.unique_track_ids),
+      "max_concurrent_persons": int(self.max_concurrent_persons),
+      "zone_count_delta_mean": (
+        round(float(self.zone_count_delta_mean), 3)
+        if self.zone_count_delta_mean is not None else None
+      ),
+      "gender_f1": round(float(self.gender_f1), 3) if self.gender_f1 is not None else None,
+      "age_mae": round(float(self.age_mae), 2) if self.age_mae is not None else None,
+      "source": self.source,
+      "model": self.model,
+      "config_path": self.config_path,
+      "timestamp": self.timestamp,
+    }
+
+
+@dataclass
 class CameraMetrics:
   people_in: int = 0
   people_out: int = 0

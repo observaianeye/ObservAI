@@ -89,6 +89,9 @@ export interface Zone {
   height: number;
   type: 'entrance' | 'exit' | 'queue' | 'table';
   color: string;
+  // v2: polygon/freeform shape (optional — if absent, treated as rect from x/y/w/h)
+  shape?: 'rect' | 'polygon';
+  points?: Array<{ x: number; y: number }>; // normalized [0-1]
 }
 
 export interface ZoneInsight {

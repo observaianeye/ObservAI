@@ -242,7 +242,7 @@ model TableEvent {
   @@map("table_events")
 }
 
-// Staff shift tracking for personnel optimization
+// Staff shift tracking for personnel optimization (legacy — hourly counters)
 model StaffShift {
   id         String   @id @default(uuid())
   branchId   String
@@ -256,6 +256,99 @@ model StaffShift {
   @@unique([branchId, date, hour])
   @@index([branchId, date])
   @@map("staff_shifts")
+}
+
+// Individual staff members (personnel records)
+model Staff {
+  id                      String   @id @default(uuid())
+  userId                  String   // owner (restoran sahibi)
+  branchId                String?
+  firstName               String
+  lastName                String
+  email                   String?
+  phone                   String?
+  telegramChatId          String?
+  // Single-use onboarding token. Generated when the staff row is created, used
+  // by the Telegram deep link (t.me/<bot>?start=<token>) and cleared once the
+  // webhook binds a chat_id. No long-lived secret; invalidates after first use.
+  telegramOnboardingToken String?  @unique
+  role                    String   @default("server") // server|chef|cashier|host|manager
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  assignments StaffAssignment[]
+
+  @@index([userId, branchId])
+  @@index([branchId, isActive])
+  @@map("staff")
+}
+
+// Concrete shift assignments tied to specific staff
+model StaffAssignment {
+  id                  String    @id @default(uuid())
+  staffId             String
+  branchId            String
+  date                DateTime  // Date only (no time)
+  shiftStart          String    // "09:00"
+  shiftEnd            String    // "17:00"
+  role                String?
+  status              String    @default("pending") // pending|accepted|declined|completed
+  notifiedViaTelegram Boolean   @default(false)
+  notifiedViaEmail    Boolean   @default(false)
+  notifiedAt          DateTime?
+  acceptToken         String?   @unique
+  notes               String?
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, date])
+  @@index([branchId, date])
+  @@map("staff_assignments")
+}
+
+// Notification delivery audit log (ADIM 19).
+// Every Telegram/email send goes here so the Staffing UI can prove real
+// messages left the server — not just a mocked "sent" counter. Successes and
+// failures both recorded; `error` carries the upstream reason when success=false.
+model NotificationLog {
+  id           String   @id @default(uuid())
+  userId       String?  // owner of the action (restoran sahibi), null for system-triggered
+  staffId      String?  // staff member the notification is about (if any)
+  assignmentId String?  // StaffAssignment id when the log comes from a shift dispatch
+  event        String   // "staff_shift" | "alert" | "test" | "onboarding"
+  channel      String   // "telegram" | "email"
+  target       String?  // chat_id or email address (redacted-safe is fine)
+  success      Boolean
+  messageId    String?  // provider-side id when available
+  error        String?
+  payload      String?  // JSON snapshot of the message contents (for replay/debug)
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([staffId, createdAt])
+  @@index([event, createdAt])
+  @@map("notification_logs")
+}
+
+// Chat messages for AI chatbot conversation history (Stage 6).
+// Enables the assistant to recall prior turns within the same conversation,
+// so follow-up questions like "peki cinsiyet dağılımı?" work without re-stating context.
+model ChatMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  userId         String?
+  role           String   // "user" | "assistant"
+  content        String
+  model          String?  // e.g. "ollama/qwen3:14b" — diagnostic only
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([userId, createdAt])
+  @@map("chat_messages")
 }
 
 // Historical analytics aggregates (for faster queries)

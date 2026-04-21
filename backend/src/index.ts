@@ -3,6 +3,13 @@
  * REST API for database operations and data persistence
  */
 
+// Pin Node's process timezone before anything else imports Date or any
+// time-based module. Aggregator buckets (hour/day), backfill generators, and
+// peak-hour computations all rely on Date.prototype.getHours()/getDay(), which
+// read from process.env.TZ at boot. ADIM 21 bug: without this, a dev machine
+// in UTC produces "peak at 03:00" summaries for an Istanbul cafe.
+process.env.TZ = process.env.TZ || 'Europe/Istanbul';
+
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -18,8 +25,13 @@ import insightsRouter from './routes/insights';
 import branchesRouter from './routes/branches';
 import notificationsRouter from './routes/notifications';
 import staffingRouter from './routes/staffing';
+import staffRouter from './routes/staff';
+import staffAssignmentsRouter from './routes/staff-assignments';
+import tablesRouter from './routes/tables';
+import telegramWebhookRouter from './routes/telegram-webhook';
 import { pythonBackendManager } from './lib/pythonBackendManager';
 import { getKafkaConsumer } from './lib/kafkaConsumer';
+import { startAnalyticsAggregator, stopAnalyticsAggregator } from './services/analyticsAggregator';
 import cookieParser from 'cookie-parser';
 import authRouter from './routes/auth';
 import { checkOllamaHealth } from './routes/ai';
@@ -66,6 +78,10 @@ app.use('/api/insights', insightsRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/staffing', staffingRouter);
+app.use('/api/staff', staffRouter);
+app.use('/api/staff-assignments', staffAssignmentsRouter);
+app.use('/api/tables', tablesRouter);
+app.use('/api/webhooks', telegramWebhookRouter);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
@@ -168,6 +184,29 @@ async function startServer() {
       console.error('⚠️ Failed to start Kafka consumer:', kafkaError);
     }
 
+    // Stage 7: data integrity services (off by default; opt-in via env)
+    if (process.env.DISABLE_ANALYTICS_AGGREGATOR !== 'true') {
+      try {
+        startAnalyticsAggregator();
+      } catch (aggError) {
+        console.error('⚠️ Failed to start analytics aggregator:', aggError);
+      }
+    }
+    if (process.env.DISABLE_PYTHON_HEALTH_MONITOR !== 'true') {
+      try {
+        const wsPort = Number(process.env.PYTHON_WS_PORT || 5001);
+        pythonBackendManager.startHealthMonitor(wsPort);
+        pythonBackendManager.on('python_backend_offline', (info) => {
+          console.warn(`⚠️  Python backend offline detected (${info.consecutiveFailures} failures at :${info.port})`);
+        });
+        pythonBackendManager.on('python_backend_online', () => {
+          console.log('✅ Python backend health restored');
+        });
+      } catch (healthError) {
+        console.error('⚠️ Failed to start Python health monitor:', healthError);
+      }
+    }
+
     // Start Express server
     app.listen(PORT, () => {
       console.log(`🚀 ObservAI Backend API running on http://localhost:${PORT}`);
@@ -193,6 +232,8 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
+  stopAnalyticsAggregator();
+  pythonBackendManager.stopHealthMonitor();
   await pythonBackendManager.stop();
   const kafkaConsumer = getKafkaConsumer();
   await kafkaConsumer.disconnect();
@@ -202,6 +243,8 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
+  stopAnalyticsAggregator();
+  pythonBackendManager.stopHealthMonitor();
   await pythonBackendManager.stop();
   const kafkaConsumer = getKafkaConsumer();
   await kafkaConsumer.disconnect();

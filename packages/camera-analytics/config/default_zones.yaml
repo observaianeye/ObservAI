@@ -45,18 +45,18 @@ max_detections: 100
 
 # Task 2.2.1: Demographic Prediction Improvement
 # EMA smoothing factor for age: 0.1 (very smooth) to 0.5 (responsive).
-# face_detection_interval=1 provides 3x more samples — higher alpha for faster convergence
-demo_age_ema_alpha: 0.25
+# Stage 3: 0.25 → 0.20 — slightly more stable average, less flip-flop on noisy faces
+demo_age_ema_alpha: 0.20
 
 # Minimum model confidence to accept a demographic prediction
-# Higher = reject noisy detections. Range: 0.1-0.5. Default: 0.30
-# RTX 5070 + 960x960 det_size: higher threshold for cleaner predictions
-demo_min_confidence: 0.40
+# Higher = reject noisy detections. Range: 0.1-0.5.
+# Stage 3: 0.40 → 0.35 — more signal from distant/profile faces
+demo_min_confidence: 0.45
 
 # Gender consensus threshold: fraction of weighted votes needed to assign gender
 # Higher = stronger agreement needed. Range: 0.55-0.85.
-# 80% requires strong agreement — prevents ambiguous faces from flipping gender
-demo_gender_consensus: 0.80
+# Stage 3: 0.80 → 0.70 — faster response, fewer "stuck" genders on short clips
+demo_gender_consensus: 0.70
 
 # Max history samples for temporal smoothing (age and gender)
 # More samples = more stable predictions over time
@@ -64,25 +64,27 @@ demo_max_age_history: 80
 demo_max_gender_history: 80
 
 # Temporal decay for older gender votes (per sample, recent = 1.0)
-# Higher (0.92) = slower forgetting, more accurate lock-in; retains evidence longer for stable predictions
-demo_temporal_decay: 0.92
+# Stage 3: 0.92 → 0.90 — slightly faster adaptation when a person changes state
+demo_temporal_decay: 0.90
 
 # Gender decision hysteresis band (applied to raw InsightFace/MiVOLO gender score).
 # gender > upper_band → male, gender < lower_band → female, between = ambiguous (skip this frame).
-demo_gender_lower_band: 0.35
-demo_gender_upper_band: 0.65
+demo_gender_lower_band: 0.40
+demo_gender_upper_band: 0.60
 
 # Continuous refinement: keep improving demographics even after initial classification
 # Set to false for legacy behavior (stop after first good classification)
 demo_continuous_refinement: true
 
 # Performance: Face detection frequency (her kaç frame'de bir)
-# RTX 5070: every 3 frames — good FPS on crowded scenes while keeping demographics responsive
-face_detection_interval: 3
+# Stage 2: 3 → 2 — inference ceiling lifts from ~18-20 FPS to ~23-26 FPS on
+# RTX 5070, which combined with the 60 FPS smooth-mode overlay gives the
+# user "yağ gibi akıyor" without starving the demographics pipeline.
+face_detection_interval: 2
 
 # Gender lock: once gender has N consecutive same-gender high-confidence votes, lock it
-# With interval=1, votes arrive fast — need more evidence before locking
-demo_gender_lock_threshold: 8
+# Stage 3: 8 → 6 — lock faster once signal is consistent, reduces flip-flop window
+demo_gender_lock_threshold: 6
 
 # Performance: Demografi minimum bbox boyutları (pixels)
 # ivCam kalitesi arttığı için daha küçük kişileri de işliyoruz
@@ -96,8 +98,20 @@ queue_alert_threshold: 5
 queue_wait_time_window: 300
 
 # Zone entry/exit debounce (frame count)
-zone_enter_debounce_frames: 3
-zone_exit_debounce_frames: 5
+# Stage 4: stricter debounce so brief bbox flicker doesn't re-enter/exit zones
+zone_enter_debounce_frames: 5
+zone_exit_debounce_frames: 10
+
+# Stage 4: occlusion grace — how long a track can be "stale" before its zone
+# membership is cleared. Prevents a seated person from ghost-exiting their
+# table just because a waiter walked in front for half a second.
+zone_grace_period_s: 3.0
+
+# Stage 4: per-table occupant clamp. Default for zones with no explicit
+# max_capacity on the zone definition. Fixes the "1 kişi, aslında 3 oturuyor"
+# bug the other way: prevents runaway over-count when multiple tracks alias
+# onto the same seat.
+table_max_capacity: 6
 
 # Bbox smoothing EMA alpha range (lower min = heavier smoothing for stationary)
 bbox_smoothing_alpha_min: 0.2
@@ -110,9 +124,19 @@ post_nms_containment_thresh: 0.70
 post_nms_iou_merge_thresh: 0.60
 
 # Demographics freeze: stop updating once stable
-# Age lock: requires stability > 0.95 AND at least 30 samples (stricter, prevents premature lock-in)
-demo_age_lock_stability: 0.95
-demo_age_lock_min_samples: 30
+# Stage 3: 0.95 → 0.92, 30 → 20 — live cameras rarely reach 0.95 stability,
+# so the lock was never engaging. Looser threshold commits sooner without churn.
+demo_age_lock_stability: 0.92
+demo_age_lock_min_samples: 15
+
+# Stage 3: ambiguous-band gender recovery.
+# When the raw gender score falls in the hysteresis band (lower..upper), the
+# current code drops the sample, losing signal on partially turned faces.
+# When enabled, we fall back to the majority of the last N recent votes at
+# half weight, which preserves the lock mechanism but salvages weak samples.
+# OFF by default — flip to true after Stage 3 pytest harness confirms F1 gain.
+demo_ambiguous_recovery: false
+demo_ambiguous_recent_votes: 3
 
 # Max face yaw (degrees) for gender decision. 70° covers more poses than 55° while staying reliable.
 demo_pose_max_yaw: 70.0
@@ -121,10 +145,20 @@ demo_pose_max_yaw: 70.0
 # Should be >= track_buffer/fps + margin (90/30 + 1 = 4s)
 track_stale_ttl: 4.0
 
-# Table occupancy tracking
-# Kişi masadan kalktıktan sonra "temizlik bekliyor" süresi (saniye)
+# Table occupancy tracking (v2 state machine)
+# Legacy fields (still read for backward compat, not used in new flow)
 table_needs_cleaning_timeout: 60
-# "Temizlik bekliyor" → "boş" geçiş süresi (saniye)
 table_empty_timeout: 180
 # Uzun oturma uyarısı (saniye, 90 dakika = 5400)
 table_long_occupancy_alert: 5400
+
+# v2: State machine parametreleri
+# Masa "needs_cleaning" durumuna geçmesi için önce en az bu kadar saniye dolu kalmış olmalı
+# (kısa geçişli — masaya bakıp yürüyen — kişileri filtreler)
+table_min_occupied_duration: 60.0
+# Masa dolu iken boş kalırsa bu süre sonra needs_cleaning olur (kullanıcının "2 dakika" isteği)
+table_cleaning_empty_threshold: 120.0
+# needs_cleaning → empty otomatik geçiş süresi (staff unutursa, 15 dakika)
+table_auto_empty_timeout: 900.0
+# Dolu masada kısa (sandalye değişimi, tuvalet) boş kalış tolerensı — bu süreden kısa ise occupied kalır
+table_transit_grace: 10.0

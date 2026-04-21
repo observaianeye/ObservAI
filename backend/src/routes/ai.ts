@@ -18,7 +18,15 @@ const ChatRequestSchema = z.object({
   cameraId: z.string().min(1).optional(),
   // Frontend dil tercihi — yoksa heuristic devreye girer (geriye doğru uyumlu)
   lang: z.enum(['tr', 'en']).optional(),
+  // Conversation history anchor — frontend persists this in localStorage so
+  // follow-ups in the same session get the last N turns injected as context.
+  conversationId: z.string().min(1).max(128).optional(),
 });
+
+// Stage 6: Gate streaming + persistent history behind a feature flag.
+// When off, the route behaves exactly as it did pre-Stage-6 (non-streaming, stateless).
+const STREAMING_ENABLED = process.env.ENABLE_AI_STREAMING === 'true';
+const MAX_HISTORY_TURNS = 10;
 
 /**
  * POST /api/ai/chat - Natural language Q&A
@@ -177,6 +185,145 @@ export async function callOllama(
 }
 
 /**
+ * Streaming variant of callOllama — emits each content chunk via `onChunk`
+ * and resolves with the assembled final response when the stream closes.
+ *
+ * Uses Ollama's NDJSON streaming protocol: one JSON object per line with
+ * `{ response: "...", done: false }` until a final `{ done: true }` line.
+ *
+ * If the upstream connection drops mid-stream we propagate the error so the
+ * SSE handler can surface it to the client and persist a partial response.
+ */
+export async function callOllamaStream(
+  prompt: string,
+  onChunk: (chunk: string) => void,
+  opts?: { maxTokens?: number; temperature?: number; signal?: AbortSignal }
+): Promise<{ response: string; model: string }> {
+  const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+  const model = await getAvailableOllamaModel(OLLAMA_URL);
+
+  if (!model) {
+    throw new Error('OLLAMA_NO_MODEL: No models available. Run: ollama pull qwen3:14b');
+  }
+
+  const timeoutMs = parseInt(process.env.OLLAMA_TIMEOUT_MS || '120000', 10);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Chain the caller's abort signal into ours so client disconnect cancels upstream.
+  if (opts?.signal) {
+    if (opts.signal.aborted) controller.abort();
+    else opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: true,
+        options: {
+          temperature: opts?.temperature ?? 0.4,
+          num_predict: opts?.maxTokens ?? 1024,
+          num_gpu: parseInt(process.env.OLLAMA_NUM_GPU || '0', 10),
+          num_ctx: parseInt(process.env.OLLAMA_NUM_CTX || '4096', 10),
+        }
+      })
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error(`Ollama error: ${res.status} ${res.statusText}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let full = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Ollama emits one JSON object per line; keep the trailing partial for next read.
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const parsed = JSON.parse(trimmed) as { response?: string; done?: boolean };
+          if (parsed.response) {
+            full += parsed.response;
+            onChunk(parsed.response);
+          }
+          if (parsed.done) {
+            // Intentionally keep reading in case a final trailing newline follows.
+          }
+        } catch {
+          // Ignore malformed lines — Ollama sometimes writes keepalives.
+        }
+      }
+    }
+    return { response: full, model };
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`Ollama stream aborted after ${timeoutMs}ms or by client disconnect`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Load the most recent `MAX_HISTORY_TURNS` turns for a conversation, oldest-first,
+ * so we can inject them into the prompt. Best-effort: swallows DB errors and
+ * returns an empty array so a missing table never breaks chat.
+ */
+async function loadConversationHistory(conversationId: string): Promise<Array<{ role: string; content: string }>> {
+  try {
+    const rows = await (prisma as any).chatMessage.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_HISTORY_TURNS,
+      select: { role: true, content: true },
+    });
+    return rows.reverse();
+  } catch (err) {
+    console.warn('[AI] loadConversationHistory failed (table missing?):', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+async function saveChatMessage(
+  conversationId: string,
+  role: 'user' | 'assistant',
+  content: string,
+  userId?: string,
+  model?: string,
+): Promise<void> {
+  try {
+    await (prisma as any).chatMessage.create({
+      data: { conversationId, role, content, userId: userId ?? null, model: model ?? null },
+    });
+  } catch (err) {
+    console.warn('[AI] saveChatMessage failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+export function renderHistoryForPrompt(history: Array<{ role: string; content: string }>): string {
+  if (history.length === 0) return '';
+  const lines = history.map((m) => {
+    const label = m.role === 'user' ? 'USER' : 'ASSISTANT';
+    return `${label}: ${m.content}`;
+  });
+  return `\nCONVERSATION HISTORY (oldest first):\n${lines.join('\n')}\n`;
+}
+
+/**
  * Check if Ollama is reachable and has models available.
  * Used at startup and by the /debug endpoint.
  */
@@ -206,13 +353,22 @@ export async function checkOllamaHealth(): Promise<{
 
 router.post('/chat', async (req: Request, res: Response) => {
   try {
-    const { message, cameraId, lang } = ChatRequestSchema.parse(req.body);
+    const { message, cameraId, lang, conversationId } = ChatRequestSchema.parse(req.body);
 
     // Get recent analytics data for context
     const recentAnalytics = await getRecentAnalyticsContext(cameraId);
 
+    // Pull the last N turns so follow-up questions work ("peki cinsiyet dağılımı?").
+    const history = conversationId ? await loadConversationHistory(conversationId) : [];
+    const analyticsWithHistory = recentAnalytics + renderHistoryForPrompt(history);
+
     // Build context prompt
-    const contextPrompt = buildContextPrompt(message, recentAnalytics, lang);
+    const contextPrompt = buildContextPrompt(message, analyticsWithHistory, lang);
+
+    // Persist the user's turn first so it's present even if generation fails.
+    if (conversationId) {
+      await saveChatMessage(conversationId, 'user', message, (req as any).user?.id);
+    }
 
     const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
 
@@ -220,6 +376,9 @@ router.post('/chat', async (req: Request, res: Response) => {
     if (AI_PROVIDER === 'ollama') {
       try {
         const { response: aiResponse, model: modelName } = await callOllama(contextPrompt, { maxTokens: 512, temperature: 0.4 });
+        if (conversationId) {
+          await saveChatMessage(conversationId, 'assistant', aiResponse, (req as any).user?.id, `ollama/${modelName}`);
+        }
         return res.json({
           message: aiResponse,
           timestamp: new Date().toISOString(),
@@ -278,8 +437,12 @@ router.post('/chat', async (req: Request, res: Response) => {
         const model = genAI.getGenerativeModel({ model: modelName });
         const result = await model.generateContent(contextPrompt);
         const response = await result.response;
+        const text = response.text();
+        if (conversationId) {
+          await saveChatMessage(conversationId, 'assistant', text, (req as any).user?.id, `gemini/${modelName}`);
+        }
         return res.json({
-          message: response.text(),
+          message: text,
           timestamp: new Date().toISOString(),
           model: modelName,
         });
@@ -308,6 +471,96 @@ router.post('/chat', async (req: Request, res: Response) => {
       errorCode: code,
       timestamp,
     } as ErrorResponse);
+  }
+});
+
+/**
+ * POST /api/ai/chat/stream — SSE streaming variant of /chat (Stage 6).
+ *
+ * Protocol (event: data), each chunk is one JSON object:
+ *   { type: 'chunk', content: '...' }     — incremental token(s)
+ *   { type: 'done', model, fullResponse } — terminator with final assembled text
+ *   { type: 'error', error, errorCode }   — fatal error; stream ends
+ *
+ * Persists both the user message and the assembled assistant reply to
+ * `chat_messages` when `conversationId` is supplied. Gated behind
+ * ENABLE_AI_STREAMING — returns 404 when the flag is off so the frontend can
+ * fall back to /chat without feature detection.
+ */
+router.post('/chat/stream', async (req: Request, res: Response) => {
+  if (!STREAMING_ENABLED) {
+    return res.status(404).json({ error: 'Streaming disabled. Set ENABLE_AI_STREAMING=true.' });
+  }
+
+  // Parse & validate before setting SSE headers so validation errors can use normal JSON.
+  let parsed: z.infer<typeof ChatRequestSchema>;
+  try {
+    parsed = ChatRequestSchema.parse(req.body);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation error', details: err.errors });
+    }
+    throw err;
+  }
+  const { message, cameraId, lang, conversationId } = parsed;
+
+  // SSE headers — once set we must keep writing events, not switch to JSON.
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if proxied
+  res.flushHeaders?.();
+
+  const send = (payload: Record<string, unknown>) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  // Cancel upstream Ollama call if the client disconnects mid-stream.
+  const upstreamAbort = new AbortController();
+  req.on('close', () => {
+    if (!res.writableEnded) upstreamAbort.abort();
+  });
+
+  try {
+    const recentAnalytics = await getRecentAnalyticsContext(cameraId);
+    const history = conversationId ? await loadConversationHistory(conversationId) : [];
+    const contextPrompt = buildContextPrompt(message, recentAnalytics + renderHistoryForPrompt(history), lang);
+
+    if (conversationId) {
+      await saveChatMessage(conversationId, 'user', message, (req as any).user?.id);
+    }
+
+    const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
+    if (AI_PROVIDER !== 'ollama') {
+      send({ type: 'error', error: 'Streaming only supported with AI_PROVIDER=ollama', errorCode: 'STREAM_UNSUPPORTED' });
+      res.end();
+      return;
+    }
+
+    const { response: full, model: modelName } = await callOllamaStream(
+      contextPrompt,
+      (chunk) => send({ type: 'chunk', content: chunk }),
+      { maxTokens: 512, temperature: 0.4, signal: upstreamAbort.signal },
+    );
+
+    if (conversationId && full.length > 0) {
+      await saveChatMessage(conversationId, 'assistant', full, (req as any).user?.id, `ollama/${modelName}`);
+    }
+
+    send({ type: 'done', model: `ollama/${modelName}`, fullResponse: full });
+    res.end();
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error('[AI stream] error:', errMsg);
+    const isAbort = errMsg.includes('aborted');
+    send({
+      type: 'error',
+      error: isAbort ? 'Stream cancelled' : errMsg,
+      errorCode: errMsg.includes('OLLAMA_NO_MODEL') ? 'NO_MODEL'
+        : errMsg.includes('ECONNREFUSED') ? 'OLLAMA_OFFLINE'
+        : 'UPSTREAM_ERROR',
+    });
+    res.end();
   }
 });
 
@@ -342,6 +595,9 @@ router.get('/status', async (req: Request, res: Response) => {
     },
     // Overall: is any AI provider usable?
     available: ollamaHealth.status === 'online' || hasGeminiKey,
+    // Stage 6: surfaces whether /chat/stream is live so the frontend can
+    // upgrade to EventSource instead of feature-detecting via 404.
+    streamingEnabled: STREAMING_ENABLED && AI_PROVIDER === 'ollama',
   });
 });
 

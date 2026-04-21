@@ -158,3 +158,70 @@ export async function sendTelegramTest(chatId: string): Promise<TelegramSendResu
 function escapeMarkdown(text: string): string {
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
 }
+
+/**
+ * Send a staff shift assignment notification.
+ */
+export async function sendStaffAssignmentTelegram(
+  chatId: string,
+  payload: {
+    staffName: string;
+    branchName: string;
+    date: string; // "21.04.2026"
+    shiftStart: string; // "09:00"
+    shiftEnd: string;
+    role?: string;
+    acceptUrl?: string;
+    declineUrl?: string;
+  }
+): Promise<TelegramSendResult> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    return { success: false, error: 'TELEGRAM_BOT_TOKEN not configured' };
+  }
+
+  const lines = [
+    `\u{1F4C5} *Yeni Vardiya Atamasi*`,
+    ``,
+    `Merhaba ${escapeMarkdown(payload.staffName)},`,
+    `Asagidaki vardiya icin atandiniz:`,
+    ``,
+    `\u{1F3EA} *Sube:* ${escapeMarkdown(payload.branchName)}`,
+    `\u{1F4C6} *Tarih:* ${escapeMarkdown(payload.date)}`,
+    `\u{1F552} *Saat:* ${escapeMarkdown(payload.shiftStart)} \\- ${escapeMarkdown(payload.shiftEnd)}`,
+  ];
+  if (payload.role) lines.push(`\u{1F464} *Gorev:* ${escapeMarkdown(payload.role)}`);
+  if (payload.acceptUrl) {
+    lines.push(``, `Vardiyayi onaylamak icin: ${escapeMarkdown(payload.acceptUrl)}`);
+  }
+  if (payload.declineUrl) {
+    lines.push(`Reddetmek icin: ${escapeMarkdown(payload.declineUrl)}`);
+  }
+
+  const text = lines.join('\n');
+
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'MarkdownV2',
+        disable_web_page_preview: true,
+      }),
+    });
+    const data: Record<string, unknown> = (await res.json()) as Record<string, unknown>;
+    if (!data.ok) {
+      const desc = (data.description as string) || 'Telegram error';
+      console.error(`[Telegram:Staff] Send failed: ${desc}`);
+      return { success: false, error: desc };
+    }
+    console.log(`[Telegram:Staff] Shift notification sent to chat ${chatId} (${payload.staffName})`);
+    return { success: true };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errMsg };
+  }
+}

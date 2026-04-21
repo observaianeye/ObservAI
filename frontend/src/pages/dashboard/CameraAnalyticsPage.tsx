@@ -3,6 +3,7 @@ import GenderChart from '../../components/camera/GenderChart';
 import AgeChart from '../../components/camera/AgeChart';
 import VisitorCountWidget from '../../components/camera/VisitorCountWidget';
 import DwellTimeWidget from '../../components/camera/DwellTimeWidget';
+import { WeatherWidget } from '../../components/dashboard/WeatherWidget';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function CameraAnalyticsPage() {
@@ -17,8 +18,9 @@ export default function CameraAnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-6">
           <CameraFeed />
+          <WeatherWidget />
         </div>
         <div className="space-y-6">
           <VisitorCountWidget />

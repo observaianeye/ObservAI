@@ -41,7 +41,11 @@ interface DailyDataPoint {
 interface ComparisonData {
   period1: PeriodStats;
   period2: PeriodStats;
-  changes: Record<string, number>;
+  // Each change is a percentage delta vs the prior period, or null when the
+  // prior period had no baseline — rendering "-98.99% DOWN" against a zero
+  // baseline was the old bug we're avoiding.
+  changes: Record<string, number | null>;
+  priorPeriodHasData?: boolean;
   summary: string;
 }
 
@@ -62,6 +66,42 @@ interface PeriodStats {
 interface DemographicSnapshot {
   gender: { male: number; female: number; unknown: number };
   age: Record<string, number>;
+  // Count of aggregated samples — used to gate "unreliable" warning and to
+  // normalise the raw vote counts into percentages at render time.
+  samples?: number;
+}
+
+// Compute a normalised gender split. Raw counts from the aggregator are
+// cumulative vote totals across frames — not people. Dividing by the sum gives
+// a consistent "share" expressed as a 0–100 percentage regardless of window.
+function computeGenderPct(g: DemographicSnapshot['gender']) {
+  const total = (g?.male ?? 0) + (g?.female ?? 0) + (g?.unknown ?? 0);
+  if (total <= 0) return { malePct: 0, femalePct: 0, unknownPct: 0, total: 0 };
+  const malePct = Math.round((g.male / total) * 100);
+  const femalePct = Math.round((g.female / total) * 100);
+  // Remainder to unknown so the three buckets always add to 100.
+  const unknownPct = Math.max(0, 100 - malePct - femalePct);
+  return { malePct, femalePct, unknownPct, total };
+}
+
+// Turn { "25-34": 137, "35-44": 89, ... } into an array of { label, pct }
+// entries that sum to 100. Zero-total guard returns empty list so the chart
+// can render a "no demographics" placeholder instead of dividing by zero.
+function computeAgePct(age: Record<string, number>): Array<{ label: string; pct: number }> {
+  const entries = Object.entries(age ?? {}).filter(([, v]) => typeof v === 'number' && v > 0);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  if (total <= 0) return [];
+  // Preserve sorted bucket order (0-17, 18-24, 25-34, ...) when present.
+  const order = ['0-17', '18-24', '25-34', '35-44', '45-54', '55+'];
+  const sorted = entries.sort((a, b) => {
+    const ai = order.indexOf(a[0]);
+    const bi = order.indexOf(b[0]);
+    if (ai === -1 && bi === -1) return a[0].localeCompare(b[0]);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+  return sorted.map(([label, v]) => ({ label, pct: Math.round((v / total) * 100) }));
 }
 
 type ViewMode = 'daily' | 'hourly' | 'comparison';
@@ -159,7 +199,8 @@ function generateDemoComparison(startDate: string, endDate: string): ComparisonD
   const p1 = makeStats(startDate, endDate, 1.1);
   const p2 = makeStats(startDate, endDate, 1.0);
 
-  const calcChange = (a: number, b: number) => (b === 0 ? 0 : Math.round(((a - b) / b) * 100));
+  const calcChange = (a: number, b: number): number | null =>
+    b === 0 || !Number.isFinite(b) ? null : Math.round(((a - b) / b) * 100);
 
   return {
     period1: p1,
@@ -286,12 +327,15 @@ function StatCard({
 }: {
   title: string;
   value: string;
-  change?: number;
+  // null indicates "no prior baseline to compare against" — we render a neutral
+  // badge instead of faking a +100%/-100% delta.
+  change?: number | null;
   icon: React.ElementType;
   color: string;
 }) {
-  const isPositive = change && change > 0;
-  const isNegative = change && change < 0;
+  const hasDelta = typeof change === 'number' && Number.isFinite(change);
+  const isPositive = hasDelta && (change as number) > 0;
+  const isNegative = hasDelta && (change as number) < 0;
   return (
     <div className="surface-card rounded-xl p-5 hover:shadow-glow-brand transition-shadow">
       <div className="flex items-center justify-between mb-3">
@@ -307,9 +351,10 @@ function StatCard({
                 ? 'text-danger-300 bg-danger-500/15 border border-danger-500/30'
                 : 'text-ink-3 bg-white/[0.04] border border-white/[0.08]'
             }`}
+            title={hasDelta ? undefined : 'No prior baseline'}
           >
             {isPositive ? <ArrowUpRight strokeWidth={1.5} className="w-3 h-3 mr-0.5" /> : isNegative ? <ArrowDownRight strokeWidth={1.5} className="w-3 h-3 mr-0.5" /> : null}
-            {Math.abs(change)}%
+            {hasDelta ? `${Math.abs(change as number)}%` : '—'}
           </span>
         )}
       </div>
@@ -355,6 +400,110 @@ export default function HistoricalAnalyticsPage() {
         setDemographics(generateDemoDemographics());
         setComparisonData(generateDemoComparison(startDate, endDate));
       } else {
+        // Resolve camera: selectedCamera 'all' → use first camera in DB so backend can filter
+        let targetCam = selectedCamera;
+        if (targetCam === 'all') {
+          try {
+            const camRes = await fetch(`${API_URL}/api/cameras`, { credentials: 'include' });
+            if (camRes.ok) {
+              const list = await camRes.json();
+              if (Array.isArray(list) && list.length > 0) targetCam = list[0].id;
+            }
+          } catch { /* fall through */ }
+        }
+
+        let dailyFromApi: DailyDataPoint[] = [];
+        let hourlyFromApi: HourlyDataPoint[] = [];
+        let demographicsFromApi: DemographicSnapshot | null = null;
+
+        if (targetCam && targetCam !== 'all') {
+          try {
+            const params = new URLSearchParams({ startDate, endDate });
+
+            // Pull hourly summaries for the whole range — we need them both for
+            // the live hourly chart (today) and to derive a per-day peak hour.
+            const rangeHourlyRes = await fetch(
+              `${API_URL}/api/analytics/${targetCam}/summary?${params}&granularity=hourly`,
+              { credentials: 'include' },
+            );
+            const peakByDay = new Map<string, { hour: number; total: number }>();
+            if (rangeHourlyRes.ok) {
+              const rows: Array<{ date: string; hour: number; totalEntries: number }> = await rangeHourlyRes.json();
+              for (const r of rows) {
+                const key = typeof r.date === 'string' ? r.date.slice(0, 10) : String(r.date).slice(0, 10);
+                const current = peakByDay.get(key);
+                if (!current || r.totalEntries > current.total) {
+                  peakByDay.set(key, { hour: r.hour, total: r.totalEntries });
+                }
+              }
+            }
+
+            const dailyRes = await fetch(
+              `${API_URL}/api/analytics/${targetCam}/summary?${params}&granularity=daily`,
+              { credentials: 'include' },
+            );
+            if (dailyRes.ok) {
+              const rows: Array<{ date: string; totalEntries: number; avgOccupancy: number; demographics: string | null }> = await dailyRes.json();
+              dailyFromApi = rows.map((r) => {
+                const key = typeof r.date === 'string' ? r.date.slice(0, 10) : String(r.date).slice(0, 10);
+                const peak = peakByDay.get(key);
+                return {
+                  date: r.date,
+                  label: new Date(r.date).toLocaleDateString(locale, { month: 'short', day: 'numeric' }),
+                  visitors: r.totalEntries,
+                  avgOccupancy: Math.round(r.avgOccupancy ?? 0),
+                  peakHour: peak ? `${String(peak.hour).padStart(2, '0')}:00` : '—',
+                  avgDwellTime: 0,
+                };
+              });
+              // Merge demographics across days
+              const gender = { male: 0, female: 0, unknown: 0 };
+              const age: Record<string, number> = {};
+              let samples = 0;
+              for (const r of rows) {
+                if (!r.demographics) continue;
+                try {
+                  const d = JSON.parse(r.demographics);
+                  if (d.gender) {
+                    gender.male += d.gender.male ?? 0;
+                    gender.female += d.gender.female ?? 0;
+                    gender.unknown += d.gender.unknown ?? 0;
+                  }
+                  if (d.age) {
+                    for (const [k, v] of Object.entries(d.age)) {
+                      if (typeof v === 'number') age[k] = (age[k] ?? 0) + v;
+                    }
+                  }
+                  if (typeof d.samples === 'number') samples += d.samples;
+                } catch { /* skip */ }
+              }
+              if (gender.male + gender.female > 0 || Object.keys(age).length > 0) {
+                demographicsFromApi = { gender, age, samples };
+              }
+            }
+
+            // Today-only hourly data for the hourly-view chart.
+            const hourlyRes = await fetch(
+              `${API_URL}/api/analytics/${targetCam}/summary?date=${today}&granularity=hourly`,
+              { credentials: 'include' },
+            );
+            if (hourlyRes.ok) {
+              const rows: Array<{ hour: number; totalEntries: number; totalExits: number; avgOccupancy: number }> = await hourlyRes.json();
+              hourlyFromApi = rows.map((r) => ({
+                hour: r.hour,
+                label: `${String(r.hour).padStart(2, '0')}:00`,
+                visitors: r.totalEntries,
+                avgOccupancy: Math.round(r.avgOccupancy ?? 0),
+                entries: r.totalEntries,
+                exits: r.totalExits,
+              }));
+            }
+          } catch (e) {
+            console.warn('[Historical] Real data fetch failed:', e);
+          }
+        }
+
+        // Comparison (existing endpoint)
         try {
           const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().split('T')[0];
           const compareRes = await fetch(
@@ -367,15 +516,15 @@ export default function HistoricalAnalyticsPage() {
                 ...(selectedCamera !== 'all' ? { cameraId: selectedCamera } : {}),
               })
           );
-          if (compareRes.ok) {
-            setComparisonData(await compareRes.json());
-          }
+          if (compareRes.ok) setComparisonData(await compareRes.json());
         } catch {
           setComparisonData(generateDemoComparison(startDate, endDate));
         }
-        setDailyData(generateDemoDailyData(startDate, endDate, locale));
-        setHourlyData(generateDemoHourlyData(today));
-        setDemographics(generateDemoDemographics());
+
+        // Use real data when non-empty, otherwise fall back to demo so the UI isn't blank
+        setDailyData(dailyFromApi.length > 0 ? dailyFromApi : generateDemoDailyData(startDate, endDate, locale));
+        setHourlyData(hourlyFromApi.length > 0 ? hourlyFromApi : generateDemoHourlyData(today));
+        setDemographics(demographicsFromApi ?? generateDemoDemographics());
       }
     } finally {
       setLoading(false);
@@ -739,24 +888,29 @@ export default function HistoricalAnalyticsPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {Object.entries(comparisonData.changes).map(([key, change]) => (
-                    <div key={key} className="flex items-center justify-between py-2 border-b border-white/[0.08] last:border-0">
-                      <span className="text-sm text-ink-2">{t(changeLabelKey(key))}</span>
-                      <span
-                        className={`flex items-center text-sm font-semibold font-mono ${
-                          change > 0 ? 'text-success-400' : change < 0 ? 'text-danger-400' : 'text-ink-4'
-                        }`}
-                      >
-                        {change > 0 ? (
-                          <TrendingUp strokeWidth={1.5} className="w-4 h-4 mr-1" />
-                        ) : change < 0 ? (
-                          <TrendingDown strokeWidth={1.5} className="w-4 h-4 mr-1" />
-                        ) : null}
-                        {change > 0 ? '+' : ''}
-                        {change}%
-                      </span>
-                    </div>
-                  ))}
+                  {Object.entries(comparisonData.changes).map(([key, change]) => {
+                    const hasDelta = typeof change === 'number' && Number.isFinite(change);
+                    const positive = hasDelta && (change as number) > 0;
+                    const negative = hasDelta && (change as number) < 0;
+                    return (
+                      <div key={key} className="flex items-center justify-between py-2 border-b border-white/[0.08] last:border-0">
+                        <span className="text-sm text-ink-2">{t(changeLabelKey(key))}</span>
+                        <span
+                          className={`flex items-center text-sm font-semibold font-mono ${
+                            positive ? 'text-success-400' : negative ? 'text-danger-400' : 'text-ink-4'
+                          }`}
+                          title={hasDelta ? undefined : (lang === 'tr' ? 'Karsilastirilacak onceki veri yok' : 'No prior data to compare')}
+                        >
+                          {positive ? (
+                            <TrendingUp strokeWidth={1.5} className="w-4 h-4 mr-1" />
+                          ) : negative ? (
+                            <TrendingDown strokeWidth={1.5} className="w-4 h-4 mr-1" />
+                          ) : null}
+                          {!hasDelta ? '—' : `${positive ? '+' : ''}${change}%`}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
                 {comparisonData.summary && (
                   <p className="text-xs text-ink-3 italic mt-3">{comparisonData.summary}</p>
@@ -768,39 +922,62 @@ export default function HistoricalAnalyticsPage() {
           {/* Side Panel - Demographics */}
           <div className="space-y-4">
             {/* Gender Distribution */}
-            {demographics && (
-              <div className="surface-card rounded-xl p-5">
-                <h3 className="font-display text-sm font-semibold text-ink-0 mb-4">{t('historical.demographics.gender')}</h3>
-                <div className="flex items-center justify-center gap-6 mb-4">
-                  <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center mb-1">
-                      <span className="font-display text-lg font-bold text-brand-300 font-mono">{demographics.gender.male}%</span>
-                    </div>
-                    <span className="text-xs text-ink-3">{t('historical.demographics.male')}</span>
+            {demographics && (() => {
+              const g = computeGenderPct(demographics.gender);
+              if (g.total <= 0) {
+                return (
+                  <div className="surface-card rounded-xl p-5">
+                    <h3 className="font-display text-sm font-semibold text-ink-0 mb-4">{t('historical.demographics.gender')}</h3>
+                    <p className="text-xs text-ink-4 text-center py-4">{lang === 'tr' ? 'Demografi verisi yok' : 'No demographics yet'}</p>
                   </div>
-                  <div className="text-center">
-                    <div className="w-14 h-14 rounded-full bg-accent-500/15 border border-accent-500/30 flex items-center justify-center mb-1">
-                      <span className="font-display text-lg font-bold text-accent-300 font-mono">{demographics.gender.female}%</span>
+                );
+              }
+              return (
+                <div className="surface-card rounded-xl p-5">
+                  <h3 className="font-display text-sm font-semibold text-ink-0 mb-4">{t('historical.demographics.gender')}</h3>
+                  <div className="flex items-center justify-center gap-6 mb-4">
+                    <div className="text-center">
+                      <div className="w-14 h-14 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center mb-1">
+                        <span className="font-display text-lg font-bold text-brand-300 font-mono">{g.malePct}%</span>
+                      </div>
+                      <span className="text-xs text-ink-3">{t('historical.demographics.male')}</span>
                     </div>
-                    <span className="text-xs text-ink-3">{t('historical.demographics.female')}</span>
+                    <div className="text-center">
+                      <div className="w-14 h-14 rounded-full bg-accent-500/15 border border-accent-500/30 flex items-center justify-center mb-1">
+                        <span className="font-display text-lg font-bold text-accent-300 font-mono">{g.femalePct}%</span>
+                      </div>
+                      <span className="text-xs text-ink-3">{t('historical.demographics.female')}</span>
+                    </div>
+                    {g.unknownPct > 0 && (
+                      <div className="text-center">
+                        <div className="w-14 h-14 rounded-full bg-white/[0.06] border border-white/[0.12] flex items-center justify-center mb-1">
+                          <span className="font-display text-lg font-bold text-ink-3 font-mono">{g.unknownPct}%</span>
+                        </div>
+                        <span className="text-xs text-ink-3">{lang === 'tr' ? 'Belirsiz' : 'Unknown'}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Age Distribution */}
-            {demographics && (
-              <div className="surface-card rounded-xl p-5">
-                <h3 className="font-display text-sm font-semibold text-ink-0 mb-4">{t('historical.demographics.age')}</h3>
-                <HorizontalBarChart
-                  data={Object.entries(demographics.age).map(([label, value], i) => ({
-                    label,
-                    value,
-                    color: AGE_PALETTE[i] || '#7e89a8',
-                  }))}
-                />
-              </div>
-            )}
+            {demographics && (() => {
+              const agePct = computeAgePct(demographics.age);
+              if (agePct.length === 0) return null;
+              return (
+                <div className="surface-card rounded-xl p-5">
+                  <h3 className="font-display text-sm font-semibold text-ink-0 mb-4">{t('historical.demographics.age')}</h3>
+                  <HorizontalBarChart
+                    data={agePct.map((entry, i) => ({
+                      label: entry.label,
+                      value: entry.pct,
+                      color: AGE_PALETTE[i] || '#7e89a8',
+                    }))}
+                  />
+                </div>
+              );
+            })()}
 
             {/* Data Quality Indicator */}
             <div className="surface-card rounded-xl p-5">

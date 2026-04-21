@@ -14,8 +14,17 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
-import { sendTelegramTest, verifyTelegramBot } from '../services/telegramService';
-import { verifySmtp, sendAlertEmail } from '../services/emailService';
+import {
+  sendTelegramTest,
+  verifyTelegramBot,
+  sendStaffAssignmentTelegram,
+} from '../services/telegramService';
+import {
+  verifySmtp,
+  sendAlertEmail,
+  sendStaffShiftEmail,
+} from '../services/emailService';
+import { notifyStaffShift } from '../services/notificationDispatcher';
 
 const router = Router();
 
@@ -189,6 +198,145 @@ router.post('/test/email', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Notifications] Email test error:', error);
     res.status(500).json({ error: 'Failed to send test email' });
+  }
+});
+
+// ─── POST /api/notifications/test-staff ─────────────────────────────────────
+// Dispatch a staff shift notification via Telegram + Email. The audit log at
+// backend/logs/notification-dispatch.log records the delivery result so the
+// user can prove the system actually talks to Telegram/SMTP.
+
+const TestStaffSchema = z.object({
+  staffId: z.string().uuid(),
+  mode: z.enum(['telegram', 'email', 'both']).default('both'),
+  // Optional synthetic payload override — lets caller test without creating
+  // a real StaffAssignment.
+  preview: z.object({
+    date: z.string(),
+    shiftStart: z.string(),
+    shiftEnd: z.string(),
+    role: z.string().optional(),
+  }).optional(),
+});
+
+router.post('/test-staff', async (req: Request, res: Response) => {
+  try {
+    const userId = await getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const parsed = TestStaffSchema.parse(req.body);
+
+    const staff = await prisma.staff.findFirst({
+      where: { id: parsed.staffId, userId },
+    });
+    if (!staff) return res.status(404).json({ error: 'Staff not found' });
+
+    // Preview mode: send directly without creating an assignment row
+    if (parsed.preview) {
+      const preview = parsed.preview;
+      const fullName = `${staff.firstName} ${staff.lastName}`.trim();
+      const result: { telegram?: { sent: boolean; error?: string }; email?: { sent: boolean; error?: string } } = {};
+      const sharedPayload = {
+        staffName: fullName,
+        branchName: 'Test',
+        date: preview.date,
+        shiftStart: preview.shiftStart,
+        shiftEnd: preview.shiftEnd,
+        role: preview.role,
+      };
+
+      if ((parsed.mode === 'telegram' || parsed.mode === 'both') && staff.telegramChatId) {
+        const tg = await sendStaffAssignmentTelegram(staff.telegramChatId, sharedPayload);
+        result.telegram = { sent: tg.success, error: tg.error };
+        await prisma.notificationLog.create({
+          data: {
+            userId,
+            staffId: staff.id,
+            event: 'test',
+            channel: 'telegram',
+            target: staff.telegramChatId,
+            success: tg.success,
+            error: tg.error ?? null,
+            payload: JSON.stringify(sharedPayload),
+          },
+        }).catch(() => {});
+      }
+
+      if ((parsed.mode === 'email' || parsed.mode === 'both') && staff.email) {
+        const em = await sendStaffShiftEmail(staff.email, sharedPayload);
+        result.email = { sent: em.success, error: em.error };
+        await prisma.notificationLog.create({
+          data: {
+            userId,
+            staffId: staff.id,
+            event: 'test',
+            channel: 'email',
+            target: staff.email,
+            success: em.success,
+            error: em.error ?? null,
+            payload: JSON.stringify(sharedPayload),
+          },
+        }).catch(() => {});
+      }
+
+      return res.json({ preview: true, result });
+    }
+
+    // Real mode: find a real assignment for this staff (latest) and re-notify
+    const assignment = await prisma.staffAssignment.findFirst({
+      where: { staffId: staff.id },
+      orderBy: { date: 'desc' },
+    });
+    if (!assignment) {
+      return res.status(404).json({ error: 'No assignment found for this staff — create one first' });
+    }
+
+    const result = await notifyStaffShift(assignment.id, { mode: parsed.mode });
+    return res.json({ assignmentId: assignment.id, result });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation error', details: error.errors });
+    }
+    console.error('[Notifications] test-staff error:', error);
+    return res.status(500).json({ error: 'Failed to dispatch staff notification' });
+  }
+});
+
+// ─── GET /api/notifications/summary ─────────────────────────────────────────
+// Authenticated KPI feed for the Staffing page. Reports how many notifications
+// actually left the server in the requested window, split by channel. The UI
+// "BILDIRIM GONDERILDI X/Y" badge reads from here instead of faking the count.
+
+router.get('/summary', async (req: Request, res: Response) => {
+  try {
+    const userId = await getUserIdFromRequest(req);
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const windowDays = Math.max(1, Math.min(90, parseInt(String(req.query.days ?? '7'), 10) || 7));
+    const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+
+    const rows = await prisma.notificationLog.findMany({
+      where: { userId, createdAt: { gte: since } },
+      select: { channel: true, success: true, event: true, createdAt: true },
+    });
+
+    const telegramSent = rows.filter((r) => r.channel === 'telegram' && r.success).length;
+    const telegramFailed = rows.filter((r) => r.channel === 'telegram' && !r.success).length;
+    const emailSent = rows.filter((r) => r.channel === 'email' && r.success).length;
+    const emailFailed = rows.filter((r) => r.channel === 'email' && !r.success).length;
+
+    res.json({
+      windowDays,
+      since: since.toISOString(),
+      totals: {
+        telegram: { sent: telegramSent, failed: telegramFailed, total: telegramSent + telegramFailed },
+        email: { sent: emailSent, failed: emailFailed, total: emailSent + emailFailed },
+        all: { sent: telegramSent + emailSent, attempted: rows.length },
+      },
+    });
+  } catch (error) {
+    console.error('[Notifications] summary error:', error instanceof Error ? error.message : error);
+    res.status(500).json({ error: 'Failed to load notification summary' });
   }
 });
 

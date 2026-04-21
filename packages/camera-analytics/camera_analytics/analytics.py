@@ -84,6 +84,9 @@ class TrackedPerson:
   smoothed_bbox_norm: Optional[Tuple[float, float, float, float]] = None
   zone_consecutive_inside: Dict[str, int] = field(default_factory=dict)
   zone_consecutive_outside: Dict[str, int] = field(default_factory=dict)
+  # Stage 2: last 2 bbox samples (timestamp, bbox_norm) for display-side interpolation
+  # so the smooth-mode MJPEG can render bboxes between inference ticks.
+  bbox_samples: deque = field(default_factory=lambda: deque(maxlen=2))
 
   def contains_pixel(self, px: float, py: float) -> bool:
     x1, y1, x2, y2 = self.bbox_norm
@@ -537,11 +540,14 @@ class CameraAnalyticsEngine:
     self.zone_active_members: Dict[str, Dict[int, float]] = defaultdict(dict)
     self.zone_completed_durations: Dict[str, list[float]] = defaultdict(list)
 
-    # Table occupancy state machine
+    # Table occupancy state machine (v2 — proper transition tracking)
     self.table_status: Dict[str, str] = {}           # zone_id → "empty"|"occupied"|"needs_cleaning"
     self.table_left_at: Dict[str, float] = {}        # zone_id → timestamp when last person left
     self.table_turnover: Dict[str, int] = {}         # zone_id → occupy→leave cycle count
     self.table_occupy_start: Dict[str, float] = {}   # zone_id → when current occupancy began
+    self.table_last_occupied_duration: Dict[str, float] = {}  # zone_id → duration of the last completed occupancy
+    self.table_cleaning_since: Dict[str, float] = {} # zone_id → timestamp when status became needs_cleaning
+    self.table_transit_empty_since: Dict[str, float] = {}  # zone_id → transient empty during occupancy (chair shuffle)
     for tid in self.table_ids:
       self.table_status[tid] = "empty"
       self.table_turnover[tid] = 0
@@ -622,6 +628,9 @@ class CameraAnalyticsEngine:
                 self.table_turnover.pop(old_tid, None)
                 self.table_left_at.pop(old_tid, None)
                 self.table_occupy_start.pop(old_tid, None)
+                self.table_last_occupied_duration.pop(old_tid, None)
+                self.table_cleaning_since.pop(old_tid, None)
+                self.table_transit_empty_since.pop(old_tid, None)
 
     table_names = [new_zones[tid].name for tid in new_table_ids if tid in new_zones]
     print(f"[INFO] ✓ Zones updated: {[z.name for z in new_zones.values()]} | Tables: {table_names}")
@@ -752,6 +761,113 @@ class CameraAnalyticsEngine:
     if raw is not None:
       return raw.copy()
     return None
+
+  def get_latest_raw_frame_safe(self) -> Optional[np.ndarray]:
+    """Return only the latest raw capture frame (no overlay).
+
+    Used by smooth-mode MJPEG to render fresh interpolated bboxes on top of
+    the most recent capture without waiting for inference.
+    """
+    with self._frame_lock:
+      if self._latest_raw_frame is None:
+        return None
+      return self._latest_raw_frame.copy()
+
+  def get_interpolated_tracks(self, now: float) -> List[Dict]:
+    """Return track snapshots at `now` with linearly interpolated bboxes.
+
+    Uses the last two (timestamp, bbox_norm) samples per track:
+    - Two samples + gap ≤ 200 ms → linear extrapolation toward `now`
+    - Otherwise → freeze at the most recent sample (avoids teleporting a bbox
+      across the frame when inference has stalled for a while).
+
+    Returns a list of plain dicts (track_id, bbox_norm, gender, age, inside,
+    first_seen) so the caller doesn't need a lock while rendering.
+    """
+    snapshots: List[Dict] = []
+    # Short critical section: copy samples + display fields under the lock then
+    # release before doing math.
+    try:
+      items = list(self.tracks.items())
+    except RuntimeError:
+      # tracks dict mutated concurrently — skip this tick
+      return snapshots
+
+    INFER_GAP_FREEZE = 0.200  # seconds — if inference gap > this, stop extrapolating
+    MAX_EXTRAPOLATE = 0.100   # seconds — never extrapolate more than 100 ms ahead
+
+    for _tid, person in items:
+      samples = list(person.bbox_samples)
+      if not samples:
+        continue
+      latest_t, latest_bbox = samples[-1]
+      # Drop tracks that haven't been updated recently to avoid ghosting.
+      if now - latest_t > INFER_GAP_FREEZE + 1.0:
+        continue
+      if len(samples) < 2 or (latest_t - samples[0][0]) <= 0:
+        bbox = latest_bbox
+      else:
+        prev_t, prev_bbox = samples[0]
+        dt = latest_t - prev_t
+        # Extrapolate slightly ahead of latest sample to follow the motion.
+        ahead = max(0.0, min(now - latest_t, MAX_EXTRAPOLATE))
+        if now - latest_t > INFER_GAP_FREEZE:
+          bbox = latest_bbox
+        else:
+          t_ratio = (dt + ahead) / dt
+          bbox = tuple(
+            prev + (latest - prev) * t_ratio
+            for prev, latest in zip(prev_bbox, latest_bbox)
+          )  # type: ignore[assignment]
+
+      snapshots.append({
+        "track_id": person.track_id,
+        "bbox_norm": bbox,
+        "gender": person.gender,
+        "age": person.age,
+        "inside": person.inside,
+        "first_seen": person.first_seen,
+      })
+    return snapshots
+
+  def get_smooth_frame(self, now: Optional[float] = None) -> Optional[np.ndarray]:
+    """Render the latest raw frame with interpolated bboxes overlaid.
+
+    Called by the MJPEG /smooth handler at display rate (up to 60 FPS) so the
+    video stays fluid even when inference runs at 20–25 FPS. Tracks are taken
+    from `get_interpolated_tracks`, which frees us from the inference cadence.
+    """
+    if now is None:
+      now = time.time()
+    frame = self.get_latest_raw_frame_safe()
+    if frame is None:
+      return None
+    tracks = self.get_interpolated_tracks(now)
+    if not tracks:
+      return frame
+    fh, fw = frame.shape[:2]
+    for t in tracks:
+      bx1, by1, bx2, by2 = t["bbox_norm"]
+      p1 = (int(bx1 * fw), int(by1 * fh))
+      p2 = (int(bx2 * fw), int(by2 * fh))
+      color = (0, 255, 0) if t["inside"] else (0, 0, 255)
+      cv2.rectangle(frame, p1, p2, color, 2)
+      label_bits = [f"#{t['track_id']}"]
+      if t["gender"] and t["gender"] != "unknown":
+        g = "M" if t["gender"] == "male" else "F"
+        if t["age"]:
+          label_bits.append(f"{g} {int(t['age'])}y")
+        else:
+          label_bits.append(g)
+      elif t["age"]:
+        label_bits.append(f"{int(t['age'])}y")
+      label = " | ".join(label_bits)
+      (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+      ly = max(th + 4, p1[1] - 6)
+      cv2.rectangle(frame, (p1[0], ly - th - 4), (p1[0] + tw + 6, ly + 2), (20, 20, 40), -1)
+      cv2.putText(frame, label, (p1[0] + 3, ly - 2),
+                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    return frame
 
   def get_snapshot(self) -> Optional[str]:
     """Capture a single frame and return as base64 string (thread-safe)"""
@@ -1403,9 +1519,10 @@ class CameraAnalyticsEngine:
                 batch_yaws = []
 
                 # Matched persons: face + body crops
-                # Cap total batch size. 12 matches the RTX 5070 throughput envelope
-                # while still keeping MiVOLO inference comfortably under one frame budget.
-                _MAX_MIVOLO_BATCH = 12
+                # Stage 2: 12 → 18 on RTX 5070 12GB. If a prior batch triggered
+                # CUDA OOM we clamp back to 12 via self._mivolo_batch_limit so
+                # crowded scenes don't keep hitting the ceiling.
+                _MAX_MIVOLO_BATCH = getattr(self, "_mivolo_batch_limit", 18)
                 for i, face in matched_faces.items():
                   if len(batch_tids) >= _MAX_MIVOLO_BATCH:
                     break
@@ -1464,10 +1581,26 @@ class CameraAnalyticsEngine:
                   batch_yaws.append(90.0)
                   body_only_count += 1
 
-                # Batch MiVOLO inference
+                # Batch MiVOLO inference (Stage 2: OOM-guarded)
                 if batch_tids:
                   _t_mivolo = time.time()
-                  mivolo_results = self.mivolo_estimator.predict_batch(face_crops, body_crops)
+                  try:
+                    mivolo_results = self.mivolo_estimator.predict_batch(face_crops, body_crops)
+                  except RuntimeError as _oom:
+                    # CUDA OOM on larger batches (common at 18 with lots of
+                    # demographics pipelines warm). Fall back permanently to 12,
+                    # drop this batch, and keep running.
+                    if "out of memory" in str(_oom).lower() or "cuda" in str(_oom).lower():
+                      print(f"[WARN] MiVOLO OOM at batch={len(batch_tids)}; clamping to 12", flush=True)
+                      self._mivolo_batch_limit = 12
+                      try:
+                        import torch as _torch
+                        _torch.cuda.empty_cache()
+                      except Exception:
+                        pass
+                      mivolo_results = []
+                    else:
+                      raise
                   _t_mivolo = time.time() - _t_mivolo
                   for idx, (age, gender, gender_prob) in enumerate(mivolo_results):
                     if age is None:
@@ -2384,11 +2517,19 @@ class CameraAnalyticsEngine:
         person.bbox_norm = person.smoothed_bbox_norm  # type: ignore[assignment]
         person.last_seen = now
 
+      # Stage 2: push a (timestamp, bbox_norm) sample for display-side interpolation.
+      # Newly-created persons also get their first sample here so smooth mode can
+      # freeze them at the observed position until a second sample lands.
+      person.bbox_samples.append((now, person.bbox_norm))
+
       self._update_inside_state(person, now)
       self._update_zones(person, now)
       self._update_heatmap(person.center_norm)
 
     self._drop_stale_tracks(active_ids, now)
+    # Stage 4: sweep leftover zone memberships after grace expires.
+    if getattr(self.config, 'zone_occlusion_grace_enabled', False):
+      self._reconcile_zone_members(now)
 
   def _update_inside_state(self, person: TrackedPerson, now: float) -> None:
     if not self.config.entrance_line:
@@ -2552,6 +2693,7 @@ class CameraAnalyticsEngine:
   def _drop_stale_tracks(self, active_ids: set[int], now: float, ttl: float = None) -> None:
     if ttl is None:
       ttl = self.config.track_stale_ttl
+    grace_on = getattr(self.config, 'zone_occlusion_grace_enabled', False)
     for track_id in list(self.tracks.keys()):
       person = self.tracks[track_id]
       if track_id in active_ids:
@@ -2577,8 +2719,36 @@ class CameraAnalyticsEngine:
           }
         if person.counted_in and not person.counted_out:
           self.people_out += 1
-        self._finalize_active_zones(person, now)
+        # Stage 4: when grace is enabled, keep zone_active_members entries alive
+        # for up to zone_grace_period_s so a brief occlusion doesn't flip a table
+        # from occupied → empty. _reconcile_zone_members() sweeps true leavers.
+        if grace_on and person.active_zones:
+          for zone_id in list(person.active_zones.keys()):
+            # leave zone_active_members[zone_id][track_id] as-is — its value
+            # (timestamp of last presence) is what the reconciler tests against
+            person.active_zones.pop(zone_id, None)
+        else:
+          self._finalize_active_zones(person, now)
         self.tracks.pop(track_id, None)
+
+  def _reconcile_zone_members(self, now: float) -> None:
+    """Stage 4: evict zone members whose track has been gone for longer than
+    the grace period. Without this sweep, a track dropped during an occlusion
+    would remain 'present' in the zone forever."""
+    grace = getattr(self.config, 'zone_grace_period_s', 3.0)
+    if grace <= 0:
+      return
+    for zone_id in list(self.zone_active_members.keys()):
+      members = self.zone_active_members[zone_id]
+      for tid in list(members.keys()):
+        if tid in self.tracks:
+          # Still alive — the normal _update_zones path keeps last_seen fresh
+          continue
+        last_seen = members[tid]
+        if (now - last_seen) > grace:
+          members.pop(tid, None)
+          if _DEBUG:
+            _log.debug(f"[ZONE] grace expired, evicting tid={tid} from zone={zone_id}")
 
   def _match_faces_to_tracks(self, faces, frame_w: int, frame_h: int) -> List[tuple]:
     """Match InsightFace results to YOLO tracked persons by bbox overlap."""
@@ -2795,6 +2965,7 @@ class CameraAnalyticsEngine:
           else:
             gender_score = float(best_face.sex)
 
+        gender_recovered = False
         if gender_score is not None:
           lo = getattr(self.config, 'demo_gender_lower_band', 0.35)
           hi = getattr(self.config, 'demo_gender_upper_band', 0.65)
@@ -2802,7 +2973,23 @@ class CameraAnalyticsEngine:
             gender = "male"
           elif gender_score <= lo:
             gender = "female"
-          # Inside the band → leave gender=None so it's ignored this frame.
+          # Inside the band → normally we leave gender=None so it's ignored this
+          # frame. Stage 3: optional majority-vote recovery on recent history,
+          # emitted at half weight so a confident counter-vote can still win.
+          if (gender is None
+              and getattr(self.config, 'demo_ambiguous_recovery', False)
+              and len(person.gender_history) >= getattr(self.config, 'demo_ambiguous_recent_votes', 3)):
+            recent_n = getattr(self.config, 'demo_ambiguous_recent_votes', 3)
+            recent = [g for g in list(person.gender_history)[-recent_n:] if g in ("male", "female")]
+            if recent:
+              m = sum(1 for g in recent if g == 'male')
+              f = sum(1 for g in recent if g == 'female')
+              if m > f:
+                gender = "male"
+                gender_recovered = True
+              elif f > m:
+                gender = "female"
+                gender_recovered = True
 
         if age is not None:
           face_w_px = best_face.bbox[2] - best_face.bbox[0]
@@ -2818,6 +3005,8 @@ class CameraAnalyticsEngine:
             yaw = abs(float(best_face.pose[1]))
             p_f = max(0.45, 1.0 - yaw / 150.0)
           confidence = max(0.15, min(0.95, 0.85 * min(1.0, det_score / 0.5) * sz_f * p_f))
+          if gender_recovered:
+            confidence *= 0.5
           # Emit even if gender ended up None — age can still be learned and
           # a subsequent frame may supply a confident gender vote.
           results.append((track_id, age, gender, confidence))
@@ -2899,41 +3088,135 @@ class CameraAnalyticsEngine:
     if self.frame_count % 90 == 0:
       print(f"[DEMO] Applied: {len(demo_results)} detected, {matched} applied to tracks", flush=True)
 
+  def _table_occupant_count(self, table_id: str) -> int:
+    """Stage 4: centralised occupant count with capacity clamp.
+    Without this clamp, drift in zone_active_members (e.g. BoT-SORT duplicating
+    a seated person under two track IDs) produced the 'masa 1 kişi ama aslında
+    3 oturuyor' class of bugs and, summed across tables, the 'toplam 15' inflation."""
+    raw = len(self.zone_active_members.get(table_id, {}))
+    if not getattr(self.config, 'table_capacity_clamp_enabled', False):
+      return raw
+    zone = self.zone_definitions.get(table_id)
+    per_zone_cap = getattr(zone, 'max_capacity', None) if zone is not None else None
+    default_cap = getattr(self.config, 'table_max_capacity', 6)
+    cap = per_zone_cap if isinstance(per_zone_cap, int) and per_zone_cap > 0 else default_cap
+    if raw > cap:
+      if _DEBUG:
+        _log.debug(f"[TABLE] clamp table={table_id} raw={raw} cap={cap}")
+      return cap
+    return raw
+
   def _update_table_status(self, now: float) -> None:
-    """Update table occupancy state machine for each TABLE zone."""
-    cleaning_timeout = self.config.table_needs_cleaning_timeout
-    empty_timeout = self.config.table_empty_timeout
+    """Update table occupancy state machine for each TABLE zone.
+
+    v2 Flow:
+      empty        → occupied     (occupants > 0)
+      occupied     → occupied     (even if briefly empty < transit_grace, e.g. chair shuffle)
+      occupied     → needs_cleaning (empty >= cleaning_empty_threshold AND occupied was >= min_occupied)
+      occupied     → empty        (empty >= cleaning_empty_threshold AND occupied was < min_occupied — transient passer-by)
+      needs_cleaning → occupied   (someone sat down again)
+      needs_cleaning → empty      (auto-timeout OR manual backend PATCH)
+    """
+    min_occupied = self.config.table_min_occupied_duration
+    cleaning_threshold = self.config.table_cleaning_empty_threshold
+    auto_empty = self.config.table_auto_empty_timeout
+    transit_grace = self.config.table_transit_grace
 
     for table_id in self.table_ids:
       if table_id not in self.zone_definitions:
         continue
-      occupants = len(self.zone_active_members.get(table_id, {}))
+      occupants = self._table_occupant_count(table_id)
+      status = self.table_status.get(table_id, "empty")
 
       if occupants > 0:
-        self.table_status[table_id] = "occupied"
-        if table_id not in self.table_occupy_start:
+        # Someone at the table
+        if status == "empty" or status == "needs_cleaning":
+          # Transition → occupied
+          self.table_status[table_id] = "occupied"
           self.table_occupy_start[table_id] = now
-        self.table_left_at.pop(table_id, None)
-      else:
-        # Person just left — start cleanup timer
-        if table_id in self.table_occupy_start:
-          self.table_turnover.setdefault(table_id, 0)
-          self.table_turnover[table_id] += 1
-          del self.table_occupy_start[table_id]
-          self.table_left_at[table_id] = now
-
-        left_at = self.table_left_at.get(table_id)
-        if left_at is not None:
-          elapsed = now - left_at
-          if elapsed < cleaning_timeout:
-            self.table_status[table_id] = "needs_cleaning"
-          elif elapsed < empty_timeout:
-            self.table_status[table_id] = "needs_cleaning"
-          else:
-            self.table_status[table_id] = "empty"
-            self.table_left_at.pop(table_id, None)
+          self.table_left_at.pop(table_id, None)
+          self.table_cleaning_since.pop(table_id, None)
+          self.table_transit_empty_since.pop(table_id, None)
         else:
-          self.table_status[table_id] = "empty"
+          # Still occupied — clear any transit-empty flag
+          self.table_transit_empty_since.pop(table_id, None)
+          self.table_left_at.pop(table_id, None)
+          if table_id not in self.table_occupy_start:
+            self.table_occupy_start[table_id] = now
+      else:
+        # No occupants
+        if status == "occupied":
+          # Just became empty during an occupancy — start transit buffer
+          if table_id not in self.table_transit_empty_since:
+            self.table_transit_empty_since[table_id] = now
+          transit_elapsed = now - self.table_transit_empty_since[table_id]
+
+          if transit_elapsed < transit_grace:
+            # Stay occupied — likely a temporary absence (chair shuffle, bathroom)
+            continue
+
+          # Transit grace expired — commit the "left" state
+          occ_start = self.table_occupy_start.get(table_id, now)
+          occupied_duration = now - occ_start
+          self.table_last_occupied_duration[table_id] = occupied_duration
+          self.table_turnover[table_id] = self.table_turnover.get(table_id, 0) + 1
+          self.table_occupy_start.pop(table_id, None)
+          self.table_left_at[table_id] = self.table_transit_empty_since[table_id]
+          self.table_transit_empty_since.pop(table_id, None)
+
+          # Check if empty long enough for cleaning decision
+          empty_elapsed = now - self.table_left_at[table_id]
+          if empty_elapsed >= cleaning_threshold:
+            if occupied_duration >= min_occupied:
+              # Real use → cleaning needed
+              self.table_status[table_id] = "needs_cleaning"
+              self.table_cleaning_since[table_id] = now
+            else:
+              # Transient passer-by, no cleaning needed
+              self.table_status[table_id] = "empty"
+              self.table_left_at.pop(table_id, None)
+
+        elif status == "needs_cleaning":
+          cleaning_at = self.table_cleaning_since.get(table_id, now)
+          if (now - cleaning_at) >= auto_empty:
+            # Auto-timeout fallback (staff forgot to confirm)
+            self.table_status[table_id] = "empty"
+            self.table_cleaning_since.pop(table_id, None)
+            self.table_left_at.pop(table_id, None)
+          # else: stay in needs_cleaning until manual PATCH or auto-timeout
+
+        elif status == "empty":
+          # Might have been in transit from occupied previously — check if ready
+          left_at = self.table_left_at.get(table_id)
+          if left_at is not None:
+            empty_elapsed = now - left_at
+            if empty_elapsed >= cleaning_threshold:
+              last_occ = self.table_last_occupied_duration.get(table_id, 0.0)
+              if last_occ >= min_occupied:
+                self.table_status[table_id] = "needs_cleaning"
+                self.table_cleaning_since[table_id] = now
+              else:
+                self.table_left_at.pop(table_id, None)
+          # otherwise stay empty
+
+  def force_table_empty(self, table_id: str) -> bool:
+    """Manually mark a table as empty (staff confirms cleaning done).
+
+    Returns True if the transition was applied, False if table was already empty
+    or unknown.
+    """
+    if table_id not in self.table_ids:
+      return False
+    prev = self.table_status.get(table_id, "empty")
+    if prev == "empty":
+      return False
+    self.table_status[table_id] = "empty"
+    self.table_cleaning_since.pop(table_id, None)
+    self.table_left_at.pop(table_id, None)
+    self.table_transit_empty_since.pop(table_id, None)
+    if _DEBUG:
+      _log.debug(f"[TABLE] force_empty table={table_id} prev={prev}")
+    return True
 
   def _build_metrics(self) -> CameraMetrics:
     # Decay heatmap over time
@@ -3036,7 +3319,7 @@ class CameraAnalyticsEngine:
         continue
       zone = self.zone_definitions[table_id]
       durations = self.zone_completed_durations[table_id]
-      active = len(self.zone_active_members.get(table_id, {}))
+      active = self._table_occupant_count(table_id)
       avg = float(np.mean(durations)) if durations else 0.0
       longest = float(np.max(durations)) if durations else 0.0
 

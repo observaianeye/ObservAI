@@ -205,6 +205,91 @@ export async function sendDailySummaryEmail(
 }
 
 /**
+ * Send a staff shift assignment email.
+ */
+export async function sendStaffShiftEmail(
+  to: string,
+  payload: {
+    staffName: string;
+    branchName: string;
+    date: string;
+    shiftStart: string;
+    shiftEnd: string;
+    role?: string;
+    acceptUrl?: string;
+    declineUrl?: string;
+  }
+): Promise<EmailSendResult> {
+  const transporter = createTransporter();
+  if (!transporter) {
+    return { success: false, error: 'SMTP not configured' };
+  }
+
+  const from = process.env.EMAIL_FROM || process.env.SMTP_USER || 'noreply@observai.com';
+
+  const actionsHtml = payload.acceptUrl || payload.declineUrl
+    ? `<div style="padding:16px 24px;text-align:center;border-top:1px solid #2a2a3a;">
+        ${payload.acceptUrl ? `<a href="${payload.acceptUrl}" style="display:inline-block;padding:10px 20px;margin:0 6px;background:#22c55e;color:#fff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600;">Vardiyayi Onayla</a>` : ''}
+        ${payload.declineUrl ? `<a href="${payload.declineUrl}" style="display:inline-block;padding:10px 20px;margin:0 6px;background:#ef4444;color:#fff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600;">Reddet</a>` : ''}
+       </div>`
+    : '';
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#0f0f14;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:24px auto;background:#1a1a24;border-radius:12px;overflow:hidden;border:1px solid #2a2a3a;">
+    <div style="background:linear-gradient(135deg,#7c3aed,#2563eb);padding:20px 24px;">
+      <h2 style="margin:0;color:#fff;font-size:18px;">&#x1F4C5; Yeni Vardiya Atamasi</h2>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 16px;color:#e5e5e5;font-size:14px;">Merhaba <strong>${payload.staffName}</strong>,</p>
+      <p style="margin:0 0 16px;color:#a0a0b0;font-size:14px;line-height:1.5;">Asagidaki vardiya icin sizinle iletisime geciyoruz:</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:8px;background:#141420;border-radius:8px;">
+        <tr>
+          <td style="padding:10px 14px;color:#888;font-size:13px;">&#x1F3EA; Sube</td>
+          <td style="padding:10px 14px;color:#e5e5e5;font-size:14px;text-align:right;font-weight:bold;">${payload.branchName}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;color:#888;font-size:13px;border-top:1px solid #2a2a3a;">&#x1F4C6; Tarih</td>
+          <td style="padding:10px 14px;color:#e5e5e5;font-size:14px;text-align:right;border-top:1px solid #2a2a3a;">${payload.date}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;color:#888;font-size:13px;border-top:1px solid #2a2a3a;">&#x1F552; Saat</td>
+          <td style="padding:10px 14px;color:#e5e5e5;font-size:14px;text-align:right;border-top:1px solid #2a2a3a;">${payload.shiftStart} - ${payload.shiftEnd}</td>
+        </tr>
+        ${payload.role ? `<tr>
+          <td style="padding:10px 14px;color:#888;font-size:13px;border-top:1px solid #2a2a3a;">&#x1F464; Gorev</td>
+          <td style="padding:10px 14px;color:#e5e5e5;font-size:14px;text-align:right;border-top:1px solid #2a2a3a;">${payload.role}</td>
+        </tr>` : ''}
+      </table>
+    </div>
+    ${actionsHtml}
+    <div style="padding:12px 24px;border-top:1px solid #2a2a3a;text-align:center;">
+      <span style="color:#555;font-size:11px;">ObservAI &mdash; Personel Yonetimi</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    await transporter.sendMail({
+      from,
+      to,
+      subject: `\u{1F4C5} [ObservAI] Vardiya: ${payload.date} ${payload.shiftStart}-${payload.shiftEnd}`,
+      html,
+    });
+    console.log(`[Email:Staff] Shift email sent to ${to} (${payload.staffName})`);
+    return { success: true };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[Email:Staff] Send failed: ${errMsg}`);
+    return { success: false, error: errMsg };
+  }
+}
+
+/**
  * Verify SMTP connection is working.
  */
 export async function verifySmtp(): Promise<{ configured: boolean; connected: boolean; error?: string }> {

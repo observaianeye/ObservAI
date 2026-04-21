@@ -332,7 +332,7 @@ export async function getStats(
       break;
   }
 
-  const [logs, alertCountResult, alertsBySeverityResult] = await Promise.all([
+  const [logs, alertCountResult, alertsBySeverityResult, summaries] = await Promise.all([
     prisma.analyticsLog.findMany({
       where: { cameraId, timestamp: { gte: startDate } },
       orderBy: { timestamp: 'desc' },
@@ -343,33 +343,86 @@ export async function getStats(
     prisma.$queryRaw<{ severity: string; cnt: number }[]>`
       SELECT severity, COUNT(*) as cnt FROM insights WHERE "cameraId" = ${cameraId} AND "createdAt" >= ${startDate.toISOString()} GROUP BY severity
     `,
+    // Fallback: AnalyticsSummary (hourly rows) when AnalyticsLog is empty — the
+    // backfill script populates Summary but not Log, so dev databases end up
+    // with rich historical summaries and no stream logs.
+    prisma.analyticsSummary.findMany({
+      where: { cameraId, date: { gte: startDate }, hour: { not: null } },
+      orderBy: { date: 'desc' },
+    }),
   ]);
   const alertCount = Number(alertCountResult[0]?.cnt || 0);
   const alertsBySeverity = alertsBySeverityResult;
 
-  const totalVisitors = logs.reduce((s, l) => s + l.peopleIn, 0);
-  const avgOccupancy = logs.length > 0
-    ? round2(logs.reduce((s, l) => s + l.currentCount, 0) / logs.length)
-    : 0;
-  const peakOccupancy = logs.length > 0
-    ? Math.max(...logs.map(l => l.currentCount))
-    : 0;
+  const hasLogs = logs.length > 0;
+
+  const totalVisitors = hasLogs
+    ? logs.reduce((s, l) => s + l.peopleIn, 0)
+    : summaries.reduce((s, row) => s + row.totalEntries, 0);
+  const avgOccupancy = hasLogs
+    ? (logs.length > 0 ? round2(logs.reduce((s, l) => s + l.currentCount, 0) / logs.length) : 0)
+    : (summaries.length > 0 ? round2(summaries.reduce((s, row) => s + row.avgOccupancy, 0) / summaries.length) : 0);
+  const peakOccupancy = hasLogs
+    ? (logs.length > 0 ? Math.max(...logs.map(l => l.currentCount)) : 0)
+    : (summaries.length > 0 ? Math.max(...summaries.map((r) => r.peakOccupancy)) : 0);
 
   // Peak hour
-  const hourCounts: Record<number, number> = {};
-  logs.forEach(l => {
-    const h = new Date(l.timestamp).getHours();
-    hourCounts[h] = (hourCounts[h] || 0) + l.currentCount;
-  });
-  const peakEntry = Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0];
-  const peakHour = peakEntry ? `${peakEntry[0]}:00` : 'N/A';
+  let peakHour = 'N/A';
+  if (hasLogs) {
+    const hourCounts: Record<number, number> = {};
+    logs.forEach((l) => {
+      const h = new Date(l.timestamp).getHours();
+      hourCounts[h] = (hourCounts[h] || 0) + l.currentCount;
+    });
+    const peakEntry = Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0];
+    if (peakEntry) peakHour = `${peakEntry[0]}:00`;
+  } else if (summaries.length > 0) {
+    const hourCounts: Record<number, number> = {};
+    summaries.forEach((row) => {
+      if (row.hour === null || row.hour === undefined) return;
+      hourCounts[row.hour] = (hourCounts[row.hour] || 0) + row.totalEntries;
+    });
+    const peakEntry = Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0];
+    if (peakEntry) peakHour = `${peakEntry[0]}:00`;
+  }
 
   const severityMap: Record<string, number> = {};
   alertsBySeverity.forEach(a => {
     severityMap[a.severity] = Number(a.cnt);
   });
 
-  const demographics = extractDemographicProfile(logs);
+  let demographics: ReturnType<typeof extractDemographicProfile> | null = null;
+  if (hasLogs) {
+    demographics = extractDemographicProfile(logs);
+  } else if (summaries.length > 0) {
+    // Merge demographics across summary rows (already aggregated JSON per hour)
+    const genderMerged: Record<string, number> = {};
+    const ageMerged: Record<string, number> = {};
+    for (const row of summaries) {
+      if (!row.demographics) continue;
+      try {
+        const d = JSON.parse(row.demographics);
+        if (d.gender) for (const [k, v] of Object.entries(d.gender)) {
+          if (typeof v === 'number') genderMerged[k] = (genderMerged[k] ?? 0) + v;
+        }
+        if (d.age) for (const [k, v] of Object.entries(d.age)) {
+          if (typeof v === 'number') ageMerged[k] = (ageMerged[k] ?? 0) + v;
+        }
+      } catch { /* skip */ }
+    }
+    const genderTotal = Object.values(genderMerged).reduce((a, b) => a + b, 0);
+    const ageTotal = Object.values(ageMerged).reduce((a, b) => a + b, 0);
+    if (genderTotal > 0 || ageTotal > 0) {
+      const dominantGender = Object.entries(genderMerged).sort(([, a], [, b]) => b - a)[0]?.[0] || 'unknown';
+      const dominantAgeGroup = Object.entries(ageMerged).sort(([, a], [, b]) => b - a)[0]?.[0] || 'unknown';
+      demographics = {
+        dominantGender,
+        dominantAgeGroup,
+        genderDistribution: genderMerged,
+        ageDistribution: ageMerged,
+      };
+    }
+  }
 
   return {
     period,

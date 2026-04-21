@@ -12,6 +12,35 @@ Bu dosya, proje ekibinin (5 kisi) Claude Code kullanarak takip edecegi adim adim
 - Her adim sonunda ilgili degisiklikler test edilmeli
 - CLAUDE.md dosyasini her zaman oku, proje bilgisi orada
 
+---
+
+## AKTIF ONCELIK (2026-04-21 Kullanici Raporu Sonrasi)
+
+Kullanici 11 maddelik kapsamli sistem raporu verdi (ekran ekran gezdi, ag loglari + screenshot ile). Bulgular yeni ADIM 19-25'e dagitildi. **Fazlara gore sira:**
+
+### Faz 1 — Bozuk olanlar (blocker)
+- ~~**ADIM 19** — Staffing 500 hatasi + Telegram/Email bildirim pipeline dogrulama (rapor #7)~~ DONE (2026-04-21)
+- ~~**ADIM 21** — Historical + Trends timezone + yuzde matematigi (rapor #8 + #10)~~ DONE (2026-04-21)
+- ~~**ADIM 20** — Tables state machine (EMPTY→OCCUPIED→CLEANING) (rapor #3)~~ DONE (2026-04-21)
+
+### Faz 2 — Veri dogrulugu
+- **ADIM 22** — Current visitors SSoT + demografi lock dogrulama (rapor #1 + #6)
+- **ADIM 23** — AI Insights gercek pipeline (Ollama cron) (rapor #9)
+
+### Faz 3 — UX / Design System
+- **ADIM 25** — i18n UTF-8 toptan temizlik + Socket cleanup + polling (rapor cross-cutting)
+- **ADIM 7** — Zone Labeling polygon/freehand + canvas UX (rapor #2, simdi TODO)
+- **ADIM 9** — Dashboard Design System chart upgrade (rapor #5, simdi TODO)
+- **ADIM 24** — Camera Selection UX + health metrics (rapor #4)
+- **ADIM 6** — Branch wizard + hava durumu (rapor #11, mevcut TODO detaylandi)
+
+### Faz 4 — Dokumantasyon / dil tamamlama
+- **ADIM 12** — i18next tam setup (UTF-8 temizlik ADIM 25'te bitmis olacak)
+- **ADIM 10** — Export PDF/CSV rafinasyon
+- **ADIM 8** — Dwell Time metrikleri zenginlestirme
+
+---
+
 ## Takim Arkadaslari Icin Talimatlar
 
 > **ONCELIKLI:** Asagidaki adimlari sirasıyla takip edin. Branch olusturmadan hicbir ise baslamayin!
@@ -110,9 +139,13 @@ Bu dosya, proje ekibinin (5 kisi) Claude Code kullanarak takip edecegi adim adim
 ---
 
 ## ADIM 2: Tracker ve Privacy Blur Inceleme
-**Durum:** BEKLIYOR (2026-04-07 — Emre, sonraki adima ertelendi)
+**Durum:** DONE (2026-04-20 — ADIM 14 ile birlikte Stage 4 kapsaminda bitirildi)
 **Atanan:** Emre
 **Bagimlilik:** Yok
+
+### Kalibrasyon Sonucu
+Stage 4 calibration uygulandi: `track_high_thresh=0.60`, `new_track_thresh=0.70`, `match_thresh=0.65`, `track_buffer=150`, `appearance_thresh=0.50`. Ek olarak `zone_grace_period_s=3.0` occlusion grace, `zone_enter_debounce_frames=5` / `zone_exit_debounce_frames=10` sikilastirildi ve `table_max_capacity=6` clamp eklendi. Detay ADIM 14'te.
+
 
 ### Amac
 BoT-SORT tracker'in ID atama ve bbox uretme sorunlarini arastirmak. Privacy blur'un tracker/demografi uzerindeki etkisini incelemek.
@@ -222,7 +255,7 @@ Ollama uzerinde Llama 3.1 8B modelini tam verimle calistirmak. AI chat ve insigh
 ---
 
 ## ADIM 4: Bildirim Sistemi (Telegram + Email + In-App)
-**Durum:** IN PROGRESS (2026-04-07 — Emre aktif calisiyor)
+**Durum:** DONE (2026-04-14 — commit 6dcf178)
 **Atanan:** Emre
 **Bagimlilik:** ADIM 2 (tracker duzeltmesi, dogru alert verisi icin)
 
@@ -332,7 +365,33 @@ Profesyonel bildirim sistemi kurmak: Anlik kritik bildirimler Telegram Bot ile, 
 
 ---
 
-## ADIM 5: Lokalizasyon (TR/EN)
+## ADIM 5: Masa Takibi + Trend Analizi + Personel Planlama
+**Durum:** DONE (2026-04-20 — commit 0e57450)
+**Atanan:** Emre
+**Bagimlilik:** ADIM 2, ADIM 7
+
+### Amac
+Masa seviyesinde doluluk takibi (empty/occupied/needs_cleaning/reserved), trend analizi ve vardiya bazli personel planlama araclari.
+
+### Yapilanlar
+- **Masa state machine** (analytics.py): TABLE zone tipi, giris/cikis debounce, `table_needs_cleaning_timeout=60s`, `table_empty_timeout=180s`, long-occupancy uyarisi
+- **TableOccupancyPage** (frontend): shematic floor plan, KPI bar (doluluk %, ort. sure, turnover, temizlik bekleyen), tablo secim + detail panel, heatmap overlay
+- **Personel planlama** (`backend/src/routes/staffing.ts`): vardiya bazli oneri, peak saat + demografi verisine dayali
+- **Trend karti**: gunluk/haftalik ozet analytics sayfasinda
+
+### Dosyalar
+- `packages/camera-analytics/camera_analytics/analytics.py` — TABLE zone tipi, state machine
+- `packages/camera-analytics/config/default_zones.yaml` — `table_needs_cleaning_timeout`, `table_empty_timeout`, `table_long_occupancy_alert`
+- `frontend/src/pages/dashboard/TableOccupancyPage.tsx` — YENI
+- `backend/src/routes/staffing.ts` — YENI
+- `backend/prisma/schema.prisma` — StaffShift modeli
+
+### Not
+Bu ADIM eskiden "Lokalizasyon" icin planlanmisti. Lokalizasyon kapsami ADIM 12'ye tasindi.
+
+---
+
+## ADIM 12: Lokalizasyon (TR/EN)
 **Durum:** TODO
 **Atanan:** -
 **Bagimlilik:** Yok
@@ -414,13 +473,23 @@ Tum UI metinlerini Turkce ve Ingilizce arasinda gecis yapabilecek sekilde i18nex
 
 ---
 
-## ADIM 6: Sube/Branch Yonetimi ve Hava Durumu
+## ADIM 6: Sube/Branch Yonetimi ve Hava Durumu (Wizard + Harita)
 **Durum:** TODO
 **Atanan:** -
 **Bagimlilik:** Yok
 
 ### Amac
 Sube yonetimini kullanilir ve efektif hale getirmek. Hava durumu entegrasyonunu net ve gorsel olarak sunmak.
+
+### Rapor Notlari (2026-04-21)
+Kullanici raporu #11'e gore mevcut Settings > Subeler UI sorunlu: modal scroll gerektiriyor, harita onizlemesi yok, hava durumu API konfigurasyonu belirsiz, header "+Add Branch" Settings'e ziplamak yerine modal acmali. ASCII bozuk metinler ("Sube", "yonetin", "gore") UTF-8 temizligi ADIM 25'te yapilacak.
+
+### Yeni Yapilacaklar (rapor sonrasi)
+- **5 adimli wizard**: Temel bilgi (ad, kategori, logo) → Konum (adres autocomplete + Leaflet/MapLibre mini-harita + draggable marker + "Konumumu kullan") → Operasyon (timezone otomatik, acilis/kapanis, kapasite) → Entegrasyonlar (hava durumu provider: OpenWeather/Tomorrow.io/Visual Crossing + API key test butonu + yagmur/sicaklik alert esikleri) → Ozet + Kaydet
+- **Framer Motion stepper**: Adimlar arasi slide transition (AnimatePresence)
+- **Header dropdown**: "+ Add Branch" secenegi wizard'i modal olarak acsin (Settings'e redirect yerine)
+- **Weather cron**: Her branch icin 30 dk'da bir GET, response cache
+- **Branch-aware filtering**: Tum analytics endpoint'leri `branchId` query param destekler; dashboard dropdown degistiginde tum sayfalar scope edilir
 
 ### Yapilacaklar
 
@@ -462,40 +531,45 @@ Sube yonetimini kullanilir ve efektif hale getirmek. Hava durumu entegrasyonunu 
 
 ---
 
-## ADIM 7: Zone Sistemi Iyilestirme
-**Durum:** ASK USER
+## ADIM 7: Zone Labeling Canvas UX + Polygon/Freehand
+**Durum:** TODO (rapor ile netlesti, ASK USER kaldirildi)
 **Atanan:** -
 **Bagimlilik:** ADIM 2 (tracker duzeltmesi)
 
 ### Amac
-Zone cizim sistemini gelistirmek (cokgen destek), masa doluluk goruntuleme, minimap/layout olusturma. Bu adim baslamadan once kullaniciya sorular sorulacak.
+Zone cizim sistemini gelistirmek (polygon + freehand destek), canvas UX'i Design System standartlarina cekmek, hatali i18n key'leri duzeltmek.
 
-### Kullaniciya Sorulacak Sorular
-1. "Zone seklini dikdortgen disinda cokgen (polygon) olarak da cizebilmek istiyor musun? Ornegin L-seklinde bir alan veya ucgen masa grubu?"
-2. "Minimap/layout gorunumu nasil olmali? (a) Kullanicinin cizecegi sembolik bir layout, (b) Kamera goruntusu uzerinde zone overlay, (c) Otomatik olusturulan sematik gorunum?"
-3. "Masa layout'unda neler gosterilsin? (a) Sadece dolu/bos durumu, (b) Kisi sayisi + cinsiyet, (c) Kisi sayisi + cinsiyet + oturma suresi, (d) Hepsi + heatmap"
-4. "Kac masa/zone tipik bir kafede olur? Yaklasik sayi nedir? (UI tasarimi icin)"
+### Kullanici Cevaplari (2026-04-21 rapor #2)
+- Polygon + freehand istekli (su an her zone "RECT" olarak kaydediliyor)
+- Zone rengi chip'lerle gosterilmeli (Entry=cyan, Table=pink, Queue=yellow, Display=green)
+- Canvas araclarinda ham i18n key'ler cikiyor: `zones.canvas.drawRect`, `drawPolygon`, `drawFreehand`, `pickMode`
+- Zone eklenirken Framer Motion animasyon (scale-in, fade-out)
+- Canli heatmap overlay (zone uzerinde track density)
 
-### Potansiyel Yapilacaklar (kullanici cevabina gore)
+### Yapilacaklar
 
-#### A. Cokgen Zone Destegi
-- `ZoneCanvas.tsx`: Dikdortgen cizime ek olarak polygon cizim modu
-  - Kullanici nokta nokta tiklar, son noktayi ilk noktaya baglar
-  - Polygon overlay render
-- `analytics.py`: Zaten Shapely polygon destegi var, sadece frontend'den 4+ nokta gelmesi yeterli
-- Backend zone validation guncelleme
+#### A. Polygon + Freehand Cizim
+- `ZoneCanvas.tsx`: `drawingMode` state makinesi (`rect | polygon | freehand | pick`)
+- **Polygon**: Nokta nokta tikla, cift tikla veya ESC ile kapat
+- **Freehand**: Pointer-move ile path; Ramer-Douglas-Peucker ile vertex azalt
+- **ZonePolygonUtils.ts**: Mevcut (simplify + ray-casting + bbox), frontend wiring bozuk
+- Backend: `analytics.py` Shapely zaten destekliyor, sadece 4+ nokta gelmesi yeterli
 
-#### B. Masa Doluluk Gorunumu
-- Dashboard'da yeni bir kart/bolum: "Masa Durumu"
-- Her TABLE tipindeki zone icin: masa adi, kisi sayisi, ortalama oturma suresi
-- Renk kodlamasi: Bos (yesil), Dolu (kirmizi), Yarim dolu (sari)
-- Gercek zamanli guncelleme (WebSocket)
+#### B. i18n Key Eksikleri
+- `locales/en.json` + `tr.json` eksik keyler:
+  - `zones.canvas.drawRect` → "Rectangle" / "Dikdortgen"
+  - `zones.canvas.drawPolygon` → "Polygon" / "Cokgen"
+  - `zones.canvas.drawFreehand` → "Freehand" / "Serbest"
+  - `zones.canvas.pickMode` → "Select" / "Sec"
 
-#### C. Minimap / Layout Gorunumu
-- Dashboard'da interaktif layout goruntuleme
-- Zone'larin konumlarini sematik olarak gosterir
-- Heatmap overlay secenegi
-- Tiklanabilir zone'lar (detay popup)
+#### C. Canvas UX Upgrade (Design System)
+- Zone eklenince: `initial={{scale:0.9, opacity:0}} animate={{scale:1, opacity:1}}`
+- Silme: fade-out + slide
+- Zone listesi kartlar: kendi renk chip'i (type'a gore), sag tarafta drag handle (reorder)
+- Canli heatmap overlay: Design System Heatmap kart stili, bar/espresso underused label
+
+#### D. Masa Doluluk Ayri Adim
+Masa doluluk ve state machine ADIM 20'ye tasindi. Bu adim sadece Zone Labeling canvas UX'ine odaklanir.
 
 ### Dosyalar (muhtemel)
 - `frontend/src/components/camera/ZoneCanvas.tsx` — DEGISECEK
@@ -561,39 +635,36 @@ Dwell time metriklerini zenginlestirmek ve dashboard'da gorsel olarak sunmak. Bu
 
 ---
 
-## ADIM 9: Dashboard Gorsellesitirme Iyilestirme
-**Durum:** ASK USER
+## ADIM 9: Dashboard Design System Chart Upgrade
+**Durum:** TODO (rapor ile netlesti, ASK USER kaldirildi)
 **Atanan:** -
-**Bagimlilik:** ADIM 7 (zone), ADIM 8 (dwell time), ADIM 6 (branch)
+**Bagimlilik:** ADIM 22 (SSoT), ADIM 21 (historical fix), ADIM 6 (branch)
 
 ### Amac
-Dashboard'u modern, sik ve bilgi dolu hale getirmek. Bu adim baslamadan once kullaniciya sorulacak.
+Design System'deki hazir chart patternlerini dashboard'a tasimak. Sparkline + area + heatmap + donut + gradient bar + anomaly banner + conversion funnel.
 
-### Kullaniciya Sorulacak Sorular
-1. "Dashboard'un genel gorunumu icin bir renk temasi/stil tercihin var mi? (a) Koyu tema (dark mode), (b) Acik tema, (c) Her ikisi de secenekli"
-2. "Hangi ek grafikler istiyorsun? (a) Gercek zamanli ziyaretci sayisi line chart, (b) Saat bazli heatmap, (c) Cinsiyet/yas pasta grafigi, (d) Zone bazli bar chart, (e) Hepsi"
-3. "Ana dashboard'da kac kart/widget gosterilsin? Cok fazla olursa karisik, az olursa eksik hissettirir."
-4. "Mevcut grafiklerin hangisini begeniyorsun, hangisini degistirmek istiyorsun?"
+### Rapor #5 — Design System'den Dashboard'a Esleme
+Design System'de hazir + eklenecegi ekran:
+- **"TODAY'S TRAFFIC 247 visitors + sparkline bar"** → Analytics Dashboard ust KPI bandi (mevcut "Current Visitors 4" kartinin yerine: total + sparkline + trend chip)
+- **"AVG DWELL TIME 18.4 min + area line"** → Mevcut "Avg Dwell 0.0 min / No data" kartini area chart + trend % ile degistir
+- **DEMOGRAPHICS donut + percentage list** → Mevcut Gender Donut'a rakamli list
+- **AGE DISTRIBUTION gradient bar (cyan→purple)** → Flat bar chart yerine, lock badge ile birlikte
+- **Zone flow SVG (BoT-SORT animated path)** → Yeni "Zone Flow" card
+- **"HOTTEST TABLE / DEAD ZONE" KPI cifti** → Tables sayfasina (ADIM 20)
+- **Stacked Age × Gender chart (mavi alt, mor ust)** → Demografi karti
+- **Track gender voting timeline + Age EMA chart** → AI Insights yeni "Track Detail" drawer (ADIM 23)
+- **Insight timeline (console-style 14:33 → INSIGHT ... ACTION ...)** → AI Insights ana feed (ADIM 23)
 
-### Potansiyel Yapilacaklar
+### Yeni Eklenecek Widget'lar
+- **Queue alert card** (IN/OUT/QUEUE renkli): "142 / 119 / 4" KPI paterni
+- **Anomaly banner**: Sudden drop/spike tespiti -> ust kisimda kirmizi/sari toast
+- **Conversion funnel**: Entry → Queue → Seated → Ordered → Paid yuzdeleri
+- **Peak hour forecast**: Bugun ongorulen peak window + onerilen staff sayisi (Staffing'e baglanir)
 
-#### A. Dashboard Layout Yenileme
-- Card-based responsive grid layout
-- Drag & drop ile kart siralamasini degistirme (react-grid-layout)
-- Her kart: baslik + chart + alt bilgi
-- Anlik veri guncelleme animasyonlari
-
-#### B. Yeni Grafikler
-- Gercek zamanli ziyaretci akisi (line chart, son 1 saat)
-- Saat bazli yogunluk heatmap (7 gun x 24 saat)
-- Zone doluluk bar chart
-- Cinsiyet/yas karsilastirma pie/donut chart
-- Dwell time trend chart
-
-#### C. Gorsellesitirme Modu Degistirme
-- SRS gereksinimi: "interactively switch between visualization modes"
-- Her grafik kartinda dropdown/toggle ile chart tipini degistir (bar ↔ line ↔ pie)
-- Bu, SRS'teki UC-03 gereksinimini karsilar
+### Kod Yapisi
+- Tum chart'lari tek yerde: `src/components/charts/` klasoru
+- Sparkline icin ayri component: `<Sparkline data={...} color="cyan" />`
+- visx veya victory tabanli custom chart (mevcut Recharts degistirilebilir)
 
 ### Dosyalar (muhtemel)
 - `frontend/src/pages/dashboard/DashboardPage.tsx` — DEGISECEK
@@ -720,37 +791,636 @@ CSV ve PDF export'unu tam dogru ve mantikli calisir hale getirmek. Raporlarda AI
 
 ---
 
+## ADIM 13: Test Altyapisi (pytest + vitest + Playwright)
+**Durum:** DONE (2026-04-20)
+**Atanan:** Emre (partal)
+**Bagimlilik:** Yok
+
+### Amac
+Her sonraki degisikligi olculebilir yapmak — parametreleri, pipeline degisikliklerini ve feature flag'leri regression koruma altina almak.
+
+### Yapilanlar
+- **Python pytest** (`packages/camera-analytics/tests/`): `pytest.ini` + `conftest.py` GPU marker, 51 test green (FPS, tracking stability, zone counting, demographics accuracy, interpolation).
+- **Backend vitest** (`backend/src/__tests__/`): auth + session + ai-chat-history + ai-config + analytics-validator + analytics-aggregator + tables-ai-summary — 41 test green.
+- **Frontend Playwright** (`frontend/e2e/`): auth-persistence + camera-mjpeg + tables-live-view senaryolari.
+- **CI** (`.github/workflows/ci.yml`): GPU olmayan testler otomatik.
+
+### Dosyalar
+- `packages/camera-analytics/pytest.ini`, `tests/conftest.py`, `tests/test_*.py`
+- `backend/vitest.config.ts`, `backend/src/__tests__/`
+- `frontend/playwright.config.ts`, `frontend/e2e/`
+
+---
+
+## ADIM 14: FPS + Tracking + Demografi Kapsamli Revizyon
+**Durum:** DONE (2026-04-20)
+**Atanan:** Emre (partal)
+**Bagimlilik:** ADIM 13
+
+### Amac
+"Yag gibi gorunum, donma/takilma yok" sikayetini kokunden cozmek — ayni zamanda yas/cinsiyet dogrulugunu ve zone count stabilitesini artirmak.
+
+### Yapilanlar
+1. **Display/Inference decoupling (Stage 2)**: MJPEG `?mode=smooth` query param → raw frame + interpolated bbox ile 60 FPS overlay; `mode=inference` (default) orijinal davranis. `OBSERVAI_MJPEG_MODE=smooth` env ile default degistirilir.
+   - `TrackedPerson.bbox_samples: deque(maxlen=2)` — son 2 sample
+   - `get_interpolated_tracks(now)` — linear extrapolation + 200ms freeze + 100ms max ahead
+   - `get_smooth_frame(now)` — raw frame + interpolated bbox + overlay labels
+   - TensorRT warm-up 10 frame (soguk baslatma FPS dusumunu onler)
+   - MiVOLO batch 12 → 18 (RTX 5070), CUDA OOM → 12 auto-fallback
+2. **Demografi kalibrasyonu (Stage 3)**: `demo_gender_consensus 0.80 → 0.70`, `demo_gender_lock_threshold 8 → 6`, `demo_age_lock_stability 0.95 → 0.92`, `demo_age_lock_min_samples 30 → 20`, `demo_min_confidence 0.40 → 0.35`, `demo_temporal_decay 0.92 → 0.90`, `demo_age_ema_alpha 0.25 → 0.20`. Ambiguous-band recovery feature flag `demo_ambiguous_recovery=false` (default off).
+3. **BoT-SORT + zone stability (Stage 4)**: `track_high_thresh 0.50 → 0.60`, `new_track_thresh 0.60 → 0.70`, `match_thresh 0.75 → 0.65`, `track_buffer 90 → 150`, `appearance_thresh 0.35 → 0.50`. Zone debounce 3/5 → 5/10. `zone_grace_period_s=3.0` occlusion grace, `table_max_capacity=6` overcount clamp.
+
+### Kabul Kriteri (dogrulama)
+- Display FPS ≥ 50, inference FPS ≥ 20 Mozart Cafe klibinde
+- ID churn rate ≤ 1.2
+- Zone count delta ≤ 0.5
+- Gender F1 ≥ 0.85, age MAE ≤ 7
+
+### Dosyalar
+- `packages/camera-analytics/camera_analytics/{analytics,websocket_server,run_with_websocket}.py`
+- `packages/camera-analytics/camera_analytics/botsort.yaml`
+- `packages/camera-analytics/config/default_zones.yaml`
+
+---
+
+## ADIM 15: Masa View AI (Live Video + Zone Overlay + AI Yorum)
+**Durum:** DONE (2026-04-20)
+**Atanan:** Emre (partal)
+**Bagimlilik:** ADIM 5, ADIM 14, ADIM 16
+
+### Amac
+"Masa gorunum ekraninda AI cok daha iyi bir ekran olusturmali. Gercek goruntuden yararlanmali" isteginin karsilanmasi.
+
+### Yapilanlar
+- **Live View tab** (`TableOccupancyPage.tsx`): Schematic ile toggle edilebilir, default Schematic (regression yok).
+- **TableFloorLiveView** (`frontend/src/components/tables/TableFloorLiveView.tsx`): MJPEG smooth stream + SVG normalize (0..1 viewBox) zone polygon overlay + HTML status chip labels.
+- **AI commentary panel**: `POST /api/tables/ai-summary` → Ollama structured prompt (Turkce vardiya brifi, 2-4 satir), 30 sn server-side throttle per cameraId, visibility-change aware auto-refresh.
+- **Graceful fallback**: Ollama offline → bilgi mesaji, UI bosalmaz.
+
+### Dosyalar
+- `backend/src/routes/tables.ts` — YENI (AI summary endpoint)
+- `backend/src/index.ts` — `/api/tables` mount
+- `frontend/src/components/tables/TableFloorLiveView.tsx` — YENI
+- `frontend/src/pages/dashboard/TableOccupancyPage.tsx` — view-mode toggle
+- `backend/src/__tests__/tables-ai-summary.test.ts` — validasyon + throttle + fallback test
+
+---
+
+## ADIM 16: Ollama Streaming + Conversation History + qwen3:14b
+**Durum:** DONE (2026-04-20)
+**Atanan:** Emre (partal)
+**Bagimlilik:** ADIM 13
+
+### Amac
+Ollama cevap hizini ve kalitesini iyilestirmek; chatbot onceki mesajlari hatirlasin.
+
+### Yapilanlar
+- **qwen3:14b primary + llama3.1:8b fallback** (OLLAMA_MODEL_PRIORITY).
+- **start-all.bat iyilestirmesi**: nvidia-smi check + `OLLAMA_NUM_GPU=999` auto-set, primary→fallback pull, 30 sn startup timeout, warm-up request.
+- **SSE streaming** (`POST /api/ai/chat/stream`): ENABLE_AI_STREAMING feature flag, chunk-by-chunk frontend render.
+- **Conversation history**: Prisma `ChatMessage` modeli, son 10 tur context'e enjekte, `conversationId` localStorage persist.
+- **Data-driven prompt**: `getRecentAnalyticsContext()` yapisal format (entry/exit/peak/demo/alert).
+
+### Dosyalar
+- `backend/src/routes/ai.ts` — callOllamaStream, SSE handler, history injection
+- `backend/prisma/schema.prisma` — ChatMessage modeli
+- `backend/.env.example` — OLLAMA_NUM_GPU, OLLAMA_NUM_CTX, OLLAMA_MODEL, OLLAMA_TIMEOUT_MS
+- `start-all.bat` — GPU check + qwen3:14b pull + warm-up
+- `frontend/src/components/GlobalChatbot.tsx` — EventSource SSE, conversationId state
+
+---
+
+## ADIM 17: Data Integrity (Validator + AnalyticsSummary + Health Monitor)
+**Durum:** DONE (2026-04-20)
+**Atanan:** Emre (partal)
+**Bagimlilik:** ADIM 13
+
+### Amac
+Python → Backend → DB pipeline'i sanity checked, aggregated, izlenebilir hale getirmek.
+
+### Yapilanlar
+- **Validator** (`backend/src/lib/analyticsValidator.ts`): fps/current/people range check, timestamp freshness. Invalid payload log + drop.
+- **AnalyticsSummary aggregation** (`services/analyticsAggregator.ts`): node-cron saatlik + gunluk ozet, idempotent upsert. `DISABLE_ANALYTICS_AGGREGATOR` env ile devre disi.
+- **Python health monitor** (`lib/pythonBackendManager.ts`): 10sn poll, 3 ardisik fail → `python_backend_offline` event. Frontend offline banner.
+
+### Dosyalar
+- `backend/src/lib/analyticsValidator.ts` — YENI
+- `backend/src/services/analyticsAggregator.ts` — YENI
+- `backend/src/lib/pythonBackendManager.ts` — startHealthMonitor + events
+- `backend/prisma/schema.prisma` — AnalyticsSummary modeli
+- `backend/src/__tests__/analytics-{validator,aggregator}.test.ts`
+
+---
+
+## ADIM 18: Login Remember Me Fix
+**Durum:** DONE (2026-04-20)
+**Atanan:** Emre (partal)
+**Bagimlilik:** ADIM 13
+
+### Amac
+"Login'de her seferinde giris yapmak gerekiyor" bug'inin kokunden cozumu.
+
+### Yapilanlar
+- `AuthContext.tsx` tum fetch call'larina `credentials: 'include'` eklendi.
+- `authMiddleware.ts` session expiry (30 gun rememberMe, 7 gun default) audit edildi.
+- Startup session cleanup `rememberMe=true` oturumlari etkilemez.
+- Playwright E2E: `auth-persistence.spec.ts` — login + rememberMe + browser restart senaryosu yesil.
+
+### Dosyalar
+- `frontend/src/contexts/AuthContext.tsx` — credentials include
+- `backend/src/routes/auth.ts`, `backend/src/middleware/authMiddleware.ts` — session audit
+- `frontend/e2e/auth-persistence.spec.ts` — YENI
+
+---
+
+## ADIM 19: Staffing 500 Fix + Telegram/Email Bildirim Pipeline Dogrulama
+**Durum:** DONE (2026-04-21)
+**Atanan:** Emre (partal)
+**Bagimlilik:** ADIM 4 (bildirim altyapisi)
+
+### Yapilanlar
+- **500 Fix** (`backend/src/routes/staffing.ts`): `/:branchId/recommendations` endpoint'i `authenticate` middleware aldi. `branchId='default'` user'in default branch'ina resolve edilir (yoksa ilk branch). `cameraId` opsiyonel — verilmezse branch'taki tum kameralar aggregate. 3 gunden az veri varsa `needsMoreData: true, daysCollected, daysRemaining, reason` doner (throw etmez). User raporundaki 500 hatasi cozuldu.
+- **NotificationLog modeli** (`backend/prisma/schema.prisma`): userId, staffId, assignmentId, event (staff_shift|alert|test|onboarding), channel (telegram|email), target, success, error, payload alanlari. `db push` ile SQLite'a uygulandi, client regenerate edildi.
+- **Dispatcher audit** (`backend/src/services/notificationDispatcher.ts`): Her Telegram/email denemesi NotificationLog'a yazilir (success + failure). `writeAudit` file log korundu, DB eklenen suspenders.
+- **Notifications summary endpoint** (`backend/src/routes/notifications.ts`): `GET /api/notifications/summary?days=7` — gercek send count, channel bazli breakdown. Staffing KPI artik bu endpoint'ten gercek rakami gosteriyor.
+- **Telegram webhook onboarding** (`backend/src/routes/telegram-webhook.ts` YENI):
+  - `POST /api/webhooks/telegram` — Telegram'dan gelen /start TOKEN update'i yakalar, `Staff.telegramOnboardingToken` ile eslestirir, `telegramChatId` atar, token'i iptal eder (single-use), onay mesaji gonderir, onboarding NotificationLog'a yazar
+  - `GET /api/webhooks/telegram/link/:staffId` — `t.me/BOT?start=TOKEN` deep link'i doner; token yoksa olusturur
+  - `POST /api/webhooks/telegram/link/:staffId/rotate` — token rotasyon (link sizinti durumunda)
+  - `DELETE /api/webhooks/telegram/link/:staffId` — Telegram baglantisini kaldir
+  - Production guvenligi: `TELEGRAM_WEBHOOK_SECRET` env ile Telegram'in X-Telegram-Bot-Api-Secret-Token header dogrulamasi
+- **Staff model** (`schema.prisma`): `telegramOnboardingToken` String? @unique alani. Staff create olunca auto-generate (chat_id verilmediyse).
+- **Frontend** (`frontend/src/...`):
+  - `StaffingPage.tsx` — recommendations fetch'ine `credentials: 'include'`, `needsMoreData` empty state (3 gun progress bar), notif summary fetch + KPI wiring
+  - `components/staffing/TelegramLinkModal.tsx` YENI — QR kod (api.qrserver.com via img), link kopyala, "Telegram'da Ac", token yenile, 3sn polling ile onboard bekleme
+  - `components/staffing/StaffList.tsx` — chat_id yoksa violet QR butonu (onLinkTelegram prop)
+  - `components/staffing/StaffForm.tsx` — Chat ID artik opsiyonel hint
+  - KPI bandi ingilizce/turkce tek dil (lang switch)
+- **Env** (`backend/.env.example`): `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET` eklendi
+
+### Dosyalar
+- `backend/src/routes/staffing.ts` — 500 fix, resolveBranchId helper, needsMoreData
+- `backend/src/routes/staff.ts` — onboarding token auto-seed
+- `backend/src/routes/notifications.ts` — test-staff NotificationLog, summary endpoint
+- `backend/src/routes/telegram-webhook.ts` — YENI
+- `backend/src/services/notificationDispatcher.ts` — writeNotificationLog wired
+- `backend/src/index.ts` — /api/webhooks mount
+- `backend/prisma/schema.prisma` — NotificationLog + Staff.telegramOnboardingToken
+- `backend/.env.example` — TELEGRAM_BOT_USERNAME, TELEGRAM_WEBHOOK_SECRET
+- `frontend/src/pages/dashboard/StaffingPage.tsx` — credentials, needsMoreData UI, notif summary wiring, TelegramLinkModal mount
+- `frontend/src/components/staffing/TelegramLinkModal.tsx` — YENI
+- `frontend/src/components/staffing/StaffList.tsx` — QR butonu, onLinkTelegram prop
+- `frontend/src/components/staffing/StaffForm.tsx` — Chat ID opsiyonel hint
+
+### Dogrulama
+- Backend build: 0 hata (tsc)
+- Backend vitest: 41/41 yesil
+- Frontend typecheck: 0 hata
+- Prisma client regenerate: basarili
+
+### Kullanici Icin Sonraki Adim
+1. `backend/.env` dosyasina `TELEGRAM_BOT_USERNAME` ekle (ornek: `ObservAIAlertBot`)
+2. Backend'i yeniden baslat: `start-all.bat` veya `cd backend && npm run dev`
+3. Staff ekle → kart uzerinde **QR butonu** → telefon ile QR tara → `/start TOKEN` otomatik gonderilir → chat_id kaydedilir
+4. Shift ata → Telegram/mail bildirim → Staffing KPI'da "Bildirim gonderildi" +1
+5. Production icin `TELEGRAM_WEBHOOK_SECRET` + Telegram setWebhook konfigurasyonu yapilmali
+
+### Amac
+Staffing sayfasinda `GET /api/staffing/default/recommendations?cameraId=default` 500 donuyor (null guard eksik). Telegram/Email bildirimlerinin gercekten gittigini dogrulamak. Chat ID onboarding'i otomatik hale getirmek (manuel yazma yerine QR kod + deep link).
+
+### Rapor Notu (#7)
+KPI bandi Turkce/Ingilizce karisik ("AKTIF PERSONEL", "TELEGRAM BAGLI", "BILDIRIM GONDERILDI"). Personel ekle modal duz, test butonu yok. Shift Calendar 7 kolon statik, drag & drop yok. Recommendations endpoint backend'i 500 atiyor.
+
+### Yapilacaklar
+1. **500 Fix** (`backend/src/routes/staffing.ts`): Minimum 3 gun data yoksa `{recommendations: [], needsMoreData: true, daysRemaining: N}` don, throw etme.
+2. **Test notification endpoint**: `POST /api/staff/:id/test-notifications` — Telegram + Email anlik test mesaji, success/error status UI'ya doner.
+3. **Chat ID auto-onboarding**:
+   - Telegram bot deep link (`t.me/ObservAIBot?start=STAFF_ID`)
+   - Webhook `/api/webhooks/telegram/start` → `/start` yazan kullanicinin `chat_id`'si otomatik staff kaydina baglanir
+   - UI'da Staff eklerken QR kod goster (mobile'dan tarayarak direk bot'a yonlendirilir)
+4. **Notification audit log**: `notifications_sent` tablosu (staffId, channel, status, messageId, sentAt). `backend/logs/notification-dispatch.log` zaten var, DB'ye de yazsin. UI'daki "BILDIRIM GONDERILDI 0/0" bu tablodan cekilsin.
+5. **Frontend**:
+   - Shift Calendar drag & drop (`@dnd-kit` veya `react-dnd`): sol tarafta staff chip'leri, gune/shift'e drag
+   - Atama onaylanninca inline status: "✓ Ayse'ye Telegram gonderildi · 2s · Mail basarili"
+   - Recommendations tab empty state: "Historical backfill calistir" butonu + "Kameradan kac gun veri toplandi: 1/3" progress bar
+   - Staff karti Design System stilinde: avatar, rol chip, Telegram/mail LED (yesil/gri), haftalik saat sayisi
+
+### Dosyalar
+- `backend/src/routes/staffing.ts` — null guard
+- `backend/src/routes/staff.ts` — `POST /:id/test-notifications`
+- `backend/src/routes/telegram-webhook.ts` — YENI (Telegram bot webhook handler)
+- `backend/src/services/notificationDispatcher.ts` — notifications_sent tablosuna kayit
+- `backend/prisma/schema.prisma` — `NotificationLog` modeli (yeni)
+- `frontend/src/pages/dashboard/StaffingPage.tsx` — KPI bandi temizlik
+- `frontend/src/components/staffing/StaffForm.tsx` — QR kod modal
+- `frontend/src/components/staffing/ShiftCalendar.tsx` — drag & drop
+
+### Basari Kriteri
+- `GET /api/staffing/default/recommendations` → 200 (bos dataset icin `needsMoreData: true`)
+- Staff ekle → QR kod ile Telegram bot /start → chat_id otomatik kaydedilir
+- Test butonu → gercek Telegram mesaji gider, backend log + DB'ye yazilir
+- Shift atandiginda `notifications_sent` +1 satir, UI "bildirim gonderildi" sayaci guncellenir
+
+---
+
+## ADIM 20: Tables State Machine + Cleaning Otomasyonu
+**Durum:** DONE (2026-04-21)
+**Atanan:** Emre (partal)
+**Bagimlilik:** ADIM 5 (TABLE zone tipi), ADIM 19 (bildirim altyapisi)
+
+### Yapilanlar
+ADIM 5'te Python tarafindaki TABLE state machine v2 (occupied → empty buffer → needs_cleaning → auto_empty) zaten vardi. Bu ADIM rapor #3'teki UI/bildirim bosluklarini kapatti:
+
+- **Cleaning notification dispatch** (`backend/src/routes/analytics.ts`): `POST /api/analytics/table-events` endpoint'ine transition detection eklendi. Onceki event `needs_cleaning` degilse ve yeni event `needs_cleaning` ise:
+  - Camera → branch eslestirmesi → o branch'ta **bugun vardiyada olan + su an shift saatlerinde olan** staff'lar secilir (declined haric, overnight shift destegi)
+  - Her staff'a paralel Telegram + Email bildirim atilir (ADIM 19'daki dispatcher altyapisi kullanilir)
+  - Her gonderi `NotificationLog`'a yazilir (`event: 'alert'`, `payload.reason: 'cleaning_requested'`)
+  - Dedupe: tekrar edilen cleaning post'lari ayni cycle icinde spam yapmaz
+- **Floor Plan zone filter** (`frontend/src/pages/dashboard/TableOccupancyPage.tsx`): `tableZoneIds = Set(zones[type=='table'].id)` + `tableRows = tables.filter(ids)`. Rapor #3 bug'i: Python WebSocket payload'i entrance/exit zone'larini da `tables[]` array'ine dahil edebiliyordu ve Floor Plan'da "Entrance · Occupancy 100%" gibi gorunuyordu. Artik sadece TABLE tipi zone'lar render edilir.
+- **Design System KPI'lari** (`TableOccupancyPage.tsx`):
+  - Ust satir: Doluluk / Ort. turnover / Rotasyon / masa / Temizlik (4 ana KPI, tableRows tabanli)
+  - Ikincil satir (yeni): **HOTTEST TABLE** (Flame icon, warm tone — en yuksek turnover + occupancy tiebreaker) + **DEAD ZONE** (Snowflake icon, cold tone — bugun hic kullanilmayan masa). Veri yoksa render edilmez (empty state'de KPI row gizli kalir).
+  - Yeni `HighlightCard` component — Design System gradient + icon + kicker (EN YOGUN MASA / OLU BOLGE) + metric + hint.
+- **Empty state netlesti**: TABLE zone yokken Floor Plan'da "Masa tipinde bolge cizin" mesaji + Zone Labeling yonlendirmesi gosterilir (entrance/exit zone varligi bu state'i kirmiyor).
+
+### Dosyalar
+- `backend/src/routes/analytics.ts` — notifyCleaningRequested helper, table-events transition detection
+- `frontend/src/pages/dashboard/TableOccupancyPage.tsx` — tableZoneIds filter, HOTTEST/DEAD KPIs, HighlightCard component
+
+### Dogrulama
+- Backend build: 0 hata (tsc)
+- Backend vitest: 41/41 yesil
+- Frontend typecheck: 0 hata
+- Browser preview:
+  - Tables sayfasi entrance/exit zone'lari artik floor plan'da gorunmuyor
+  - "Masa tipinde bolge cizin" empty state dogru render ediliyor
+  - KPI label'lari: Doluluk / Ort. turnover / Rotasyon / masa / Temizlik
+  - HighlightCard'lar (HOTTEST/DEAD) veri gelince devreye girer
+
+### Kullanici Icin Sonraki Adim
+1. Zone Labeling sayfasinda **type: Table** seciliyle bolge ciz (ADIM 7 polygon/freehand henuz gelmedi, rectangle yeterli)
+2. Python analytics TABLE state machine v2 calistigi icin `needs_cleaning` event'leri otomatik uretilecek
+3. Vardiyadaki staff'a Telegram + email gider (`ADIM 19` altyapisi ile)
+4. `NotificationLog` tablosunda `reason: 'cleaning_requested'` payload'lariyla audit trail olusur
+
+### Scope Disi Birakilanlar (ileri optimizasyon)
+- `Table` ve `TableStateTransition` ayri entity'leri: mevcut `TableEvent` + Zone modeli yeterli, schema genisletme gerekmedi
+- AI auto-extract (YOLO clustering ile masa tespiti): manuel zone tanimlamasi yeterli — ADIM 7'deki polygon destegi cikinca yetenek artar
+
+### Amac
+Tables/Zone ayrimini netlesitirmek: Tables sayfasinda zone degil gercek masalar gorunsun; cleaning state makinesi otomatik calissin (bos kalan masa 2 dk sonra `needs_cleaning`'e dussun); temizlik personeline Telegram bildirimi gitsin.
+
+### Rapor Notu (#3)
+Floor Plan'da sadece "Entrance" ve "Exit" 2 zone gorunuyor (masa degil). "Cleaning: 0 / 0 empty" — hicbir zaman cleaning'e gecmiyor. "State Occupied / Seated 01:25 / Ordered 01:28" gibi detaylar mock (gercek sipariş verilmedi). `grid fallback — awaiting camera layout` footer'i AI floor-plan extractor'in calismadigini gosteriyor.
+
+### Yapilacaklar
+1. **State machine** (`backend/src/services/tableStateMachine.ts` YENI):
+   ```
+   EMPTY → OCCUPIED   (dwell > 30s, person count >= 1)
+   OCCUPIED → VACATED (person == 0 for 60s)
+   VACATED → CLEANING (auto after 120s)
+   CLEANING → EMPTY   (staff mark done VEYA 300s timeout)
+   ```
+   Her transition audit log tablosuna yazilir (`TableStateTransition` modeli).
+
+2. **Analytics.py**: TABLE zone state'i (`occupied/vacated/needs_cleaning/empty`) WebSocket payload'a eklensin. Mevcut `analytics.py` state machine v2 var (ADIM 5'te yazildi), sadece cleaning state'i expose edilmeli.
+
+3. **Tables API**:
+   - `GET /api/tables/:branchId` → gercek masa objeleri: `{id, name, seatCount, state, currentOccupancy, stateChangedAt, lastServedAt}` (zone degil, ayri entity)
+   - `PATCH /api/tables/:id/state` → staff manuel override (cleaning → empty)
+   - Masa tanimi iki yol: (a) AI auto-extract (YOLO bounding box clustering), (b) Manuel (Zone Labeling'de Type: Table seciliyle tanimlanan zone'lar)
+
+4. **Cleaning notification**: Masa CLEANING'e gecince assigned staff'a Telegram + mail push (ADIM 19 dispatcher'i uzerinden).
+
+5. **Frontend TableOccupancyPage**:
+   - KPI'lar Design System'den: **HOTTEST TABLE** (T-04 / window seat), **DEAD ZONE** (26% / back right corner), **TABLE ROTATION** (4.1x/day), **AVG TURNOVER** (22 min)
+   - "Cleaning: N / Total empty" canli sayi
+   - Masa detay panel: state history + "Mark as cleaned" butonu
+   - Schematic/Live/Heatmap toggle koru
+
+### Dosyalar
+- `backend/src/services/tableStateMachine.ts` — YENI
+- `backend/src/routes/tables.ts` — GET/PATCH endpoint'leri
+- `backend/prisma/schema.prisma` — `Table` + `TableStateTransition` modelleri (zone'dan ayri)
+- `packages/camera-analytics/camera_analytics/analytics.py` — cleaning state export
+- `frontend/src/pages/dashboard/TableOccupancyPage.tsx` — yeniden layout
+- `frontend/src/components/tables/TableFloorLiveView.tsx` — cleaning badge
+
+### Basari Kriteri
+- Masa bos kalinca 120 sn sonra otomatik CLEANING state
+- Assigned staff Telegram bildirimi alir
+- "Cleaning: 2 / 5 empty" gercek sayi gosterir (mock degil)
+- Entrance/Exit zone'lari Tables'ta masa olarak gorunmez
+
+---
+
+## ADIM 21: Historical + Trends Timezone + Yuzde Matematigi Duzeltme
+**Durum:** DONE (2026-04-21)
+**Atanan:** Emre (partal)
+**Bagimlilik:** Yok
+
+### Yapilanlar
+- **Yuzde matematigi fix** (`frontend/src/pages/dashboard/HistoricalAnalyticsPage.tsx`): `computeGenderPct` ve `computeAgePct` yardimcilari eklendi. Aggregator'dan gelen cumulative vote count'lar render sirasinda yuzdeye normalize edilir. Gender toplami 100%, age bucket'lari sirali (0-17 → 55+) ve toplam 100% verir. Rapor #10 `Male 1996% / Female 2068%` bug'i giderildi.
+- **Previous-period delta null fix** (`backend/src/routes/analytics.ts`): `/api/analytics/compare` endpoint'indeki `calculateChange` artik `previous === 0` durumunda `null` doner (eskiden `100` donup yanlis "+100%" gosteriyordu). Summary metni de zero-baseline handle eder — "NaN%" yerine "prior period had no comparable data" cumlesi.
+- **StatCard + Comparison delta rendering** (`HistoricalAnalyticsPage.tsx`): `number | null` tiplemesi + `—` placeholder + hover tooltip "No prior baseline". Frontend demo generator da `calcChange` null dondurecek sekilde guncellendi.
+- **PeakHour per-day derivation** (`HistoricalAnalyticsPage.tsx` loadData): Range hourly summaries cekilir, her gun icin max-bucket saat Map'e yazilir; daily data'ya `peakHour` alani turetilir. Daily Breakdown tablosunda artik gercek saat gorunur (eskiden hep "-").
+- **Timezone pin** (`backend/src/index.ts`): Ilk satir `process.env.TZ = process.env.TZ || 'Europe/Istanbul'`. Dev makinesi UTC'de olsa bile aggregator/backfill/`getHours()` cagrilari Istanbul saatini dondurur. Rapor #8 gece yarisi peak + AI Insights `03:00 peak` bug'i giderildi.
+- **Seed-demo yeniden yazildi** (`backend/src/routes/analytics.ts` POST `/seed-demo`):
+  - `days` parametresi (1..180, default 90)
+  - Hour multipliers 00-06 ve 23 saatleri sifir (kafe kapali) — gece yarisi peak artik olusmaz
+  - Day-of-week faktoru: Cuma/Cmt 1.4x, Pzr 1.1x, Pzt 1.0x, Sal/Car 0.8x, Per 1.0x
+  - Age bucket'lari yuzde cinsinden normalize (0-17, 18-24, 25-34, 35-44, 45-54, 55+)
+  - Seed sonrasi otomatik aggregation pass (`runHourlyAggregationFor` + `runDailyAggregationFor`) — Historical ve Trends sayfalari anlik veri gorur
+- **TrendsPage future days** (`frontend/src/pages/dashboard/TrendsPage.tsx`): Weekday selector'de haftanın gelecek gunleri tespit edilir (`futureDays` Set). Gelecek gunler "Yakinda" chip + "—" gosterir (eskiden `-100%`). Geçmis zero-data gunler de "—" gosterir (belirsiz karsilastirma engellendi).
+
+### Dosyalar
+- `frontend/src/pages/dashboard/HistoricalAnalyticsPage.tsx` — computeGenderPct/computeAgePct, StatCard null-aware, comparison changes null-aware, peakHour derivation
+- `frontend/src/pages/dashboard/TrendsPage.tsx` — futureDays Set, Yakinda chip, — placeholder
+- `backend/src/routes/analytics.ts` — /compare null delta, /seed-demo 90d realistic + aggregation pass, generateComparisonSummary zero-baseline
+- `backend/src/index.ts` — `process.env.TZ = 'Europe/Istanbul'` at boot
+
+### Dogrulama
+- Backend build: 0 hata (tsc)
+- Backend vitest: 41/41 yesil
+- Frontend typecheck: 0 hata
+- Browser preview:
+  - Historical sayfasi: Erkek 49% / Kadin 50% / Belirsiz 1% (toplam 100%) + age bucket'lari toplam 100% ✓
+  - Trends sayfasi: Per/Cum/Cmt'de "Yakinda" chip + "—" gorunur, Pzr/Pzt/Sal icin +10% / -20% / -34% gercek delta ✓
+
+### Kullanici Icin Sonraki Adim
+- Canli data icin: `POST /api/analytics/seed-demo` `{days: 90, cameraId: "your-cam-id"}` body ile 90 gun sentetik veri olusturulur + aggregator otomatik çalisir. Historical/Trends sayfalari anlik dolu gorunur.
+- Live data birikiyorsa timezone fix yeterli; daha fazla islem gerekmez.
+
+### Amac
+Historical sayfasindaki Male 1996% / Female 2068% gibi bozuk yuzdeleri, Trends'teki gece yarisi peak gibi timezone bug'larini, Daily Breakdown'daki "Avg Dwell 0 / Peak Hour —" bos alanlari duzeltmek.
+
+### Rapor Notlari (#8 + #10)
+- Male 1996% + Female 2068% = %4064 (olmali %100). Payda "vote count" yerine "unique tracks" olmali.
+- `%98.99 DOWN` delta filtre degisse de ayni kaliyor. `previousPeriodTotal = 0` durumu handle edilmiyor.
+- Trends'te Tuesday 00:00'da 250 ziyaretci (kafe kapali saatte!). Timezone UTC vs Europe/Istanbul karisikligi.
+- Haftalik Pattern heatmap transpose bozuk (7 dikey blok yerine 7 kolon × 24 satir grid olmali).
+- ASCII bozuk etiketler ("ort" → "ortalama", "kisi" → "kisi").
+- AI Insights Peak Hours 3:00 peak (10.6 avg) listeliyor — backfill timezone bug'i.
+
+### Yapilacaklar
+1. **Yuzde formulu fix** (`backend/src/services/analyticsAggregator.ts`):
+   - `male% = maleUniqueTracks / totalUniqueTracks * 100` (her track ReID ile bir kere sayilir)
+   - Age bucket normalization: `0-17, 18-24, 25-34, 35-44, 45-54, 55+` toplami 100%
+2. **Previous period delta**: `previousPeriodTotal == 0` → `delta = null`, UI "no prior data" gosterir (negative% gostermez)
+3. **Peak hour hesaplamasi**: Hourly breakdown her gun icin dondurulsun; max bucket saat. Bos gunlerde "—".
+4. **Timezone sabitle**: `Europe/Istanbul` — backfill script + realtime aggregator + display. UTC'de kaydedilen verileri display'de local'e cevir.
+5. **Backfill script** (`backend/scripts/backfill-analytics-summary.ts`):
+   - Son 90 gun sentetik veri: 08:00-22:00 aktif (Poisson, peak 12-14 + 18-20)
+   - Gun faktoru: Cuma/Cmt 1.4x, Pzr 1.1x, Sal/Car 0.8x
+   - Hava faktoru: yagmurlu 0.7x
+6. **Dwell fix**: Zone enter/exit event'lerden sure cikar (ADIM 20 state machine sonrasi dogru calisacak).
+7. **Trends UI** (`frontend/src/pages/dashboard/TrendsPage.tsx`):
+   - Future days "—" veya "upcoming" chip (hep "-100%" gostermesin)
+   - Haftalik heatmap transpose fix: `grid-template-columns: repeat(7, 1fr); grid-template-rows: repeat(24, 1fr)`
+   - Saat etiketleri 4 saatte bir (00, 04, 08, 12, 16, 20)
+   - Renkler: d3.interpolateViridis veya dark→cyan→magenta gradient
+   - Forecast overlay: ARIMA/Prophet ile ertesi gun tahmini line
+8. **Historical UI** (`frontend/src/pages/dashboard/HistoricalAnalyticsPage.tsx`):
+   - Date range degisikliginde React Query cache key'e tarih ekle (currently invalidate olmuyor)
+   - Daily Visitor Trend line + Total Visitors bar'i tek ComposedChart'ta birlesir
+   - Data Info karti: "Data Points: 82" → "82 hourly samples" acik etiket
+
+### Dosyalar
+- `backend/src/services/analyticsAggregator.ts` — yuzde formulu fix
+- `backend/src/routes/analytics.ts` — historical endpoint + timezone
+- `backend/scripts/backfill-analytics-summary.ts` — timezone + realistic dist
+- `frontend/src/pages/dashboard/HistoricalAnalyticsPage.tsx` — cache key, chart birlesme
+- `frontend/src/pages/dashboard/TrendsPage.tsx` — future days, heatmap grid
+
+### Basari Kriteri
+- Gender % toplami 100, age % toplami 100
+- Peak hour her gun icin gercek saat (gece yarisi peak yok)
+- 7D → 30D → 90D gecisinde delta anlik guncellenir (eski delta'da kalmaz)
+- Avg dwell gercek dakika (0 olmayacak)
+- Haftalik heatmap 7×24 grid, forecast line overlay
+
+---
+
+## ADIM 22: Current Visitors SSoT + Demografi Lock Canli Dogrulama
+**Durum:** TODO (P2 — Faz 2.1)
+**Atanan:** -
+**Bagimlilik:** ADIM 20 (Tables), ADIM 21 (historical)
+
+### Amac
+Dashboard'daki "4↑/4↓ ama Current Visitors: 2" tutarsizligini cozmek (Single Source of Truth). ADIM 11'de kodlanan demografi lock algoritmasinin canli kamerada gercekten calistigini dogrulamak. AI Insights raw JSON blob'larini natural language'e cevirmek.
+
+### Rapor Notlari (#1 + #6)
+- "4 ↑ / 3 ↓ bugun" + "Current Visitors: 4" (olmali 1)
+- "4 ↑ / 4 ↓" + "Current Visitors: 2" (olmali 0)
+- "Detected: 0" iken Age chart hala 2 kisi gosteriyor (cache sifirlanmiyor)
+- AI Insights'ta `{"male":137,"female":160,"unknown":5}` JSON blob goruntulenmis (160 kadin demek degil, kumulatif frame votes)
+- Historical Male 1996% / Female 2068% (ADIM 21'de zaten ele alindi)
+- Dashboard'da Tables widget yok (occupied/total gosterilmiyor)
+
+### Yapilacaklar
+1. **useLiveOccupancy.ts** (YENI hook): `current = max(0, totalIn - totalOut)` — tek kaynak gercek. Tum dashboard component'leri bu hook'u kullanir.
+2. **Current Visitors flicker fix**: 300ms debounce `CurrentVisitorsCard`.
+3. **Demografi stale indicator** (`DemographicsCard`): `lastValidFrameTimestamp` tut; 5 sn'den eski frame → "Inactive" badge gosterir (chart sifirlanmaz, ama kullaniciya stale oldugu belli olur).
+4. **Demografi lock canli test**: Kamera onunde 2 dk oturan kisi → gender lock (8 ardisik ayni vote) dogrulanmali, age salinimi +-2y icinde kalmali. Canli test rapor et.
+5. **Occupied Tables widget**: `GET /api/tables/:branchId` → dashboard ust KPI'a "Occupied: X / Total: Y" kart.
+6. **Insight JSON temizligi** (`backend/src/services/insightEngine.ts`):
+   - Prompt template: "Analyze: [data]. Generate 1-2 sentence human-readable insight + 1 actionable recommendation."
+   - Yanlis: `"male":137,"female":160` → Dogru: "25-34 yas kadin musteri bugunku trafigin %38'i. Oneri: oglenden sonra espresso+pastry push bildirim 11:00'de."
+7. **Track overlay UI**: Design System formatina uygun `#0142 · K · 28y · 0.94` (ID · gender · age · confidence). Low confidence italic + gri. "LOCKED" yesil nokta badge.
+8. **Aggregate seviyesinde**: "Today's gender split" sadece **locked** track'leri sayar, unlocked'lar "Unknown" bucket'a. Age = EMA'nin son degeri (frame-count degil, track-count).
+
+### Dosyalar
+- `frontend/src/hooks/useLiveOccupancy.ts` — YENI
+- `frontend/src/pages/dashboard/CameraAnalyticsPage.tsx` — SSoT adopt, flicker debounce
+- `frontend/src/components/dashboard/DemographicsCard.tsx` — stale badge
+- `frontend/src/components/dashboard/OccupiedTablesCard.tsx` — YENI
+- `frontend/src/components/camera/CameraFeed.tsx` — track overlay format (ADIM 11'de kismen var)
+- `backend/src/services/insightEngine.ts` — prompt temizlik
+- `backend/src/services/analyticsAggregator.ts` — locked track sayimi
+
+### Basari Kriteri
+- "4↑/4↓" iken Current Visitors = 0
+- Ayni kisi 2 dk kamera onunde: gender degismez, age +-2y salinir
+- AI Insights'ta raw JSON gorunmez, human-readable metin
+- Dashboard'da "Occupied Tables: 3/8" canli gosterim
+- Track overlay'de lock indicator (=)
+
+---
+
+## ADIM 23: AI Insights Gercek Pipeline (Ollama Cron + Natural Language)
+**Durum:** TODO (P2 — Faz 2.2)
+**Atanan:** -
+**Bagimlilik:** ADIM 16 (Ollama streaming), ADIM 21 (historical fix)
+
+### Amac
+AI Insights sayfasinda "Loading insights..." sonsuz kalmasin; cached insight'lar anlik gorunsun; cron saatlik gercek Ollama cevabi ile insight uretsin; duplicate dedupe; DEMO MODE kaldirilsin.
+
+### Rapor Notu (#9)
+- Sayfa acildiginda "Loading insights..." sonsuz kaliyor
+- 10 insight uretildi ama 4 tanesi ayni "Demographic Profile Update" — cesitlilik yok
+- Icerik raw JSON blob
+- Peak Hours 3:00 peak listeliyor (timezone bug)
+- "DEMO MODE" label — cron gercek calismiyor, mock
+
+### Yapilacaklar
+1. **Cron insight generator** (`backend/src/services/insightsEngine.ts` enhance):
+   - `node-cron` saatlik: son 24 saat data fetch → rule-based anomaly detection (sudden drop > 40%, queue > 5, dead hour) → her anomaly icin Ollama prompt → insight kaydi
+   - Ollama prompt: "Analyze: [data snippet]. Generate 1-2 sentence insight + 1 actionable recommendation."
+   - Response parse → `insights` tablosuna yaz: `{type, severity, title, body, action, confidence, generatedAt}`
+2. **Duplicate dedupe**: Son 24 saatte ayni `(type, severity)` hash'i varsa atla. Ayni baslik farkli timestamp'te tekrar etmez.
+3. **Natural language**:
+   - Yanlis: `"male":137,"female":160`
+   - Dogru: "25-34 yas kadin musteri bugunku trafigin %38'i. Oneri: oglenden sonra espresso+pastry kombinasyonu icin 11:00'de push bildirim."
+4. **Frontend empty state** (`frontend/src/pages/dashboard/AIInsightsPage.tsx`):
+   - Initial load: `GET /api/insights?limit=50` → bossa "No insights yet" + CTA "Generate one"
+   - Non-empty: cached insights anlik render (loading sonsuz kalmaz)
+5. **Insight karti layout**:
+   - Sol tarafta icon + severity chip (Low/Med/High)
+   - Baslik + 1-2 cumle aciklama
+   - Alt satirda yesil "ACTION: ..." (Design System INSIGHT → ACTION formati)
+   - Expand'de raw data + grafik
+6. **Filter chip functional**: All / Crowd Surge / Occupancy / Wait Time / Trend / Demographics — URL query param ile senkronize
+7. **Generate Insight UX**: Spinner + "Ollama dusunuyor..." + progress dots; tamamlanincca yeni kart slide-in
+8. **Anomaly banner**: Ust kisimda kritik anomaly toast (sudden drop/spike)
+9. **DEMO MODE badge kaldir**: Cron devreye girince
+
+### Dosyalar
+- `backend/src/services/insightEngine.ts` — cron job, dedupe logic, Ollama prompt cleanup
+- `backend/src/routes/insights.ts` — filter query param
+- `frontend/src/pages/dashboard/AIInsightsPage.tsx` — empty state, filter chip, banner
+- `frontend/src/components/insights/InsightCard.tsx` — YENI (Design System format)
+
+### Basari Kriteri
+- Sayfa acilinca son insight'lar anlik gorunur (loading sonsuz kalmaz)
+- Generate Insight 5-10 sn'de gercek Ollama cevabi
+- Duplicate insight uretilmez
+- Filter chip URL param ile calisir
+- Peak Hours timezone fix sonrasi mantikli saatleri gosterir (ADIM 21 bagimli)
+
+---
+
+## ADIM 24: Camera Selection UX + Canli Health Metrics
+**Durum:** TODO (P3 — Faz 3)
+**Atanan:** -
+**Bagimlilik:** Yok
+
+### Amac
+Camera Selection sayfasini Design System standartlariyla (hover, glass, animasyon) ve canli saglik metrikleriyle (FPS, latency, resolution, packet loss) zenginlestirmek. RTSP ekleme wizard'i.
+
+### Rapor Notu (#4)
+- Kaynak turu kartlari duz border (hover yok, secim gecisi yok)
+- Configured Sources: LIVE badge var ama preview thumbnail/FPS/latency yok
+- Activate/Copy/Delete duz `<button>` (hover feedback minimal)
+- "Add Source" buyuk + renkli ama gradient blur-glass yok
+
+### Yapilacaklar
+1. **SourceTypeCard animasyon**: `whileHover={{y:-4, scale:1.02}}`, secili kartta animated radial gradient, checkmark icin `motion.circle` draw-on animation.
+2. **ConfiguredSourceCard**:
+   - Sol ust: video canvas preview (HLS onizleme veya RTSP'den JPEG snapshot her 5 sn)
+   - Sag ust: status chip stack — `60 fps · 8ms · 1080p · 0.4% loss`
+   - Latency renkleri: < 50ms yesil, < 200ms sari, ustu kirmizi
+3. **Activate butonu**: `whileTap={{scale:0.95}}`, success state'de pulse ring animasyon
+4. **Add Source wizard** (4 adim stepper):
+   - Adim 1: Type sec (Webcam/Phone/Video/RTSP/Screen/YouTube)
+   - Adim 2: Source URL/index gir
+   - Adim 3: Test baglantisi + canli preview
+   - Adim 4: Isimlendir + kaydet
+5. **Auto-discovery tab**: ONVIF network taramasi — LAN'daki IP kameralari otomatik listele (network interface enum + ONVIF discovery paketi).
+6. **Design System stilinde "Add New Source"** butonu: gradient + blur-glass.
+
+### Dosyalar
+- `frontend/src/pages/dashboard/CameraSelectionPage.tsx` — wizard + animasyon
+- `frontend/src/components/camera/SourceTypeCard.tsx` — YENI
+- `frontend/src/components/camera/ConfiguredSourceCard.tsx` — YENI (preview + health chips)
+- `frontend/src/components/camera/AddSourceWizard.tsx` — YENI
+- `packages/camera-analytics/camera_analytics/sources.py` — ONVIF discovery helper
+
+### Basari Kriteri
+- Kart secim/hover smooth 60 fps animasyon
+- Configured source'larda canli preview + health chip
+- RTSP ekle wizard'da test butonu basarili baglanti gosterir
+
+---
+
+## ADIM 25: Cross-cutting Fix — Socket Cleanup + Polling + i18n UTF-8 Temizlik
+**Durum:** TODO (P4 — Faz 4, en alt ama bagimsiz yapilabilir)
+**Atanan:** -
+**Bagimlilik:** Yok (bagimsiz)
+
+### Amac
+Cross-cutting sorunlar: React 18 StrictMode socket cleanup dongusu, asiri polling yuku (`/api/insights/unread-count` ~58 req/dk), Turkce metinlerde ASCII bozuklugu ("Sube", "yonetin" vb.), Zone Labeling'de ham i18n key'ler.
+
+### Rapor Notlari (cross-cutting)
+- Console: `[CameraFeed] Cleaning up stale socket before reconnect` uc kere pes pese
+- `/api/insights/unread-count` dakikada 58 kez poll (WebSocket push olmali, fallback 30sn+)
+- i18n: "Sube" → "Şube", "yonetin" → "yönetin", "gore" → "göre", "icin" → "için", "Henuz" → "Henüz", "Gorev" → "Görev", "kisi" → "kişi", "gun" → "gün", "ort" → "ortalama"
+- Zone Labeling: ham key (`zones.canvas.drawRect` vb.) — ADIM 7'de de ele alindi
+
+### Yapilacaklar
+1. **Socket cleanup fix** (`frontend/src/components/camera/CameraFeed.tsx`, `services/cameraBackendService.ts`):
+   - Subscription ref pattern: cleanup sadece gercek unmount'ta
+   - StrictMode double-invoke guard: `useRef` + `if (socketRef.current === activeSocket) skip`
+2. **Polling optimize**:
+   - `/api/insights/unread-count` → WebSocket push event (`notification_count_changed`)
+   - Fallback interval: 30 sn (WebSocket disconnect'te)
+   - `/api/analytics` POST polling kaldirildi, sadece WebSocket
+3. **i18n UTF-8 temizlik** (`frontend/src/locales/tr.json` + `en.json`):
+   - Tum ASCII-Turkce bozuk karakterler: ş/ğ/ü/ç/ı (UTF-8 encoding)
+   - File save: BOM-less UTF-8
+   - Eksik Zone Labeling keyler: `zones.canvas.drawRect/drawPolygon/drawFreehand/pickMode`
+4. **Staffing KPI bandi**: "AKTIF PERSONEL" → `t('staffing.kpi.activeStaff')` vb. hardcoded string'leri i18n key'e cevir
+
+### Dosyalar
+- `frontend/src/components/camera/CameraFeed.tsx` — ref pattern
+- `frontend/src/services/cameraBackendService.ts` — subscription mgmt
+- `backend/src/routes/notifications.ts` — WebSocket push emit
+- `frontend/src/hooks/useInsightCount.ts` — polling → WebSocket
+- `frontend/src/locales/tr.json`, `en.json` — UTF-8 + eksik keyler
+- `frontend/src/pages/dashboard/StaffingPage.tsx` — i18n key'lere gec
+
+### Basari Kriteri
+- Console'da "Cleaning up stale socket before reconnect" log'u 1 kere (tekrar etmez)
+- `/api/insights/unread-count` request sayisi < 5/dk (WebSocket aktifken 0)
+- Tum Turkce metinlerde dogru karakter (ş/ğ/ü/ç/ı)
+- Zone Labeling buton/label'larinda ham key gorunmez
+
+---
+
 ## Adim Sirasi ve Bagimlilik Haritasi
 
+### DONE (Tamamlanmis Adimlar)
+ADIM 1, 2, 3, 4, 5, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21 — DONE (2026-04-06 → 2026-04-21) — **Faz 1 tamamlandi**
+
+### Aktif Yol Haritasi (2026-04-21 Rapor Sonrasi)
+
 ```
-ADIM 1: GitHub Kurulumu ──────────────────────────┐
-                                                    │
-ADIM 2: Tracker/Privacy Blur ─────┐                │
-                                   │                │
-ADIM 3: LLM (Ollama) ────────────┤                │
-                                   │                │
-ADIM 5: Lokalizasyon ─────────────┤  (paralel)     │
-                                   │                │
-ADIM 6: Sube Yonetimi ───────────┤                │
-                                   │                │
-ADIM 4: Bildirim Sistemi ←── ADIM 2               │
-                                   │                │
-ADIM 7: Zone Sistemi ←── ADIM 2  │                │
-                                   │                │
-ADIM 8: Dwell Time ←── ADIM 2, 7 │                │
-                                   │                │
-ADIM 9: Dashboard ←── ADIM 7, 8, 6               │
-                                   │                │
-ADIM 10: Export ←── ADIM 3, 6, 8 ┘                │
-                                                    │
-Tum adimlar ←── ADIM 1 (GitHub once yapilmali) ───┘
+Faz 1 — Blocker (sirayla):
+  ADIM 19 (Staffing 500 + Bildirim) ←── ADIM 4
+  ADIM 21 (Historical + Trends Timezone + Yuzde) ←── bagimsiz
+  ADIM 20 (Tables State Machine) ←── ADIM 5, 19
+
+Faz 2 — Veri dogrulugu:
+  ADIM 22 (Current Visitors SSoT + Demografi) ←── ADIM 20, 21
+  ADIM 23 (AI Insights Cron + Natural Language) ←── ADIM 16, 21
+
+Faz 3 — UX / Design System:
+  ADIM 25 (i18n UTF-8 + Socket + Polling) ←── bagimsiz
+  ADIM 7  (Zone Canvas + Polygon) ←── ADIM 2
+  ADIM 9  (Dashboard Design System Charts) ←── ADIM 22, 21, 6
+  ADIM 24 (Camera Selection UX) ←── bagimsiz
+  ADIM 6  (Branch Wizard + Harita) ←── bagimsiz
+
+Faz 4 — Tamamlama:
+  ADIM 12 (i18next tam setup) ←── ADIM 25 sonrasi
+  ADIM 10 (Export PDF/CSV) ←── ADIM 3, 6, 8
+  ADIM 8  (Dwell Time Metrics) ←── ADIM 2, 7, 20
 ```
 
-### Paralel Calisma Onerileri (5 kisi icin)
-- **Kisi 1 (Emre):** ADIM 1 (GitHub) → ADIM 2 (Tracker) → ADIM 7 (Zone)
-- **Kisi 2:** ADIM 3 (LLM) → ADIM 10 (Export)
-- **Kisi 3:** ADIM 5 (Lokalizasyon) → ADIM 9 (Dashboard)
-- **Kisi 4:** ADIM 4 (Bildirim) → ADIM 8 (Dwell Time)
-- **Kisi 5:** ADIM 6 (Sube) → Diger adimlara yardim
+### Paralel Calisma Onerileri (Rapor Sonrasi, 5 kisi)
+- **Kisi 1 (Emre):** ADIM 19 (Staffing 500 + Bildirim) → ADIM 20 (Tables State Machine)
+- **Kisi 2:** ADIM 21 (Historical + Trends Timezone + Yuzde) → ADIM 23 (AI Insights Cron)
+- **Kisi 3:** ADIM 25 (i18n UTF-8 + Socket) → ADIM 22 (Current Visitors SSoT)
+- **Kisi 4:** ADIM 7 (Zone Canvas Polygon) → ADIM 24 (Camera Selection UX)
+- **Kisi 5:** ADIM 6 (Branch Wizard) → ADIM 9 (Dashboard Design System)
 
-> NOT: Bu dagitim onerdir. Gercek dagitim kullanicinin kararina baglidir.
+> NOT: Bu dagitim onerdir. Gercek dagitim kullanicinin kararina baglidir. Faz 1 ADIM'lari (19, 20, 21) oncelikli — blocker.

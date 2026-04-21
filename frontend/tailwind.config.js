@@ -58,10 +58,23 @@ export default {
         success: { 400: '#42e7a3', 500: '#1fc98a', 600: '#0fa66e' },
         warning: { 400: '#ffb547', 500: '#f59b24', 600: '#d67b10' },
         danger:  { 400: '#ff6b7a', 500: '#ef4a5c', 600: '#c92d42' },
+        // Editorial palettes used by the Zones (forest) and Heatmap (sand) sections.
+        sand: {
+          50:  '#fdfbf5',
+          100: '#f5efdf',
+          200: '#e7dcc0',
+          300: '#c9b482',
+        },
+        forest: {
+          500: '#0f3d2e',
+          600: '#0a2e22',
+          700: '#072018',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
         display: ['"Space Grotesk"', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        serif: ['"Instrument Serif"', 'ui-serif', 'Georgia', 'serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       fontSize: {

@@ -86,8 +86,8 @@ export default function RegisterPage() {
           <Link to="/login" className="text-sm text-brand-300 hover:text-brand-200">{t('auth.register.loginLink')}</Link>
         </div>
 
-        <div className="absolute inset-0 lg:hidden bg-radial-aurora opacity-60 pointer-events-none" aria-hidden />
-        <div className="absolute inset-0 lg:hidden grid-floor opacity-50 pointer-events-none" aria-hidden />
+        <div className="absolute inset-0 lg:hidden aurora-bg drift opacity-80 pointer-events-none" aria-hidden />
+        <div className="absolute inset-0 lg:hidden grid-floor-flat grid-floor-fade opacity-50 pointer-events-none" aria-hidden />
 
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -97,11 +97,20 @@ export default function RegisterPage() {
         >
           <div className="surface-card-elevated p-8 lg:p-10">
             <div className="mb-8">
-              <h1 className="font-display text-2xl lg:text-3xl font-semibold text-ink-0">
-                {t('auth.register.title')}
+              <div className="ds-pill ds-pill-brand mb-5">
+                <span className="w-1.5 h-1.5 rounded-full bg-brand-300 live-dot" />
+                {t('ds.auth.register.pill')}
+              </div>
+              <h1
+                className="headline-xl text-ink-0"
+                style={{ fontSize: 'clamp(1.75rem, 3.5vw, 2.5rem)' }}
+              >
+                {t('ds.auth.register.title.pre')}
+                <span className="italic tg-violet">{t('ds.auth.register.title.italic')}</span>
+                {t('ds.auth.register.title.post')}
               </h1>
-              <p className="mt-2 text-sm text-ink-3">
-                {t('auth.register.subtitle')}
+              <p className="mt-3 text-sm text-ink-3 leading-relaxed">
+                {t('ds.auth.register.subtitle')}
               </p>
             </div>
 
@@ -177,7 +186,7 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-brand-500 to-accent-500 text-white font-semibold shadow-glow-brand hover:shadow-glow-accent transition-shadow flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                className="btn-primary w-full py-3 rounded-xl text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
                   <>

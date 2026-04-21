@@ -1,30 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useReducedMotion } from 'framer-motion';
 import {
   ArrowRight,
-  Activity,
   BarChart3,
-  Bell,
-  Brain,
   Camera,
-  CheckCircle2,
-  ChefHat,
   ChevronRight,
-  Clock,
-  Coffee,
-  Eye,
-  Gauge,
-  LayoutGrid,
-  LineChart,
-  Lock,
-  MapPin,
-  PlayCircle,
+  Cpu,
+  Database,
+  FileBarChart,
+  Grid,
+  LayoutDashboard,
+  LineChart as LineIcon,
+  Map,
+  MonitorSmartphone,
+  Play,
   ShieldCheck,
   Sparkles,
-  TrendingUp,
-  UtensilsCrossed,
+  Sprout,
+  Target,
   Users,
+  Waypoints,
+  Youtube,
   Zap,
 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -33,761 +30,1592 @@ import markSvg from '../assets/mark.svg';
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
 /* ----------------------------------------------------------------------------------
- * Decorative live-feed mockup for the hero. Shows the core product story at a glance:
- *  — camera frame with pulsing bounding boxes
- *  — live visitor / dwell counters that tick upward
- *  — realistic demographic split bar
+ * Editorial ObservAI landing — mirrors Downloads/ObservAI Design System/landing.html.
+ * 12 sections: Navbar → Hero (3D tilt mock) → Logos → Pipeline → Zones → Heatmap
+ * → Demographics → AI Insights → Operations → Edge Architecture → Final CTA → Footer.
  *
- * All data is synthetic and deterministic enough that the page looks the same in
- * recordings. We avoid random() on the render path so Instagram/YouTube captures
- * don't flicker between takes.
- * ----------------------------------------------------------------------------------*/
-function LivePreviewMockup({ t }: { t: TFn }) {
-  const reduce = useReducedMotion();
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (reduce) return;
-    const id = window.setInterval(() => setTick((t) => t + 1), 1100);
-    return () => window.clearInterval(id);
-  }, [reduce]);
-
-  const boxes = useMemo(
-    () => [
-      { id: 1, x: 12, y: 54, w: 14, h: 26, label: 'K | 25-34 | 42s', tone: 'violet' as const },
-      { id: 2, x: 32, y: 48, w: 13, h: 30, label: 'E | 35-44 | 11s', tone: 'accent' as const },
-      { id: 3, x: 58, y: 50, w: 14, h: 30, label: 'K | 18-24 | 03s', tone: 'violet' as const },
-      { id: 4, x: 76, y: 44, w: 13, h: 34, label: 'E | 25-34 | 27s', tone: 'accent' as const },
-    ],
-    [],
-  );
-
-  // Tick-driven counters give the mock a pulse without looking fake.
-  const visitors = 3 + (tick % 4);
-  const avgDwell = 3.4 + ((tick % 6) * 0.1);
-  const maleShare = 54 + ((tick % 3) - 1);
-  const femaleShare = 100 - maleShare;
-
-  return (
-    <div className="relative w-full max-w-xl mx-auto">
-      {/* Aurora glow behind the preview. */}
-      <div className="absolute -inset-10 bg-radial-aurora blur-2xl opacity-80 pointer-events-none" aria-hidden />
-
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.1 }}
-        className="relative rounded-3xl gradient-border bg-surface-1/80 backdrop-blur-xl shadow-elevated overflow-hidden"
-      >
-        {/* Title bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-surface-2/60">
-          <div className="flex items-center gap-2 text-ink-2 text-xs font-mono">
-            <span className="flex gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-danger-500/70" />
-              <span className="w-2.5 h-2.5 rounded-full bg-warning-500/70" />
-              <span className="w-2.5 h-2.5 rounded-full bg-success-500/70" />
-            </span>
-            <span className="ml-2 text-ink-3">observai.local/dashboard</span>
-          </div>
-          <div className="flex items-center gap-1.5 pill-live">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-400 opacity-70" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-accent-400" />
-            </span>
-            LIVE
-          </div>
-        </div>
-
-        {/* Camera feed + overlays */}
-        <div className="relative aspect-video bg-gradient-to-br from-surface-3 via-surface-2 to-surface-1 overflow-hidden">
-          {/* Mock scene grid — subtle floor / depth cue */}
-          <div className="absolute inset-0 bg-grid-faint bg-grid-sm opacity-[0.18] animate-grid-flow" aria-hidden />
-          {/* Fake wall/floor shapes to sell the scene without needing an image */}
-          <div className="absolute inset-x-0 bottom-0 h-[58%] bg-gradient-to-t from-black/40 via-surface-2/30 to-transparent" />
-          <div className="absolute left-0 right-0 top-0 h-[42%] bg-gradient-to-b from-brand-900/25 via-transparent to-transparent" />
-
-          {/* Scan bar */}
-          <div className="scan-bar" aria-hidden />
-
-          {/* Bounding boxes */}
-          {boxes.map((b, i) => (
-            <motion.div
-              key={b.id}
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.5, delay: 0.3 + i * 0.12 }}
-              className="absolute"
-              style={{ left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%` }}
-            >
-              <div
-                className={`w-full h-full rounded-md border-2 ${
-                  b.tone === 'violet' ? 'border-violet-400' : 'border-accent-400'
-                } animate-bbox-pulse`}
-              />
-              <div
-                className={`absolute -top-6 left-0 text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                  b.tone === 'violet'
-                    ? 'bg-violet-500/85 text-white'
-                    : 'bg-accent-500/90 text-white'
-                }`}
-              >
-                {b.label}
-              </div>
-            </motion.div>
-          ))}
-
-          {/* Detection counter chip */}
-          <div className="absolute right-3 bottom-3 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
-            <Eye className="w-3.5 h-3.5 text-accent-300" />
-            <span className="text-xs font-mono text-ink-1">
-              {visitors} <span className="text-ink-3">{t('landing.mockup.detected')}</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Metrics row — mimics the real dashboard widgets */}
-        <div className="grid grid-cols-3 divide-x divide-white/[0.06] border-t border-white/[0.06] bg-surface-2/40">
-          <Metric label={t('landing.mockup.current')} value={`${visitors}`} sub={t('landing.mockup.currentSub')} icon={Users} tone="brand" />
-          <Metric label={t('landing.mockup.dwell')} value={avgDwell.toFixed(1)} sub={t('landing.mockup.dwellSub')} icon={Clock} tone="accent" />
-          <Metric label={t('landing.mockup.throughput')} value={`${28 + (tick % 3)}`} sub={t('landing.mockup.throughputSub')} icon={Gauge} tone="violet" />
-        </div>
-
-        {/* Demographic split */}
-        <div className="px-4 py-4 border-t border-white/[0.06] bg-surface-1/60">
-          <div className="flex items-center justify-between text-xs mb-2">
-            <span className="text-ink-3 uppercase tracking-wider font-mono">{t('landing.mockup.gender')}</span>
-            <span className="text-ink-2 font-mono">{maleShare}% / {femaleShare}%</span>
-          </div>
-          <div className="h-2 rounded-full bg-white/5 overflow-hidden flex">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${maleShare}%` }}
-              transition={{ duration: 0.8, ease: 'easeOut' }}
-              className="h-full bg-gradient-to-r from-accent-500 to-brand-400"
-            />
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${femaleShare}%` }}
-              transition={{ duration: 0.8, ease: 'easeOut', delay: 0.15 }}
-              className="h-full bg-gradient-to-r from-violet-500 to-violet-400"
-            />
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Floating AI insight card — extra visual drama */}
-      <motion.div
-        initial={{ opacity: 0, x: 24 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.8, delay: 0.7 }}
-        className="hidden sm:flex absolute -right-4 -bottom-6 w-56 items-start gap-3 p-3 rounded-2xl surface-card-elevated"
-      >
-        <div className="w-8 h-8 rounded-lg bg-brand-500/20 border border-brand-500/30 flex items-center justify-center shrink-0">
-          <Brain className="w-4 h-4 text-brand-300" />
-        </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-brand-300 font-mono">{t('landing.mockup.aiInsight')}</div>
-          <div className="text-xs text-ink-1 mt-1 leading-snug">
-            {t('landing.mockup.aiInsightBody')}
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  icon: React.ComponentType<{ className?: string }>;
-  tone: 'brand' | 'accent' | 'violet';
-}) {
-  const toneColor =
-    tone === 'brand' ? 'text-brand-300' : tone === 'accent' ? 'text-accent-300' : 'text-violet-400';
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-ink-3 font-mono">
-        <Icon className={`w-3 h-3 ${toneColor}`} />
-        {label}
-      </div>
-      <div className="mt-1 flex items-baseline gap-1">
-        <span className="text-lg font-display font-semibold text-ink-0">{value}</span>
-        <span className="text-[11px] text-ink-3">{sub}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ----------------------------------------------------------------------------------
- * Page
+ * All copy is i18n-backed (ds.*). Motion is deterministic — counters tick on setInterval
+ * only when prefers-reduced-motion is off; the hero tilt is driven by scroll.
  * ----------------------------------------------------------------------------------*/
 export default function LandingPage() {
   const { t } = useLanguage();
+
+  // Scroll-reveal via IntersectionObserver — simpler than framer-motion for 12 sections.
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add('in');
+            io.unobserve(e.target);
+          }
+        });
+      },
+      { threshold: 0.15 },
+    );
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+
   return (
-    <div className="relative min-h-screen bg-surface-0 text-ink-1 overflow-hidden">
-      {/* Background layers */}
-      <div className="absolute inset-0 bg-radial-aurora opacity-70 pointer-events-none" aria-hidden />
-      <div
-        className="absolute inset-0 opacity-60 pointer-events-none grid-floor"
-        aria-hidden
-      />
-      <div
-        className="absolute -top-32 -left-32 w-[640px] h-[640px] rounded-full bg-brand-500/10 blur-3xl animate-aurora-drift pointer-events-none"
-        aria-hidden
-      />
-      <div
-        className="absolute top-40 -right-40 w-[640px] h-[640px] rounded-full bg-violet-500/10 blur-3xl animate-aurora-drift pointer-events-none"
-        aria-hidden
-      />
-
+    <div className="min-h-screen bg-navy text-ink-1">
       <Navbar t={t} />
-
-      <main className="relative">
-        <Hero t={t} />
-        <StatsStrip t={t} />
-        <Features t={t} />
-        <LiveDataShowcase t={t} />
-        <TableIntelligence t={t} />
-        <HowItWorks t={t} />
-        <WhyObservAI t={t} />
-        <CTASection t={t} />
-      </main>
-
+      <Hero t={t} />
+      <PipelineSection t={t} />
+      <ZonesSection t={t} />
+      <HeatmapSection t={t} />
+      <DemographicsSection t={t} />
+      <AiInsightsSection t={t} />
+      <OperationsSection t={t} />
+      <EdgeSection t={t} />
+      <FinalCtaSection t={t} />
       <Footer t={t} />
     </div>
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * NAVBAR — fixed, card-styled, compact on scroll
+ * ═══════════════════════════════════════════════════════════════════════════ */
 function Navbar({ t }: { t: TFn }) {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 30);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   return (
-    <nav className="relative z-10 flex items-center justify-between px-6 md:px-10 py-5">
-      <Link to="/" className="flex items-center gap-2.5 group">
-        <div className="relative">
-          <img src={markSvg} alt="ObservAI" className="w-9 h-9 object-contain" />
-          <div className="absolute inset-0 rounded-lg shadow-glow-brand opacity-0 group-hover:opacity-100 transition-opacity" />
+    <header
+      className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${scrolled ? 'py-2' : 'py-5'}`}
+    >
+      <div className="max-w-7xl mx-auto px-6">
+        <div className="ds-card flex items-center justify-between px-4 py-2.5">
+          <Link to="/" className="flex items-center gap-2.5">
+            <img src={markSvg} className="h-7 w-7" alt="" />
+            <span className="font-display text-lg font-semibold tracking-tight text-ink-0">ObservAI</span>
+          </Link>
+          <nav className="hidden md:flex items-center gap-1 text-sm">
+            <a href="#product" className="px-3 py-2 text-ink-2 hover:text-ink-0 transition">{t('ds.nav.product')}</a>
+            <a href="#zones" className="px-3 py-2 text-ink-2 hover:text-ink-0 transition">{t('ds.nav.zones')}</a>
+            <a href="#insights" className="px-3 py-2 text-ink-2 hover:text-ink-0 transition">{t('ds.nav.insights')}</a>
+            <a href="#integrations" className="px-3 py-2 text-ink-2 hover:text-ink-0 transition">{t('ds.nav.integrations')}</a>
+          </nav>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/login"
+              className="hidden sm:inline-flex px-4 py-2 rounded-xl text-sm text-ink-1 hover:bg-white/5 transition"
+            >
+              {t('ds.nav.login')}
+            </Link>
+            <Link
+              to="/register"
+              className="btn-primary inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
+            >
+              {t('ds.nav.start')}
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
         </div>
-        <span className="text-xl font-display font-bold tracking-tight">ObservAI</span>
-      </Link>
-
-      <div className="hidden md:flex items-center gap-8 text-sm text-ink-2">
-        <a href="#features" className="hover:text-ink-0 transition-colors">{t('landing.nav.features')}</a>
-        <a href="#live" className="hover:text-ink-0 transition-colors">{t('landing.nav.live')}</a>
-        <a href="#how" className="hover:text-ink-0 transition-colors">{t('landing.nav.how')}</a>
-        <a href="#why" className="hover:text-ink-0 transition-colors">{t('landing.nav.why')}</a>
       </div>
-
-      <div className="flex items-center gap-3">
-        <Link
-          to="/login"
-          className="hidden sm:inline-flex text-sm font-medium text-ink-2 hover:text-ink-0 transition-colors px-3 py-2"
-        >
-          {t('landing.nav.login')}
-        </Link>
-        <Link
-          to="/register"
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-brand-500 text-white font-medium text-sm shadow-glow-brand hover:bg-brand-400 transition-colors"
-        >
-          {t('landing.nav.start')}
-          <ArrowRight className="w-4 h-4" />
-        </Link>
-      </div>
-    </nav>
+    </header>
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * HERO — aurora + grid floor + conic orb + 3D-tilt dashboard mock
+ * ═══════════════════════════════════════════════════════════════════════════ */
 function Hero({ t }: { t: TFn }) {
+  const reduce = useReducedMotion();
+  const mockRef = useRef<HTMLDivElement>(null);
+
+  // Scroll-driven 3D tilt: starts at 22deg, flattens to 0deg over first 600px of scroll.
+  useEffect(() => {
+    if (reduce) return;
+    const el = mockRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const y = window.scrollY;
+      const max = 600;
+      const p = Math.max(0, Math.min(1, y / max));
+      const rx = 22 * (1 - p);
+      const scale = 0.96 + 0.04 * p;
+      el.style.transform = `rotateX(${rx}deg) scale(${scale})`;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [reduce]);
+
   return (
-    <section className="relative z-10 px-6 md:px-10 pt-8 md:pt-16 pb-24">
-      <div className="max-w-7xl mx-auto grid lg:grid-cols-12 gap-10 lg:gap-14 items-center">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7 }}
-          className="lg:col-span-7"
-        >
-          <div className="pill-brand mb-6">
-            <Sparkles className="w-3.5 h-3.5" />
-            {t('landing.hero.badge')}
+    <section id="top" className="relative pt-28 pb-20 overflow-hidden bg-navy noise">
+      {/* Backdrop: aurora mesh + grid floor + conic orb */}
+      <div className="absolute inset-0 aurora-bg drift" aria-hidden />
+      <div className="absolute inset-0 grid-floor-flat grid-floor-fade opacity-60" aria-hidden />
+      <div
+        className="absolute top-20 left-1/2 -translate-x-1/2 w-[900px] h-[900px] conic-orb opacity-50"
+        aria-hidden
+      />
+
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="flex flex-col items-center text-center gap-6 pt-8">
+          <div className="ds-pill ds-pill-brand">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-300 live-dot" />
+            {t('ds.hero.pill')}
           </div>
 
-          <h1 className="font-display text-display-xl text-gradient-brand mb-6">
-            {t('landing.hero.title1')} <br className="hidden md:block" />{t('landing.hero.title2')}
+          <h1
+            className="headline-xl text-ink-0 max-w-5xl"
+            style={{ fontSize: 'clamp(2.75rem, 7vw, 6.5rem)' }}
+          >
+            {t('ds.hero.title.pre')} <span className="italic tg-violet">{t('ds.hero.title.accent1')}</span>
+            {t('ds.hero.title.mid')} <span className="tg-cool">{t('ds.hero.title.accent2')}</span>
+            {t('ds.hero.title.post')}
           </h1>
 
-          <p className="text-lg text-ink-2 max-w-xl mb-10 leading-relaxed">
-            {t('landing.hero.subtitle')}
+          <p className="max-w-2xl text-lg md:text-xl text-ink-2 leading-relaxed">
+            {t('ds.hero.subtitle')}
           </p>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
             <Link
               to="/register"
-              className="group inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-gradient-to-r from-brand-500 to-accent-500 text-white font-semibold shadow-glow-brand hover:shadow-glow-accent transition-shadow"
+              className="btn-primary inline-flex items-center gap-2 px-6 py-3.5 rounded-xl text-white font-semibold"
             >
-              {t('landing.hero.cta.trial')}
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+              {t('ds.hero.cta.primary')}
+              <ArrowRight className="w-4 h-4" />
             </Link>
-            <Link
-              to="/demo"
-              className="group inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-white/5 border border-white/10 text-ink-1 hover:bg-white/10 transition-colors backdrop-blur-sm"
+            <a
+              href="#product"
+              className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl ds-card text-ink-1 font-semibold hover:border-brand-500/40 transition"
             >
-              <PlayCircle className="w-4 h-4 text-accent-300" />
-              {t('landing.hero.cta.demo')}
-            </Link>
+              <Play className="w-4 h-4 fill-current" />
+              {t('ds.hero.cta.secondary')}
+            </a>
           </div>
 
-          <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-ink-3">
-            <TrustItem icon={ShieldCheck} label={t('landing.hero.trust.gdpr')} />
-            <TrustItem icon={Zap} label={t('landing.hero.trust.fps')} />
-            <TrustItem icon={Lock} label={t('landing.hero.trust.local')} />
+          <div className="grid grid-cols-3 gap-6 md:gap-12 pt-10 pb-4 text-center">
+            <HeroStat value={t('ds.hero.stat1.value')} unit={t('ds.hero.stat1.unit')} label={t('ds.hero.stat1.label')} />
+            <HeroStat value={t('ds.hero.stat2.value')} unit={t('ds.hero.stat2.unit')} label={t('ds.hero.stat2.label')} />
+            <HeroStat value={t('ds.hero.stat3.value')} unit={t('ds.hero.stat3.unit')} label={t('ds.hero.stat3.label')} />
           </div>
-        </motion.div>
-
-        <div className="lg:col-span-5">
-          <LivePreviewMockup t={t} />
         </div>
+
+        {/* 3D tilted hero dashboard mock */}
+        <div className="relative mt-12" style={{ perspective: '1400px' }}>
+          <div
+            ref={mockRef}
+            className="hero-mock mx-auto max-w-6xl"
+            style={{ transform: 'rotateX(22deg) scale(.96)' }}
+          >
+            <HeroMock t={t} />
+          </div>
+          <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-[#050813] pointer-events-none" />
+        </div>
+
+        <LogosMarquee t={t} />
       </div>
     </section>
   );
 }
 
-function TrustItem({ icon: Icon, label }: { icon: React.ComponentType<{ className?: string }>; label: string }) {
+function HeroStat({ value, unit, label }: { value: string; unit: string; label: string }) {
   return (
-    <div className="flex items-center gap-2">
-      <Icon className="w-4 h-4 text-accent-300" />
-      <span>{label}</span>
+    <div>
+      <div className="font-display text-3xl md:text-4xl font-semibold text-ink-0 tabular-nums">
+        {value}
+        <span className="text-ink-3 text-xl ml-1">{unit}</span>
+      </div>
+      <div className="text-[11px] uppercase tracking-[0.2em] text-ink-4 font-mono mt-1">{label}</div>
     </div>
   );
 }
 
-function StatsStrip({ t }: { t: TFn }) {
-  const stats = [
-    { value: '50+', label: t('landing.stats.fps'), icon: Gauge },
-    { value: '%99.4', label: t('landing.stats.accuracy'), icon: CheckCircle2 },
-    { value: '2', label: t('landing.stats.languages'), icon: Eye },
-    { value: '<100ms', label: t('landing.stats.latency'), icon: Zap },
-  ];
+function HeroMock({ t }: { t: TFn }) {
   return (
-    <section className="relative z-10 px-6 md:px-10">
-      <div className="max-w-7xl mx-auto surface-card-elevated px-6 md:px-10 py-6 md:py-8 grid grid-cols-2 md:grid-cols-4 gap-6">
-        {stats.map((s, i) => (
-          <motion.div
-            key={s.label}
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: i * 0.08 }}
-            className="flex items-start gap-3"
-          >
-            <div className="w-10 h-10 rounded-xl bg-brand-500/15 border border-brand-500/25 flex items-center justify-center text-brand-300">
-              <s.icon className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="font-display text-2xl md:text-3xl font-semibold text-ink-0">{s.value}</div>
-              <div className="text-sm text-ink-3 mt-0.5">{s.label}</div>
-            </div>
-          </motion.div>
-        ))}
+    <div className="ds-card-bright mock-shadow rounded-3xl overflow-hidden border border-white/10">
+      {/* Chrome bar */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-white/5 bg-surface-1">
+        <div className="flex gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-danger-500/70" />
+          <span className="w-3 h-3 rounded-full bg-warning-500/70" />
+          <span className="w-3 h-3 rounded-full bg-success-500/70" />
+        </div>
+        <div className="flex-1 mx-6 h-6 rounded-md bg-surface-2 flex items-center justify-center text-[11px] text-ink-4 font-mono">
+          {t('ds.hero.mock.url')}
+        </div>
+        <span className="ds-pill ds-pill-live">
+          <span className="w-1.5 h-1.5 rounded-full bg-success-400 live-dot" />
+          {t('ds.hero.mock.livebadge')}
+        </span>
       </div>
-    </section>
+
+      <div className="grid grid-cols-12 gap-0">
+        {/* Sidebar */}
+        <aside className="col-span-2 bg-surface-1 border-r border-white/5 p-3 hidden md:block">
+          <div className="flex items-center gap-2 px-2 py-2 mb-3">
+            <img src={markSvg} className="h-6 w-6" alt="" />
+            <span className="font-display font-semibold text-sm text-ink-0">ObservAI</span>
+          </div>
+          <nav className="space-y-0.5 text-[12px]">
+            <MockNav active icon={<Camera className="w-3.5 h-3.5" />} label={t('ds.hero.mock.nav.live')} />
+            <MockNav icon={<LineIcon className="w-3.5 h-3.5" />} label={t('ds.hero.mock.nav.historical')} />
+            <MockNav icon={<Grid className="w-3.5 h-3.5" />} label={t('ds.hero.mock.nav.zones')} />
+            <MockNav icon={<Sparkles className="w-3.5 h-3.5" />} label={t('ds.hero.mock.nav.insights')} />
+            <MockNav icon={<Users className="w-3.5 h-3.5" />} label={t('ds.hero.mock.nav.staff')} />
+            <MockNav icon={<BarChart3 className="w-3.5 h-3.5" />} label={t('ds.hero.mock.nav.trends')} />
+          </nav>
+          <div className="mt-5 p-3 rounded-lg gradient-border">
+            <div className="text-[10px] uppercase tracking-wider text-ink-4 mb-1 font-mono">
+              {t('ds.hero.mock.engine.label')}
+            </div>
+            <div className="text-xs font-semibold text-ink-1">{t('ds.hero.mock.engine.name')}</div>
+            <div className="text-[10px] text-ink-3 mt-0.5 font-mono">{t('ds.hero.mock.engine.meta')}</div>
+          </div>
+        </aside>
+
+        <main className="col-span-12 md:col-span-10 bg-surface-1 p-4 md:p-5">
+          <div className="grid grid-cols-12 gap-4">
+            <div className="col-span-12 lg:col-span-8">
+              <HeroCameraFeed t={t} />
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <HeroMiniBarChart t={t} />
+                <HeroMiniAreaChart t={t} />
+              </div>
+            </div>
+            <aside className="col-span-12 lg:col-span-4 space-y-4">
+              <HeroOccupancyCard t={t} />
+              <HeroDemographicsCard t={t} />
+            </aside>
+          </div>
+        </main>
+      </div>
+    </div>
   );
 }
 
-function Features({ t }: { t: TFn }) {
-  const features = [
-    {
-      icon: Users,
-      title: t('landing.features.demo.title'),
-      desc: t('landing.features.demo.desc'),
-      tone: 'brand' as const,
-    },
-    {
-      icon: MapPin,
-      title: t('landing.features.zone.title'),
-      desc: t('landing.features.zone.desc'),
-      tone: 'accent' as const,
-    },
-    {
-      icon: Clock,
-      title: t('landing.features.dwell.title'),
-      desc: t('landing.features.dwell.desc'),
-      tone: 'violet' as const,
-    },
-    {
-      icon: Brain,
-      title: t('landing.features.ai.title'),
-      desc: t('landing.features.ai.desc'),
-      tone: 'brand' as const,
-    },
-    {
-      icon: Bell,
-      title: t('landing.features.notif.title'),
-      desc: t('landing.features.notif.desc'),
-      tone: 'accent' as const,
-    },
-    {
-      icon: LineChart,
-      title: t('landing.features.trend.title'),
-      desc: t('landing.features.trend.desc'),
-      tone: 'violet' as const,
-    },
-  ];
-
+function MockNav({ icon, label, active }: { icon: React.ReactNode; label: string; active?: boolean }) {
+  const cls = active
+    ? 'bg-brand-500/15 text-brand-200 border border-brand-500/30'
+    : 'text-ink-3 hover:bg-white/5 border border-transparent';
   return (
-    <section id="features" className="relative z-10 px-6 md:px-10 py-24">
-      <div className="max-w-7xl mx-auto">
-        <SectionHeading
-          eyebrow={t('landing.features.eyebrow')}
-          title={t('landing.features.title')}
-          lead={t('landing.features.lead')}
+    <div className={`flex items-center gap-2 px-2.5 py-2 rounded-lg ${cls}`}>
+      {icon}
+      {label}
+    </div>
+  );
+}
+
+function HeroCameraFeed({ t }: { t: TFn }) {
+  return (
+    <div className="relative rounded-xl overflow-hidden border border-white/10 aspect-[16/9] tape-corner">
+      <span className="tape-span" />
+      {/* Fake feed layers */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(600px 300px at 30% 40%, #26314a, #0b1226 60%), linear-gradient(180deg, #0e1836 0%, #070d1e 100%)',
+        }}
+      />
+      <div
+        className="absolute inset-x-0 bottom-0 h-2/5"
+        style={{
+          background:
+            'repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 2px, transparent 2px 80px), linear-gradient(180deg, transparent, rgba(255,255,255,.04))',
+          transform: 'perspective(500px) rotateX(55deg)',
+          transformOrigin: 'bottom',
+        }}
+      />
+      {/* Tables */}
+      <div className="absolute bottom-[30%] left-[15%] w-[60px] h-[36px] rounded bg-surface-3/80 border border-white/10" />
+      <div className="absolute bottom-[25%] left-[55%] w-[70px] h-[42px] rounded bg-surface-3/80 border border-white/10" />
+      <div className="absolute bottom-[12%] left-[30%] w-[58px] h-[36px] rounded bg-surface-3/80 border border-white/10" />
+
+      {/* Zones */}
+      <div
+        className="absolute left-[10%] top-[20%] w-[35%] h-[55%] rounded-lg"
+        style={{ border: '1.5px dashed rgba(6,161,230,.5)', background: 'rgba(6,161,230,.06)' }}
+      >
+        <div className="absolute -top-3 left-0 ds-pill ds-pill-accent text-[10px]">
+          {t('ds.hero.mock.zone.entry')}
+        </div>
+      </div>
+      <div
+        className="absolute right-[8%] top-[28%] w-[30%] h-[45%] rounded-lg"
+        style={{ border: '1.5px dashed rgba(154,77,255,.55)', background: 'rgba(154,77,255,.06)' }}
+      >
+        <div className="absolute -top-3 right-0 ds-pill ds-pill-violet text-[10px]">
+          {t('ds.hero.mock.zone.tables')}
+        </div>
+      </div>
+
+      {/* People + bboxes */}
+      <Silhouette x="22%" y="38%" w={56} h={128} label="#0142 · K · 28y · 0.94" tone="accent" delay="0s" />
+      <Silhouette x="52%" y="32%" w={60} h={140} label="#0139 · E · 34y · 0.91" tone="violet" delay="0.4s" />
+      <Silhouette x="74%" y="44%" w={52} h={116} label="#0151 · E · 42y · 0.88" tone="accent" delay="0.9s" />
+
+      <div className="scan-beam" />
+
+      {/* Overlay header/footer */}
+      <div className="absolute top-3 left-3 right-3 flex items-center justify-between text-[11px] font-mono">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-danger-500 live-dot" />
+          <span className="text-ink-1">{t('ds.hero.mock.feed.rec')}</span>
+        </div>
+        <div className="text-ink-3">{t('ds.hero.mock.feed.time')}</div>
+      </div>
+      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] font-mono">
+        <div className="flex gap-3">
+          <span className="text-accent-200">{t('ds.hero.mock.feed.people', { n: 3 })}</span>
+          <span className="text-ink-3">{t('ds.hero.mock.feed.zones', { n: 2 })}</span>
+        </div>
+        <div className="text-ink-3">{t('ds.hero.mock.feed.perf')}</div>
+      </div>
+    </div>
+  );
+}
+
+function Silhouette({
+  x,
+  y,
+  w,
+  h,
+  label,
+  tone,
+  delay,
+}: {
+  x: string;
+  y: string;
+  w: number;
+  h: number;
+  label: string;
+  tone: 'accent' | 'violet';
+  delay: string;
+}) {
+  const bbox = tone === 'accent' ? 'border-accent-400/70 bbox-accent' : 'border-violet-400/70 bbox-violet';
+  const labelCls =
+    tone === 'accent'
+      ? 'ds-pill ds-pill-accent text-[10px] font-mono'
+      : 'ds-pill ds-pill-violet text-[10px] font-mono';
+  const silCls = tone === 'accent' ? 'text-accent-200/70' : 'text-violet-300/70';
+  return (
+    <div className="absolute" style={{ left: x, top: y, width: `${w}px`, height: `${h}px` }}>
+      <div className={`absolute inset-0 border-2 rounded ${bbox}`} style={{ animationDelay: delay }} />
+      <div className={`absolute -top-6 left-0 ${labelCls}`}>{label}</div>
+      <svg viewBox="0 0 50 120" className={`absolute inset-0 w-full h-full ${silCls}`}>
+        <circle cx="25" cy="20" r="10" fill="currentColor" opacity=".5" />
+        <rect x="14" y="32" width="22" height="50" rx="6" fill="currentColor" opacity=".55" />
+        <rect x="15" y="82" width="8" height="30" rx="3" fill="currentColor" opacity=".5" />
+        <rect x="27" y="82" width="8" height="30" rx="3" fill="currentColor" opacity=".5" />
+      </svg>
+    </div>
+  );
+}
+
+function HeroMiniBarChart({ t }: { t: TFn }) {
+  const bars = [18, 26, 36, 50, 44, 30, 40, 48, 54, 46, 36, 28, 20, 14];
+  return (
+    <div className="ds-card p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] text-ink-3 uppercase tracking-widest font-mono">
+          {t('ds.hero.mock.chart1.title')}
+        </div>
+        <div className="text-[10px] text-success-400 font-mono">{t('ds.hero.mock.chart1.delta')}</div>
+      </div>
+      <div className="font-display text-2xl font-semibold text-ink-0 tabular-nums">
+        {t('ds.hero.mock.chart1.value')}
+      </div>
+      <svg viewBox="0 0 240 60" className="w-full h-14 mt-2">
+        <defs>
+          <linearGradient id="heroBar" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#1d6bff" />
+            <stop offset="1" stopColor="#06a1e6" />
+          </linearGradient>
+        </defs>
+        {bars.map((h, i) => (
+          <rect key={i} x={2 + i * 16} y={58 - h} width="12" height={h} rx="2" fill="url(#heroBar)" />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function HeroMiniAreaChart({ t }: { t: TFn }) {
+  return (
+    <div className="ds-card p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] text-ink-3 uppercase tracking-widest font-mono">
+          {t('ds.hero.mock.chart2.title')}
+        </div>
+        <div className="text-[10px] text-warning-400 font-mono">{t('ds.hero.mock.chart2.delta')}</div>
+      </div>
+      <div className="font-display text-2xl font-semibold text-ink-0 tabular-nums">
+        {t('ds.hero.mock.chart2.value')}
+      </div>
+      <svg viewBox="0 0 240 60" className="w-full h-14 mt-2" fill="none">
+        <defs>
+          <linearGradient id="heroArea" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#12bcff" stopOpacity=".35" />
+            <stop offset="1" stopColor="#12bcff" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M0 46 L20 40 L40 44 L60 30 L80 32 L100 22 L120 26 L140 14 L160 20 L180 10 L200 16 L220 6 L240 12 L240 60 L0 60 Z"
+          fill="url(#heroArea)"
         />
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 mt-12">
-          {features.map((f, i) => (
-            <motion.div
-              key={f.title}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.06 }}
-              className="group relative p-6 rounded-2xl surface-card hover:border-white/[0.12] transition-colors"
-            >
-              <FeatureIcon icon={f.icon} tone={f.tone} />
-              <h3 className="mt-4 text-lg font-semibold text-ink-0">{f.title}</h3>
-              <p className="mt-2 text-sm text-ink-2 leading-relaxed">{f.desc}</p>
-              <div className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none bg-gradient-to-br from-brand-500/5 to-transparent" />
-            </motion.div>
+        <path
+          d="M0 46 L20 40 L40 44 L60 30 L80 32 L100 22 L120 26 L140 14 L160 20 L180 10 L200 16 L220 6 L240 12"
+          stroke="#12bcff"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function HeroOccupancyCard({ t }: { t: TFn }) {
+  return (
+    <div className="ds-card p-4">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[11px] text-ink-3 uppercase tracking-widest font-mono">
+          {t('ds.hero.mock.occupancy.title')}
+        </div>
+        <span className="ds-pill ds-pill-live text-[10px]">{t('ds.hero.mock.occupancy.delta')}</span>
+      </div>
+      <div className="flex items-baseline gap-2">
+        <div className="font-display text-5xl font-semibold text-ink-0 tabular-nums">23</div>
+        <div className="text-sm text-ink-3 font-mono">{t('ds.hero.mock.occupancy.capacity')}</div>
+      </div>
+      <div className="mt-3 h-2 rounded-full bg-white/5 overflow-hidden">
+        <div
+          className="h-full rounded-full"
+          style={{ width: '48%', background: 'linear-gradient(90deg,#1d6bff,#06a1e6)' }}
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+        <div>
+          <div className="text-[10px] text-ink-4 font-mono uppercase">{t('ds.hero.mock.occupancy.in')}</div>
+          <div className="font-display text-lg text-success-400 tabular-nums">142</div>
+        </div>
+        <div>
+          <div className="text-[10px] text-ink-4 font-mono uppercase">{t('ds.hero.mock.occupancy.out')}</div>
+          <div className="font-display text-lg text-ink-1 tabular-nums">119</div>
+        </div>
+        <div>
+          <div className="text-[10px] text-ink-4 font-mono uppercase">{t('ds.hero.mock.occupancy.queue')}</div>
+          <div className="font-display text-lg text-warning-400 tabular-nums">4</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroDemographicsCard({ t }: { t: TFn }) {
+  const ageBars = [25, 58, 92, 70, 42, 22, 12];
+  const ageToneFor = (i: number) => {
+    if (i < 3) return ['bg-brand-500/40', 'bg-brand-500/70', 'bg-brand-500'][i];
+    if (i === 3) return 'bg-brand-400';
+    if (i === 4) return 'bg-accent-400';
+    if (i === 5) return 'bg-accent-500/70';
+    return 'bg-accent-500/40';
+  };
+  return (
+    <div className="ds-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[11px] text-ink-3 uppercase tracking-widest font-mono">
+          {t('ds.hero.mock.demo.title')}
+        </div>
+        <span className="text-[10px] text-ink-4 font-mono">{t('ds.hero.mock.demo.window')}</span>
+      </div>
+      <div className="flex items-center gap-4">
+        <svg viewBox="0 0 60 60" className="w-20 h-20 -rotate-90">
+          <circle cx="30" cy="30" r="22" fill="none" stroke="#111a33" strokeWidth="9" />
+          <circle
+            cx="30"
+            cy="30"
+            r="22"
+            fill="none"
+            stroke="#1d6bff"
+            strokeWidth="9"
+            strokeDasharray="138.23"
+            strokeDashoffset="66"
+            strokeLinecap="round"
+          />
+          <circle
+            cx="30"
+            cy="30"
+            r="22"
+            fill="none"
+            stroke="#9a4dff"
+            strokeWidth="9"
+            strokeDasharray="138.23"
+            strokeDashoffset="110"
+            strokeLinecap="round"
+            transform="rotate(188 30 30)"
+          />
+        </svg>
+        <div className="space-y-1.5 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-sm bg-brand-500" />
+            <span className="text-ink-2">{t('ds.hero.mock.demo.male')}</span>
+            <span className="text-ink-4 font-mono ml-auto">52%</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-sm bg-violet-500" />
+            <span className="text-ink-2">{t('ds.hero.mock.demo.female')}</span>
+            <span className="text-ink-4 font-mono ml-auto">46%</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-sm bg-ink-4" />
+            <span className="text-ink-2">{t('ds.hero.mock.demo.unknown')}</span>
+            <span className="text-ink-4 font-mono ml-auto">2%</span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 space-y-1.5">
+        <div className="text-[10px] uppercase tracking-widest text-ink-4 font-mono">
+          {t('ds.hero.mock.demo.age')}
+        </div>
+        <div className="grid grid-cols-7 gap-1 items-end h-12">
+          {ageBars.map((h, i) => (
+            <div key={i} className={`rounded-sm ${ageToneFor(i)}`} style={{ height: `${h}%` }} />
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-[9px] text-ink-4 text-center font-mono">
+          <div>0-17</div>
+          <div>18-24</div>
+          <div>25-34</div>
+          <div>35-44</div>
+          <div>45-54</div>
+          <div>55-64</div>
+          <div>65+</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogosMarquee({ t }: { t: TFn }) {
+  const items = [
+    { icon: <Camera className="w-5 h-5" />, name: 'IP Kamera (ONVIF)' },
+    { icon: <Youtube className="w-5 h-5" />, name: 'YouTube Live' },
+    { icon: <MonitorSmartphone className="w-5 h-5" />, name: 'Webcam' },
+    { icon: <Waypoints className="w-5 h-5" />, name: 'RTSP Stream' },
+    { icon: <Cpu className="w-5 h-5" />, name: 'NVIDIA RTX' },
+    { icon: <Sparkles className="w-5 h-5" />, name: 'Ollama' },
+    { icon: <Zap className="w-5 h-5" />, name: 'Gemini' },
+    { icon: <Cpu className="w-5 h-5" />, name: 'TensorRT FP16' },
+  ];
+  return (
+    <div className="relative mt-16">
+      <div className="text-center text-[11px] uppercase tracking-[0.3em] text-ink-4 font-mono mb-6">
+        {t('ds.logos.caption')}
+      </div>
+      <div className="overflow-hidden mask-fade">
+        <div className="marquee-track flex gap-14 whitespace-nowrap text-ink-3/70 text-sm font-medium">
+          {[...items, ...items].map((it, i) => (
+            <span key={i} className="flex items-center gap-2">
+              {it.icon}
+              {it.name}
+            </span>
           ))}
         </div>
       </div>
-    </section>
-  );
-}
-
-function FeatureIcon({
-  icon: Icon,
-  tone,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  tone: 'brand' | 'accent' | 'violet';
-}) {
-  const bg =
-    tone === 'brand'
-      ? 'bg-brand-500/15 border-brand-500/30 text-brand-300'
-      : tone === 'accent'
-      ? 'bg-accent-500/15 border-accent-500/30 text-accent-300'
-      : 'bg-violet-500/15 border-violet-500/30 text-violet-400';
-  return (
-    <div className={`w-11 h-11 rounded-xl flex items-center justify-center border ${bg}`}>
-      <Icon className="w-5 h-5" />
     </div>
   );
 }
 
-function LiveDataShowcase({ t }: { t: TFn }) {
-  const items = [
-    { icon: Camera, label: t('landing.liveData.item1'), metric: t('landing.liveData.metric1'), tone: 'brand' as const },
-    { icon: Activity, label: t('landing.liveData.item2'), metric: t('landing.liveData.metric2'), tone: 'accent' as const },
-    { icon: Users, label: t('landing.liveData.item3'), metric: t('landing.liveData.metric3'), tone: 'violet' as const },
-    { icon: TrendingUp, label: t('landing.liveData.item4'), metric: t('landing.liveData.metric4'), tone: 'brand' as const },
-  ];
+/* ═══════════════════════════════════════════════════════════════════════════
+ * PIPELINE — Capture · Understand · Act (3 stage cards)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function PipelineSection({ t }: { t: TFn }) {
   return (
-    <section id="live" className="relative z-10 px-6 md:px-10 py-24">
-      <div className="max-w-7xl mx-auto">
-        <div className="grid lg:grid-cols-12 gap-10 items-center">
-          <div className="lg:col-span-5">
-            <div className="pill-brand mb-5">
-              <Activity className="w-3.5 h-3.5" />
-              {t('landing.liveData.pill')}
-            </div>
-            <h2 className="font-display text-display-lg text-gradient-cool mb-5">
-              {t('landing.liveData.title1')}<br />{t('landing.liveData.title2')}
+    <section id="product" className="relative py-28 overflow-hidden bg-navy-2">
+      <div className="absolute inset-0 grid-floor-flat opacity-30" aria-hidden />
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-end mb-16 reveal">
+          <div className="lg:col-span-7">
+            <div className="ds-pill ds-pill-accent mb-4">{t('ds.pipeline.eyebrow')}</div>
+            <h2
+              className="headline-xl text-ink-0"
+              style={{ fontSize: 'clamp(2.25rem,5vw,4.25rem)' }}
+            >
+              {t('ds.pipeline.title.pre')}
+              <span className="italic tg-violet">{t('ds.pipeline.title.accent1')}</span>
+              {t('ds.pipeline.title.mid')}
+              <span className="tg-cool">{t('ds.pipeline.title.accent2')}</span>
+              {t('ds.pipeline.title.post')}
             </h2>
-            <p className="text-ink-2 leading-relaxed mb-8">
-              {t('landing.liveData.lead')}
-            </p>
-            <div className="space-y-3">
-              {items.map((it) => (
+          </div>
+          <div className="lg:col-span-5">
+            <p className="text-ink-2 text-lg leading-relaxed">{t('ds.pipeline.description')}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 reveal">
+          <PipelineCard
+            glow="bg-brand-500/20"
+            icon={<Camera className="w-10 h-10 text-accent-300" strokeWidth={1.5} />}
+            eyebrow={t('ds.pipeline.s1.eyebrow')}
+            title={t('ds.pipeline.s1.title')}
+            body={t('ds.pipeline.s1.body')}
+            metrics={[
+              [t('ds.pipeline.s1.m1.k'), t('ds.pipeline.s1.m1.v'), 'text-ink-1'],
+              [t('ds.pipeline.s1.m2.k'), t('ds.pipeline.s1.m2.v'), 'text-ink-1'],
+              [t('ds.pipeline.s1.m3.k'), t('ds.pipeline.s1.m3.v'), 'text-accent-300'],
+            ]}
+          />
+          <PipelineCard
+            glow="bg-violet-500/20"
+            icon={<Target className="w-10 h-10 text-violet-400" strokeWidth={1.5} />}
+            eyebrow={t('ds.pipeline.s2.eyebrow')}
+            title={t('ds.pipeline.s2.title')}
+            body={t('ds.pipeline.s2.body')}
+            metrics={[
+              [t('ds.pipeline.s2.m1.k'), t('ds.pipeline.s2.m1.v'), 'text-ink-1'],
+              [t('ds.pipeline.s2.m2.k'), t('ds.pipeline.s2.m2.v'), 'text-ink-1'],
+              [t('ds.pipeline.s2.m3.k'), t('ds.pipeline.s2.m3.v'), 'text-violet-300'],
+            ]}
+          />
+          <PipelineCard
+            glow="bg-accent-500/20"
+            icon={<LineIcon className="w-10 h-10 text-brand-300" strokeWidth={1.5} />}
+            eyebrow={t('ds.pipeline.s3.eyebrow')}
+            title={t('ds.pipeline.s3.title')}
+            body={t('ds.pipeline.s3.body')}
+            metrics={[
+              [t('ds.pipeline.s3.m1.k'), t('ds.pipeline.s3.m1.v'), 'text-ink-1'],
+              [t('ds.pipeline.s3.m2.k'), t('ds.pipeline.s3.m2.v'), 'text-ink-1'],
+              [t('ds.pipeline.s3.m3.k'), t('ds.pipeline.s3.m3.v'), 'text-brand-300'],
+            ]}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PipelineCard({
+  glow,
+  icon,
+  eyebrow,
+  title,
+  body,
+  metrics,
+}: {
+  glow: string;
+  icon: React.ReactNode;
+  eyebrow: string;
+  title: string;
+  body: string;
+  metrics: [string, string, string][];
+}) {
+  return (
+    <div className="ds-card p-6 gradient-border relative overflow-hidden">
+      <div className={`absolute top-0 right-0 w-40 h-40 blur-3xl rounded-full ${glow}`} aria-hidden />
+      <div className="relative">
+        <div className="flex items-center gap-2 mb-5">
+          <span className="text-[10px] uppercase tracking-widest text-ink-4 font-mono">{eyebrow}</span>
+          <span className="h-px flex-1 bg-white/10" />
+        </div>
+        <div className="mb-4">{icon}</div>
+        <h3 className="font-display text-xl font-semibold text-ink-0 mb-2">{title}</h3>
+        <p className="text-ink-3 text-sm leading-relaxed mb-4">{body}</p>
+        <div className="space-y-2 text-xs font-mono">
+          {metrics.map(([k, v, tone], i) => (
+            <div
+              key={k}
+              className={`flex items-center justify-between ${i === 0 ? 'border-t border-white/5 pt-2' : ''}`}
+            >
+              <span className="text-ink-4">{k}</span>
+              <span className={tone}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ZONES — forest bg, sand palette, top-down canvas with animated draws
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function ZonesSection({ t }: { t: TFn }) {
+  const zones: {
+    name: string;
+    count: string;
+    time: string;
+    color: string;
+    countClass?: string;
+  }[] = [
+    { name: t('ds.zones.z1.name'), count: t('ds.zones.z1.count'), time: t('ds.zones.z1.time'), color: '#7de6ff' },
+    { name: t('ds.zones.z2.name'), count: t('ds.zones.z2.count'), time: t('ds.zones.z2.time'), color: '#c89bff' },
+    {
+      name: t('ds.zones.z3.name'),
+      count: t('ds.zones.z3.count'),
+      time: t('ds.zones.z3.time'),
+      color: '#ffb547',
+      countClass: 'text-warning-400',
+    },
+    { name: t('ds.zones.z4.name'), count: t('ds.zones.z4.count'), time: t('ds.zones.z4.time'), color: '#42e7a3' },
+  ];
+
+  return (
+    <section id="zones" className="relative py-28 overflow-hidden bg-forest-deep">
+      <div
+        className="absolute inset-0 opacity-[0.07]"
+        style={{
+          backgroundImage: 'radial-gradient(rgba(199,180,130,.4) 1px, transparent 1px)',
+          backgroundSize: '28px 28px',
+        }}
+      />
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+          {/* Left: copy + zone list */}
+          <div className="lg:col-span-5 reveal">
+            <div className="ds-pill ds-pill-sand mb-5">{t('ds.zones.eyebrow')}</div>
+            <h2
+              className="headline-xl mb-6"
+              style={{ fontSize: 'clamp(2.25rem,5vw,4rem)', color: '#fdfbf5' }}
+            >
+              {t('ds.zones.title.pre')}
+              <span className="italic" style={{ color: '#e7dcc0' }}>
+                {t('ds.zones.title.italic')}
+              </span>
+              {t('ds.zones.title.mid')}
+              <span className="tg-cool">{t('ds.zones.title.accent')}</span>
+              {t('ds.zones.title.post')}
+            </h2>
+            <p className="text-sand-100/80 text-lg leading-relaxed mb-8">{t('ds.zones.body')}</p>
+
+            <div className="space-y-2">
+              {zones.map((z) => (
                 <div
-                  key={it.label}
-                  className="flex items-center justify-between gap-4 p-3 rounded-xl bg-surface-1/60 border border-white/[0.06]"
+                  key={z.name}
+                  className="flex items-center justify-between gap-4 p-3.5 rounded-xl border border-sand-200/15 bg-forest-600/50"
                 >
                   <div className="flex items-center gap-3">
-                    <FeatureIcon icon={it.icon} tone={it.tone} />
-                    <span className="text-sm text-ink-1">{it.label}</span>
+                    <span className="w-3 h-3 rounded-sm" style={{ background: z.color }} />
+                    <span className="text-sand-50 font-medium">{z.name}</span>
                   </div>
-                  <span className="text-xs font-mono text-ink-3">{it.metric}</span>
+                  <div className="flex items-center gap-6 text-sm">
+                    <div className={`font-mono ${z.countClass ?? 'text-sand-100/70'}`}>{z.count}</div>
+                    <div className="text-sand-100/50 font-mono">{z.time}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-wrap items-center gap-6 text-xs font-mono text-sand-100/60">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-success-400" />
+                {t('ds.zones.trust1')}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-success-400" />
+                {t('ds.zones.trust2')}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-success-400" />
+                {t('ds.zones.trust3')}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: animated zone canvas */}
+          <div className="lg:col-span-7 reveal">
+            <div className="ds-card-bright rounded-2xl overflow-hidden border border-sand-200/15 mock-shadow">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-surface-1/70">
+                <div className="flex items-center gap-2 text-xs font-mono">
+                  <Grid className="w-4 h-4 text-accent-300" />
+                  <span className="text-ink-1">{t('ds.zones.canvas.title')}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="ds-pill ds-pill-live text-[10px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success-400 live-dot" />
+                    {t('ds.zones.canvas.live')}
+                  </span>
+                  <button className="text-xs text-ink-3 hover:text-ink-1 font-mono">
+                    {t('ds.zones.canvas.save')}
+                  </button>
+                </div>
+              </div>
+
+              <ZonesCanvas t={t} />
+
+              <div className="grid grid-cols-4 border-t border-white/10">
+                <ZoneStat label={t('ds.zones.stats.zones')} value="4" tone="text-ink-0" />
+                <ZoneStat label={t('ds.zones.stats.transitions')} value="178" tone="text-accent-300" />
+                <ZoneStat label={t('ds.zones.stats.alert')} value="1" tone="text-warning-400" />
+                <ZoneStat label={t('ds.zones.stats.dwell')} value="11.2 dk" tone="text-ink-1" noBorder />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ZoneStat({
+  label,
+  value,
+  tone,
+  noBorder,
+}: {
+  label: string;
+  value: string;
+  tone: string;
+  noBorder?: boolean;
+}) {
+  return (
+    <div className={`p-4 ${noBorder ? '' : 'border-r border-white/10'}`}>
+      <div className="text-[10px] uppercase tracking-widest text-ink-4 font-mono">{label}</div>
+      <div className={`font-display text-xl tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
+function ZonesCanvas({ t }: { t: TFn }) {
+  return (
+    <div className="relative aspect-[16/10]">
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(800px 400px at 50% 40%, #1a2547 0%, #0b1226 70%), #050813',
+        }}
+      />
+      <div className="absolute inset-0 grid-floor-flat opacity-25" />
+
+      <div className="absolute left-[22%] top-[55%] w-12 h-12 rounded-full border-2 border-white/15 bg-white/5" />
+      <div className="absolute left-[40%] top-[70%] w-12 h-12 rounded-full border-2 border-white/15 bg-white/5" />
+      <div className="absolute left-[58%] top-[58%] w-12 h-12 rounded-full border-2 border-white/15 bg-white/5" />
+      <div className="absolute left-[72%] top-[75%] w-12 h-12 rounded-full border-2 border-white/15 bg-white/5" />
+      <div className="absolute left-[18%] top-[30%] w-16 h-6 rounded bg-white/5 border border-white/15" />
+
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 800 500" preserveAspectRatio="none">
+        <defs>
+          <pattern id="zp-blue" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="10" stroke="#7de6ff" strokeWidth="1" opacity=".18" />
+          </pattern>
+          <pattern id="zp-violet" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="10" stroke="#c89bff" strokeWidth="1" opacity=".22" />
+          </pattern>
+          <pattern id="zp-warn" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="10" stroke="#ffb547" strokeWidth="1" opacity=".22" />
+          </pattern>
+          <pattern id="zp-green" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="10" stroke="#42e7a3" strokeWidth="1" opacity=".22" />
+          </pattern>
+        </defs>
+
+        <g className="zone-draw" style={{ ['--zd' as string]: '0s' }}>
+          <rect
+            x="40"
+            y="300"
+            width="180"
+            height="160"
+            rx="8"
+            fill="url(#zp-blue)"
+            stroke="#7de6ff"
+            strokeWidth="2"
+            strokeDasharray="760"
+            strokeDashoffset="760"
+          />
+          <text x="52" y="324" fill="#7de6ff" fontFamily="JetBrains Mono" fontSize="13" fontWeight="600">
+            {t('ds.zones.canvas.label.entry')}
+          </text>
+        </g>
+        <g className="zone-draw" style={{ ['--zd' as string]: '0.9s' }}>
+          <rect
+            x="240"
+            y="220"
+            width="300"
+            height="240"
+            rx="8"
+            fill="url(#zp-violet)"
+            stroke="#c89bff"
+            strokeWidth="2"
+            strokeDasharray="1080"
+            strokeDashoffset="1080"
+          />
+          <text x="252" y="244" fill="#c89bff" fontFamily="JetBrains Mono" fontSize="13" fontWeight="600">
+            {t('ds.zones.canvas.label.tables')}
+          </text>
+        </g>
+        <g className="zone-draw" style={{ ['--zd' as string]: '1.8s' }}>
+          <polygon
+            points="560,300 760,300 760,460 560,460 560,420 640,420 640,340 560,340"
+            fill="url(#zp-warn)"
+            stroke="#ffb547"
+            strokeWidth="2"
+            strokeDasharray="1000"
+            strokeDashoffset="1000"
+          />
+          <text x="572" y="324" fill="#ffb547" fontFamily="JetBrains Mono" fontSize="13" fontWeight="600">
+            {t('ds.zones.canvas.label.queue')}
+          </text>
+        </g>
+        <g className="zone-draw" style={{ ['--zd' as string]: '2.7s' }}>
+          <rect
+            x="40"
+            y="60"
+            width="720"
+            height="120"
+            rx="8"
+            fill="url(#zp-green)"
+            stroke="#42e7a3"
+            strokeWidth="2"
+            strokeDasharray="1680"
+            strokeDashoffset="1680"
+          />
+          <text x="52" y="84" fill="#42e7a3" fontFamily="JetBrains Mono" fontSize="13" fontWeight="600">
+            {t('ds.zones.canvas.label.vitrin')}
+          </text>
+        </g>
+
+        <circle cx="130" cy="380" r="5" fill="#7de6ff">
+          <animate attributeName="cy" values="380;370;380" dur="2s" repeatCount="indefinite" />
+        </circle>
+        <circle cx="380" cy="330" r="5" fill="#c89bff">
+          <animate attributeName="cx" values="380;390;380" dur="2.4s" repeatCount="indefinite" />
+        </circle>
+        <circle cx="430" cy="380" r="5" fill="#c89bff" />
+        <circle cx="480" cy="420" r="5" fill="#c89bff">
+          <animate attributeName="cy" values="420;415;420" dur="2.2s" repeatCount="indefinite" />
+        </circle>
+        <circle cx="620" cy="340" r="5" fill="#ffb547" />
+        <circle cx="660" cy="360" r="5" fill="#ffb547" />
+        <circle cx="680" cy="400" r="5" fill="#ffb547" />
+        <circle cx="700" cy="420" r="5" fill="#ffb547" />
+
+        <path
+          d="M130 380 Q 220 340 300 330 T 420 380"
+          stroke="#7de6ff"
+          strokeWidth="1.5"
+          fill="none"
+          strokeDasharray="4 6"
+          opacity=".55"
+        />
+        <path
+          d="M430 380 Q 520 360 600 360 T 680 400"
+          stroke="#c89bff"
+          strokeWidth="1.5"
+          fill="none"
+          strokeDasharray="4 6"
+          opacity=".55"
+        />
+      </svg>
+
+      <div className="absolute left-4 top-4 ds-card px-2 py-2 flex flex-col gap-1">
+        <button className="w-8 h-8 rounded-md bg-brand-500/20 text-brand-200 flex items-center justify-center border border-brand-500/30">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="4" y="4" width="16" height="16" rx="1" />
+          </svg>
+        </button>
+        <button className="w-8 h-8 rounded-md hover:bg-white/5 text-ink-3 flex items-center justify-center">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5" />
+          </svg>
+        </button>
+        <button className="w-8 h-8 rounded-md hover:bg-white/5 text-ink-3 flex items-center justify-center">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M5 19L19 5" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="absolute right-4 bottom-4 ds-card px-3 py-2 text-[11px] font-mono">
+        <div className="text-ink-3">{t('ds.zones.canvas.status')}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * HEATMAP — ivory editorial bg, architectural plan + heat blobs
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function HeatmapSection({ t }: { t: TFn }) {
+  const stats: [string, string, string][] = [
+    [t('ds.heatmap.stats.peak.label'), t('ds.heatmap.stats.peak.value'), t('ds.heatmap.stats.peak.sub')],
+    [t('ds.heatmap.stats.rotation.label'), t('ds.heatmap.stats.rotation.value'), t('ds.heatmap.stats.rotation.sub')],
+    [t('ds.heatmap.stats.hottest.label'), t('ds.heatmap.stats.hottest.value'), t('ds.heatmap.stats.hottest.sub')],
+    [t('ds.heatmap.stats.dead.label'), t('ds.heatmap.stats.dead.value'), t('ds.heatmap.stats.dead.sub')],
+  ];
+  return (
+    <section className="relative py-28 overflow-hidden bg-ivory-gradient">
+      <div
+        className="absolute inset-0 opacity-50"
+        style={{
+          backgroundImage: 'radial-gradient(rgba(15,36,46,.05) 1px, transparent 1px)',
+          backgroundSize: '20px 20px',
+        }}
+      />
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+          <div className="lg:col-span-7 order-2 lg:order-1 reveal">
+            <div className="rounded-2xl overflow-hidden border border-black/10 shadow-2xl bg-white">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-black/5 bg-sand-50">
+                <div className="flex items-center gap-2 text-xs font-mono">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#0f3d2e" strokeWidth="2">
+                    <circle cx="12" cy="12" r="3" />
+                    <circle cx="12" cy="12" r="9" strokeDasharray="2 3" />
+                  </svg>
+                  <span className="text-forest-700 font-semibold">{t('ds.heatmap.canvas.title')}</span>
+                </div>
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="flex items-center gap-1 text-forest-700/70">
+                    <span className="w-2 h-2 rounded-full" style={{ background: '#06a1e6' }} />
+                    {t('ds.heatmap.canvas.low')}
+                  </span>
+                  <span className="flex items-center gap-1 text-forest-700/70">
+                    <span className="w-2 h-2 rounded-full" style={{ background: '#f59b24' }} />
+                    {t('ds.heatmap.canvas.mid')}
+                  </span>
+                  <span className="flex items-center gap-1 text-forest-700/70">
+                    <span className="w-2 h-2 rounded-full" style={{ background: '#ef4a5c' }} />
+                    {t('ds.heatmap.canvas.high')}
+                  </span>
+                </div>
+              </div>
+
+              <div className="relative aspect-[16/10] bg-gradient-to-b from-sand-100 to-white">
+                <svg
+                  className="absolute inset-0 w-full h-full"
+                  viewBox="0 0 800 500"
+                  preserveAspectRatio="none"
+                >
+                  <rect x="30" y="30" width="740" height="440" fill="none" stroke="#1a2547" strokeWidth="2" />
+                  <rect x="30" y="30" width="740" height="60" fill="#e7dcc0" stroke="#1a2547" strokeWidth="1" />
+                  <text
+                    x="400"
+                    y="66"
+                    fill="#072018"
+                    fontFamily="Instrument Serif, Georgia, serif"
+                    fontSize="22"
+                    textAnchor="middle"
+                    fontStyle="italic"
+                  >
+                    {t('ds.heatmap.canvas.bar')}
+                  </text>
+                  <g fill="#1a2547" opacity=".08">
+                    <circle cx="150" cy="200" r="26" />
+                    <circle cx="280" cy="220" r="26" />
+                    <circle cx="420" cy="200" r="26" />
+                    <circle cx="560" cy="220" r="26" />
+                    <circle cx="150" cy="320" r="26" />
+                    <circle cx="280" cy="340" r="26" />
+                    <circle cx="420" cy="320" r="26" />
+                    <circle cx="560" cy="340" r="26" />
+                    <rect x="640" y="180" width="110" height="70" rx="4" />
+                    <rect x="640" y="280" width="110" height="90" rx="4" />
+                  </g>
+                  <g stroke="#1a2547" strokeWidth="1" fill="none" opacity=".25">
+                    <circle cx="150" cy="200" r="26" />
+                    <circle cx="280" cy="220" r="26" />
+                    <circle cx="420" cy="200" r="26" />
+                    <circle cx="560" cy="220" r="26" />
+                    <circle cx="150" cy="320" r="26" />
+                    <circle cx="280" cy="340" r="26" />
+                    <circle cx="420" cy="320" r="26" />
+                    <circle cx="560" cy="340" r="26" />
+                    <rect x="640" y="180" width="110" height="70" rx="4" />
+                    <rect x="640" y="280" width="110" height="90" rx="4" />
+                  </g>
+                  <path
+                    d="M100 470 A 40 40 0 0 1 140 430"
+                    stroke="#1a2547"
+                    strokeWidth="2"
+                    fill="none"
+                  />
+                  <text x="70" y="480" fill="#072018" fontFamily="JetBrains Mono" fontSize="10">
+                    {t('ds.heatmap.canvas.entry')}
+                  </text>
+                </svg>
+
+                <div
+                  className="heat-blob"
+                  style={{
+                    left: '4%',
+                    top: '70%',
+                    width: '260px',
+                    height: '180px',
+                    background:
+                      'radial-gradient(closest-side, rgba(239,74,92,.75), rgba(239,74,92,.25) 40%, transparent 70%)',
+                  }}
+                />
+                <div
+                  className="heat-blob"
+                  style={{
+                    left: '30%',
+                    top: '50%',
+                    width: '200px',
+                    height: '180px',
+                    background:
+                      'radial-gradient(closest-side, rgba(245,155,36,.7), rgba(245,155,36,.25) 40%, transparent 70%)',
+                  }}
+                />
+                <div
+                  className="heat-blob"
+                  style={{
+                    left: '50%',
+                    top: '62%',
+                    width: '220px',
+                    height: '190px',
+                    background:
+                      'radial-gradient(closest-side, rgba(239,74,92,.65), rgba(245,155,36,.3) 40%, transparent 70%)',
+                  }}
+                />
+                <div
+                  className="heat-blob"
+                  style={{
+                    left: '70%',
+                    top: '32%',
+                    width: '160px',
+                    height: '140px',
+                    background:
+                      'radial-gradient(closest-side, rgba(6,161,230,.55), rgba(6,161,230,.18) 40%, transparent 70%)',
+                  }}
+                />
+                <div
+                  className="heat-blob"
+                  style={{
+                    left: '78%',
+                    top: '55%',
+                    width: '180px',
+                    height: '170px',
+                    background:
+                      'radial-gradient(closest-side, rgba(245,155,36,.55), rgba(245,155,36,.2) 40%, transparent 70%)',
+                  }}
+                />
+                <div
+                  className="heat-blob"
+                  style={{
+                    left: '10%',
+                    top: '8%',
+                    width: '700px',
+                    height: '100px',
+                    background:
+                      'radial-gradient(closest-side, rgba(239,74,92,.5), rgba(245,155,36,.2) 40%, transparent 70%)',
+                    mixBlendMode: 'multiply',
+                  }}
+                />
+
+                <div className="absolute" style={{ left: '8%', top: '72%' }}>
+                  <div className="text-[11px] font-mono text-danger-500 font-semibold">
+                    {t('ds.heatmap.canvas.peak.title')}
+                  </div>
+                  <div className="text-[10px] font-mono text-forest-700/70">
+                    {t('ds.heatmap.canvas.peak.meta')}
+                  </div>
+                </div>
+                <div className="absolute" style={{ right: '12%', top: '30%' }}>
+                  <div className="text-[11px] font-mono text-accent-500 font-semibold">
+                    {t('ds.heatmap.canvas.low.title')}
+                  </div>
+                  <div className="text-[10px] font-mono text-forest-700/70">
+                    {t('ds.heatmap.canvas.low.meta')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-5 order-1 lg:order-2 reveal">
+            <div className="ds-pill ds-pill-forest mb-5">{t('ds.heatmap.eyebrow')}</div>
+            <h2
+              className="headline-xl text-forest-700 mb-6"
+              style={{ fontSize: 'clamp(2.25rem,5vw,4rem)' }}
+            >
+              {t('ds.heatmap.title.pre')}
+              <span className="italic" style={{ color: '#9a4dff' }}>
+                {t('ds.heatmap.title.italic')}
+              </span>
+              {t('ds.heatmap.title.post')}
+            </h2>
+            <p className="text-forest-700/75 text-lg leading-relaxed mb-8">{t('ds.heatmap.body')}</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              {stats.map(([label, value, sub]) => (
+                <div key={label} className="p-4 rounded-xl border border-forest-700/15 bg-white/60">
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-forest-700/60">
+                    {label}
+                  </div>
+                  <div className="font-display text-2xl text-forest-700 mt-1 tabular-nums">{value}</div>
+                  <div className="text-xs text-forest-700/60 mt-1 font-mono">{sub}</div>
                 </div>
               ))}
             </div>
           </div>
-
-          <div className="lg:col-span-7">
-            <DashboardMosaic t={t} />
-          </div>
         </div>
       </div>
     </section>
   );
 }
 
-function DashboardMosaic({ t }: { t: TFn }) {
+/* ═══════════════════════════════════════════════════════════════════════════
+ * DEMOGRAPHICS — navy bento: historical line, donut, stacked bars, temporal lock
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function DemographicsSection({ t }: { t: TFn }) {
   return (
-    <div className="relative">
-      <div className="absolute -inset-8 bg-radial-aurora blur-3xl opacity-60 pointer-events-none" aria-hidden />
-      <div className="relative grid grid-cols-6 grid-rows-4 gap-3 h-[420px]">
-        {/* Main camera panel */}
-        <div className="col-span-4 row-span-3 surface-card-elevated p-3 overflow-hidden relative">
-          <div className="flex items-center justify-between text-xs text-ink-3 font-mono mb-2">
-            <span>CAMERA 01 / ENTRANCE</span>
-            <span className="pill-live">LIVE</span>
-          </div>
-          <div className="relative h-[calc(100%-28px)] rounded-lg overflow-hidden bg-gradient-to-br from-surface-3 to-surface-1">
-            <div className="absolute inset-0 bg-grid-faint bg-grid-sm opacity-30 animate-grid-flow" />
-            <div className="scan-bar" />
-            {/* Stylized silhouettes */}
-            {[0.18, 0.32, 0.5, 0.72].map((left, i) => (
-              <div
-                key={i}
-                className="absolute bottom-4 w-10 h-20 rounded-t-[50%] bg-gradient-to-t from-accent-500/35 to-brand-400/60"
-                style={{ left: `${left * 100}%` }}
-              />
-            ))}
-            {/* Bboxes */}
-            {[0.14, 0.28, 0.46, 0.68].map((x, i) => (
-              <div
-                key={i}
-                className={`absolute bottom-2 w-14 h-28 rounded-md border-2 ${
-                  i % 2 === 0 ? 'border-accent-400' : 'border-violet-400'
-                } animate-bbox-pulse`}
-                style={{ left: `${x * 100}%` }}
-              />
-            ))}
-          </div>
+    <section className="relative py-28 overflow-hidden bg-navy">
+      <div className="absolute inset-0 aurora-bg opacity-60" aria-hidden />
+      <div className="absolute inset-0 grid-floor-flat grid-floor-fade opacity-35" aria-hidden />
+
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="text-center max-w-3xl mx-auto mb-16 reveal">
+          <div className="ds-pill ds-pill-brand mb-4 mx-auto">{t('ds.demo.eyebrow')}</div>
+          <h2
+            className="headline-xl text-ink-0 mb-5"
+            style={{ fontSize: 'clamp(2.25rem,5vw,4rem)' }}
+          >
+            {t('ds.demo.title.pre')}
+            <span className="italic tg-violet">{t('ds.demo.title.italic')}</span>
+            {t('ds.demo.title.post')}
+          </h2>
+          <p className="text-ink-2 text-lg leading-relaxed">{t('ds.demo.body')}</p>
         </div>
 
-        {/* Visitor count */}
-        <div className="col-span-2 row-span-1 surface-card-elevated p-4 flex flex-col justify-between">
-          <div className="flex items-center gap-2 text-xs text-ink-3 uppercase tracking-wider font-mono">
-            <Users className="w-3.5 h-3.5 text-brand-300" /> {t('landing.mosaic.current')}
-          </div>
-          <div className="font-display text-3xl text-gradient-cool">12</div>
-          <div className="text-xs text-success-400">{t('landing.mosaic.currentDelta')}</div>
-        </div>
-
-        {/* Dwell */}
-        <div className="col-span-2 row-span-1 surface-card-elevated p-4 flex flex-col justify-between">
-          <div className="flex items-center gap-2 text-xs text-ink-3 uppercase tracking-wider font-mono">
-            <Clock className="w-3.5 h-3.5 text-accent-300" /> {t('landing.mosaic.dwell')}
-          </div>
-          <div className="font-display text-3xl text-gradient-cool">4.8 <span className="text-sm text-ink-3">{t('landing.mosaic.dwellUnit')}</span></div>
-          <div className="text-xs text-ink-3">{t('landing.mosaic.dwellLabel')}</div>
-        </div>
-
-        {/* Demographic bar */}
-        <div className="col-span-2 row-span-1 surface-card-elevated p-4 flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-xs text-ink-3 uppercase tracking-wider font-mono">
-            <BarChart3 className="w-3.5 h-3.5 text-violet-400" /> {t('landing.mosaic.gender')}
-          </div>
-          <div className="flex h-2 rounded-full overflow-hidden bg-white/5">
-            <div className="h-full bg-gradient-to-r from-accent-500 to-brand-400" style={{ width: '56%' }} />
-            <div className="h-full bg-gradient-to-r from-violet-500 to-violet-400" style={{ width: '44%' }} />
-          </div>
-          <div className="flex justify-between text-xs text-ink-3 font-mono">
-            <span>{t('landing.mosaic.male')} 56%</span>
-            <span>{t('landing.mosaic.female')} 44%</span>
-          </div>
-        </div>
-
-        {/* Heatmap tile */}
-        <div className="col-span-4 row-span-1 surface-card-elevated p-3 overflow-hidden">
-          <div className="flex items-center justify-between text-xs text-ink-3 font-mono mb-2">
-            <span>{t('landing.mosaic.heatmap')}</span>
-            <span>7x7</span>
-          </div>
-          <div className="grid grid-cols-14 gap-[3px] h-[calc(100%-24px)]">
-            {Array.from({ length: 42 }).map((_, i) => {
-              // Deterministic pseudo-random intensity so the visual is stable in screenshots.
-              const seed = ((i * 13) % 7) / 7;
-              const intensity = Math.min(1, 0.12 + seed + (i % 5 === 0 ? 0.3 : 0));
-              return (
-                <div
-                  key={i}
-                  className="rounded-sm"
-                  style={{
-                    background: `linear-gradient(180deg, rgba(29,107,255,${intensity * 0.9}) 0%, rgba(154,77,255,${intensity * 0.6}) 100%)`,
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ----------------------------------------------------------------------------------
- * TableIntelligence — animated showcase of the new Table Occupancy page.
- * Mirrors the Restaurant Vision AI screenshots that prompted this feature:
- * floor plan with status colors, plus a focus card cycling through "STATE",
- * "SEATED", "ORDERED", "FOOD", "DINERS", "SERVER", "TYPE" rows.
- * ----------------------------------------------------------------------------------*/
-const SHOWCASE_TABLES = [
-  { id: 11, x: 8,  y: 18, w: 16, h: 22, status: 'occupied' as const, diners: 4, stage: 'food', server: 'Mert',  type: 'Inside',  seated: '12:42', ordered: '12:48', food: '13:01' },
-  { id: 12, x: 28, y: 18, w: 14, h: 22, status: 'empty' as const,    diners: 0, stage: 'empty', server: '—',     type: 'Inside',  seated: '—',     ordered: '—',     food: '—'     },
-  { id: 15, x: 46, y: 18, w: 14, h: 22, status: 'occupied' as const, diners: 2, stage: 'ordered', server: 'Ada',  type: 'Window',  seated: '13:05', ordered: '13:12', food: '—'     },
-  { id: 16, x: 64, y: 18, w: 14, h: 22, status: 'needs_cleaning' as const, diners: 0, stage: 'cleaning', server: 'Hakan', type: 'Window',  seated: '11:50', ordered: '11:55', food: '12:10' },
-  { id: 22, x: 8,  y: 50, w: 16, h: 22, status: 'occupied' as const, diners: 3, stage: 'eating', server: 'Hakan', type: 'Patio',   seated: '13:18', ordered: '13:24', food: '13:38' },
-  { id: 18, x: 28, y: 50, w: 14, h: 22, status: 'occupied' as const, diners: 1, stage: 'seated', server: 'Ada',   type: 'Bar',     seated: '13:42', ordered: '—',     food: '—'     },
-  { id: 24, x: 46, y: 50, w: 14, h: 22, status: 'empty' as const,    diners: 0, stage: 'empty', server: '—',     type: 'Patio',   seated: '—',     ordered: '—',     food: '—'     },
-  { id: 27, x: 64, y: 50, w: 14, h: 22, status: 'occupied' as const, diners: 2, stage: 'ordered', server: 'Mert', type: 'Inside',  seated: '13:20', ordered: '13:28', food: '—'     },
-];
-
-const SHOWCASE_STATUS_STYLES = {
-  empty:           { fill: 'bg-success-500/15', border: 'border-success-500/40', dot: 'bg-success-400', text: 'text-success-300' },
-  occupied:        { fill: 'bg-brand-500/15',   border: 'border-brand-500/50',   dot: 'bg-brand-400',   text: 'text-brand-200' },
-  needs_cleaning:  { fill: 'bg-warning-500/15', border: 'border-warning-500/50', dot: 'bg-warning-400', text: 'text-warning-300' },
-} as const;
-
-function TableIntelligence({ t }: { t: TFn }) {
-  const reduce = useReducedMotion();
-  const occupiedIndices = SHOWCASE_TABLES.map((tb, i) => tb.status === 'occupied' ? i : -1).filter(i => i >= 0);
-  const [focusIdx, setFocusIdx] = useState(occupiedIndices[0] ?? 0);
-
-  useEffect(() => {
-    if (reduce) return;
-    const id = window.setInterval(() => {
-      setFocusIdx(prev => {
-        const cur = occupiedIndices.indexOf(prev);
-        const next = occupiedIndices[(cur + 1) % occupiedIndices.length];
-        return next ?? 0;
-      });
-    }, 2800);
-    return () => window.clearInterval(id);
-  }, [reduce]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const focused = SHOWCASE_TABLES[focusIdx];
-  const focusedLabel =
-    focused.status === 'occupied' ? t('landing.mosaic.stateOccupied') :
-    focused.status === 'needs_cleaning' ? t('landing.mosaic.stateCleaning') :
-    t('landing.mosaic.stateEmpty');
-
-  const occupied = SHOWCASE_TABLES.filter(tb => tb.status === 'occupied').length;
-  const occupancyPct = Math.round((occupied / SHOWCASE_TABLES.length) * 100);
-
-  return (
-    <section className="relative z-10 px-6 md:px-10 py-24">
-      <div className="max-w-7xl mx-auto">
-        <div className="grid lg:grid-cols-12 gap-10 items-center">
-          <div className="lg:col-span-5 lg:order-2">
-            <div className="pill-brand mb-5">
-              <LayoutGrid className="w-3.5 h-3.5" />
-              {t('landing.tableIntel.pill')}
-            </div>
-            <h2 className="font-display text-display-lg text-gradient-cool mb-5">
-              {t('landing.tableIntel.title1')}<br />{t('landing.tableIntel.title2')}
-            </h2>
-            <p className="text-ink-2 leading-relaxed mb-8">
-              {t('landing.tableIntel.lead')}
-            </p>
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              <ShowcaseStat label={t('landing.tableIntel.occupancy')} value={`${occupancyPct}%`} tone="brand" />
-              <ShowcaseStat label={t('landing.tableIntel.turnover')} value="3.2x" tone="accent" />
-              <ShowcaseStat label={t('landing.tableIntel.avgStay')} value="42dk" tone="violet" />
-            </div>
-            <Link
-              to="/demo"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/5 border border-white/10 text-ink-1 hover:bg-white/10 transition-colors text-sm"
-            >
-              {t('landing.tableIntel.cta')}
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-
-          <div className="lg:col-span-7 lg:order-1">
-            <div className="relative">
-              <div className="absolute -inset-8 bg-radial-aurora blur-3xl opacity-50 pointer-events-none" aria-hidden />
-
-              <div className="relative surface-card-elevated p-4 rounded-3xl">
-                {/* Floor plan canvas */}
-                <div className="relative w-full aspect-[16/9] rounded-2xl overflow-hidden bg-gradient-to-br from-surface-3 via-surface-2 to-surface-1 border border-white/[0.06]">
-                  {/* Grid floor */}
-                  <div className="absolute inset-0 bg-grid-faint bg-grid-sm opacity-30" aria-hidden />
-
-                  {/* Heatmap glow under occupied tables */}
-                  {SHOWCASE_TABLES.filter(t => t.status === 'occupied').map(t => (
-                    <div
-                      key={`heat-${t.id}`}
-                      className="absolute pointer-events-none rounded-full blur-2xl"
-                      style={{
-                        left: `${t.x + t.w / 2}%`,
-                        top: `${t.y + t.h / 2}%`,
-                        transform: 'translate(-50%, -50%)',
-                        width: `${t.w * 1.6}%`,
-                        height: `${t.h * 1.6}%`,
-                        background: `radial-gradient(circle, rgba(255,90,80,0.32) 0%, transparent 70%)`,
-                      }}
-                    />
-                  ))}
-
-                  {/* Tables */}
-                  {SHOWCASE_TABLES.map((t, i) => {
-                    const s = SHOWCASE_STATUS_STYLES[t.status];
-                    const isFocused = i === focusIdx;
-                    return (
-                      <button
-                        key={t.id}
-                        onClick={() => setFocusIdx(i)}
-                        className={`absolute rounded-xl border ${s.fill} ${s.border} backdrop-blur-sm transition-all flex flex-col items-center justify-center text-center p-1 ${
-                          isFocused ? 'ring-2 ring-accent-400 z-10 scale-105' : ''
-                        }`}
-                        style={{ left: `${t.x}%`, top: `${t.y}%`, width: `${t.w}%`, height: `${t.h}%` }}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${t.status === 'needs_cleaning' ? 'animate-pulse' : ''}`} />
-                          <span className="text-xs font-bold text-ink-1">T{t.id}</span>
-                        </div>
-                        {t.status === 'occupied' && (
-                          <span className="text-[10px] text-ink-2 mt-0.5">{t.diners}p</span>
-                        )}
-                      </button>
-                    );
-                  })}
-
-                  {/* Floating focus tag */}
-                  <motion.div
-                    key={focused.id}
-                    initial={{ opacity: 0, y: -6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[11px] font-mono text-ink-1"
-                  >
-                    Focus: TABLE {focused.id}
-                  </motion.div>
+        <div className="grid grid-cols-12 gap-5">
+          {/* Historical line chart */}
+          <div className="col-span-12 lg:col-span-8 ds-card p-6 reveal">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-ink-4 font-mono">
+                  {t('ds.demo.hist.eyebrow')}
                 </div>
+                <div className="font-display text-xl font-semibold text-ink-0 mt-1">
+                  {t('ds.demo.hist.title')}
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-xs font-mono">
+                <span className="flex items-center gap-1.5 text-brand-300">
+                  <span className="w-2 h-2 rounded-full bg-brand-400" />
+                  {t('ds.demo.hist.legend.this')}
+                </span>
+                <span className="flex items-center gap-1.5 text-ink-3">
+                  <span className="w-2 h-2 rounded-full bg-ink-4" />
+                  {t('ds.demo.hist.legend.last')}
+                </span>
+              </div>
+            </div>
 
-                {/* State detail row */}
-                <motion.div
-                  key={`detail-${focused.id}`}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2"
+            <svg viewBox="0 0 800 260" className="w-full h-[260px]" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="hfill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stopColor="#1d6bff" stopOpacity=".35" />
+                  <stop offset="1" stopColor="#1d6bff" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <g className="axis-line">
+                <line x1="50" y1="20" x2="780" y2="20" />
+                <line x1="50" y1="80" x2="780" y2="80" />
+                <line x1="50" y1="140" x2="780" y2="140" />
+                <line x1="50" y1="200" x2="780" y2="200" />
+                <line x1="50" y1="240" x2="780" y2="240" />
+              </g>
+              <g fill="#4a5576" fontFamily="JetBrains Mono" fontSize="10">
+                <text x="40" y="24" textAnchor="end">240</text>
+                <text x="40" y="84" textAnchor="end">180</text>
+                <text x="40" y="144" textAnchor="end">120</text>
+                <text x="40" y="204" textAnchor="end">60</text>
+                <text x="40" y="244" textAnchor="end">0</text>
+              </g>
+              <g fill="#4a5576" fontFamily="JetBrains Mono" fontSize="10" textAnchor="middle">
+                <text x="100" y="256">Pzt</text>
+                <text x="200" y="256">Sal</text>
+                <text x="300" y="256">Çar</text>
+                <text x="400" y="256">Per</text>
+                <text x="500" y="256">Cum</text>
+                <text x="600" y="256">Cmt</text>
+                <text x="700" y="256">Paz</text>
+              </g>
+
+              <path
+                d="M100 170 L200 150 L300 155 L400 130 L500 110 L600 80 L700 100"
+                stroke="#4a5576"
+                strokeWidth="2"
+                strokeDasharray="4 5"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                className="chart-draw"
+                d="M100 180 L200 130 L300 140 L400 100 L500 85 L600 50 L700 70"
+                stroke="#1d6bff"
+                strokeWidth="3"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeDasharray="900"
+                strokeDashoffset="900"
+              />
+              <path
+                d="M100 180 L200 130 L300 140 L400 100 L500 85 L600 50 L700 70 L700 240 L100 240 Z"
+                fill="url(#hfill)"
+              />
+              <g fill="#1d6bff">
+                <circle cx="100" cy="180" r="4" />
+                <circle cx="200" cy="130" r="4" />
+                <circle cx="300" cy="140" r="4" />
+                <circle cx="400" cy="100" r="4" />
+                <circle cx="500" cy="85" r="4" />
+                <circle cx="600" cy="50" r="5" fill="#7de6ff" />
+                <circle cx="700" cy="70" r="4" />
+              </g>
+              <g>
+                <line
+                  x1="600"
+                  y1="50"
+                  x2="600"
+                  y2="28"
+                  stroke="#7de6ff"
+                  strokeWidth="1"
+                  strokeDasharray="2 3"
+                />
+                <rect x="554" y="4" width="92" height="20" rx="4" fill="#7de6ff" />
+                <text
+                  x="600"
+                  y="18"
+                  fill="#0b1226"
+                  fontFamily="JetBrains Mono"
+                  fontSize="11"
+                  textAnchor="middle"
+                  fontWeight="700"
                 >
-                  <DetailChip label="STATE"   value={focusedLabel}                                  tone={focused.status === 'occupied' ? 'brand' : focused.status === 'needs_cleaning' ? 'warning' : 'success'} />
-                  <DetailChip label="SEATED"  value={focused.seated}  icon={Coffee}                tone="brand" />
-                  <DetailChip label="ORDERED" value={focused.ordered} icon={UtensilsCrossed}      tone={focused.ordered === '—' ? 'muted' : 'accent'} />
-                  <DetailChip label="FOOD"    value={focused.food}    icon={ChefHat}              tone={focused.food === '—' ? 'muted' : 'violet'} />
-                  <DetailChip label="DINERS"  value={String(focused.diners)} icon={Users}         tone="brand" />
-                  <DetailChip label="SERVER"  value={focused.server}                              tone="muted" />
-                  <DetailChip label="TYPE"    value={focused.type}                                tone="muted" />
-                  <DetailChip label="STAGE"   value={focused.stage.toUpperCase()}                 tone="violet" />
-                </motion.div>
+                  {t('ds.demo.hist.peak')}
+                </text>
+              </g>
+            </svg>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-white/5">
+              <HistoricalMetric
+                label={t('ds.demo.hist.total.label')}
+                value={t('ds.demo.hist.total.value')}
+                delta={t('ds.demo.hist.total.delta')}
+                deltaTone="text-success-400"
+              />
+              <HistoricalMetric
+                label={t('ds.demo.hist.peakday.label')}
+                value={t('ds.demo.hist.peakday.value')}
+                delta={t('ds.demo.hist.peakday.sub')}
+                deltaTone="text-ink-3"
+              />
+              <HistoricalMetric
+                label={t('ds.demo.hist.dwell.label')}
+                value={t('ds.demo.hist.dwell.value')}
+                delta={t('ds.demo.hist.dwell.delta')}
+                deltaTone="text-warning-400"
+              />
+              <HistoricalMetric
+                label={t('ds.demo.hist.conv.label')}
+                value={t('ds.demo.hist.conv.value')}
+                delta={t('ds.demo.hist.conv.delta')}
+                deltaTone="text-success-400"
+              />
+            </div>
+          </div>
+
+          {/* Gender donut */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-4 ds-card p-6 reveal">
+            <div className="text-xs uppercase tracking-widest text-ink-4 font-mono mb-1">
+              {t('ds.demo.gender.eyebrow')}
+            </div>
+            <div className="font-display text-xl font-semibold text-ink-0 mb-5">
+              {t('ds.demo.gender.title')}
+            </div>
+            <div className="relative h-48 flex items-center justify-center">
+              <svg viewBox="0 0 200 200" className="w-44 h-44 -rotate-90">
+                <circle cx="100" cy="100" r="72" fill="none" stroke="#111a33" strokeWidth="24" />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="72"
+                  fill="none"
+                  stroke="#1d6bff"
+                  strokeWidth="24"
+                  strokeDasharray="452.4"
+                  strokeDashoffset="217"
+                  strokeLinecap="round"
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="72"
+                  fill="none"
+                  stroke="#9a4dff"
+                  strokeWidth="24"
+                  strokeDasharray="452.4"
+                  strokeDashoffset="248"
+                  strokeLinecap="round"
+                  transform="rotate(187 100 100)"
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="72"
+                  fill="none"
+                  stroke="#4a5576"
+                  strokeWidth="24"
+                  strokeDasharray="452.4"
+                  strokeDashoffset="443"
+                  strokeLinecap="round"
+                  transform="rotate(352 100 100)"
+                />
+              </svg>
+              <div className="absolute text-center">
+                <div className="font-display text-3xl font-semibold text-ink-0 tabular-nums">
+                  {t('ds.demo.gender.total')}
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-ink-4 font-mono">
+                  {t('ds.demo.gender.totalSub')}
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2 text-sm">
+              <GenderRow color="bg-brand-500" label={t('ds.demo.gender.male')} pct="52%" n="648" />
+              <GenderRow color="bg-violet-500" label={t('ds.demo.gender.female')} pct="46%" n="574" />
+              <GenderRow color="bg-ink-4" label={t('ds.demo.gender.unknown')} pct="2%" n="25" />
+            </div>
+          </div>
+
+          {/* Age stacked bars */}
+          <div className="col-span-12 lg:col-span-6 ds-card p-6 reveal">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-ink-4 font-mono">
+                  {t('ds.demo.age.eyebrow')}
+                </div>
+                <div className="font-display text-xl font-semibold text-ink-0 mt-1">
+                  {t('ds.demo.age.title')}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-xs font-mono">
+                <span className="flex items-center gap-1.5 text-brand-300">
+                  <span className="w-2 h-2 rounded-sm bg-brand-500" />
+                  {t('ds.demo.gender.male')}
+                </span>
+                <span className="flex items-center gap-1.5 text-violet-300">
+                  <span className="w-2 h-2 rounded-sm bg-violet-500" />
+                  {t('ds.demo.gender.female')}
+                </span>
+              </div>
+            </div>
+            <svg viewBox="0 0 600 260" className="w-full h-56" preserveAspectRatio="none">
+              <g className="axis-line">
+                <line x1="40" y1="20" x2="590" y2="20" />
+                <line x1="40" y1="80" x2="590" y2="80" />
+                <line x1="40" y1="140" x2="590" y2="140" />
+                <line x1="40" y1="200" x2="590" y2="200" />
+              </g>
+              <g>
+                <rect x="60" y="180" width="50" height="40" fill="#1d6bff" rx="3" />
+                <rect x="60" y="160" width="50" height="20" fill="#9a4dff" rx="3" />
+              </g>
+              <g>
+                <rect x="140" y="130" width="50" height="90" fill="#1d6bff" rx="3" />
+                <rect x="140" y="80" width="50" height="50" fill="#9a4dff" rx="3" />
+              </g>
+              <g>
+                <rect x="220" y="80" width="50" height="140" fill="#1d6bff" rx="3" />
+                <rect x="220" y="30" width="50" height="50" fill="#9a4dff" rx="3" />
+              </g>
+              <g>
+                <rect x="300" y="110" width="50" height="110" fill="#1d6bff" rx="3" />
+                <rect x="300" y="60" width="50" height="50" fill="#9a4dff" rx="3" />
+              </g>
+              <g>
+                <rect x="380" y="150" width="50" height="70" fill="#1d6bff" rx="3" />
+                <rect x="380" y="118" width="50" height="32" fill="#9a4dff" rx="3" />
+              </g>
+              <g>
+                <rect x="460" y="178" width="50" height="42" fill="#1d6bff" rx="3" />
+                <rect x="460" y="160" width="50" height="18" fill="#9a4dff" rx="3" />
+              </g>
+              <g>
+                <rect x="540" y="200" width="40" height="20" fill="#1d6bff" rx="3" />
+                <rect x="540" y="188" width="40" height="12" fill="#9a4dff" rx="3" />
+              </g>
+              <g fill="#4a5576" fontFamily="JetBrains Mono" fontSize="10" textAnchor="middle">
+                <text x="85" y="240">0–17</text>
+                <text x="165" y="240">18–24</text>
+                <text x="245" y="240">25–34</text>
+                <text x="325" y="240">35–44</text>
+                <text x="405" y="240">45–54</text>
+                <text x="485" y="240">55–64</text>
+                <text x="560" y="240">65+</text>
+              </g>
+            </svg>
+          </div>
+
+          {/* Temporal locking card */}
+          <div className="col-span-12 lg:col-span-6 ds-card p-6 gradient-border relative overflow-hidden reveal">
+            <div
+              className="absolute -top-10 -right-10 w-60 h-60 bg-violet-500/20 blur-3xl rounded-full"
+              aria-hidden
+            />
+            <div className="relative">
+              <div className="text-xs uppercase tracking-widest text-ink-4 font-mono mb-1">
+                {t('ds.demo.lock.eyebrow')}
+              </div>
+              <div className="font-display text-xl font-semibold text-ink-0 mb-3">
+                {t('ds.demo.lock.title')}
+              </div>
+              <p className="text-ink-3 text-sm leading-relaxed mb-5">{t('ds.demo.lock.body')}</p>
+
+              <div className="rounded-xl border border-white/5 overflow-hidden">
+                <div className="px-4 py-2 bg-surface-1 border-b border-white/5 flex items-center gap-2 text-xs font-mono">
+                  <span className="w-2 h-2 rounded-full bg-success-400 live-dot" />
+                  <span className="text-ink-2">{t('ds.demo.lock.track')}</span>
+                  <span className="ml-auto text-ink-4">{t('ds.demo.lock.frames')}</span>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-1">
+                      <span className="text-ink-4">{t('ds.demo.lock.gender')}</span>
+                      <span className="text-success-400">{t('ds.demo.lock.gender.locked')}</span>
+                    </div>
+                    <div className="flex gap-0.5 h-5">
+                      {[
+                        'bg-violet-500/80',
+                        'bg-violet-500/80',
+                        'bg-brand-500/60',
+                        'bg-violet-500/80',
+                        'bg-violet-500/80',
+                        'bg-violet-500/80',
+                        'bg-violet-500/80',
+                        'bg-violet-500/80',
+                        'bg-violet-500',
+                        'bg-violet-500',
+                        'bg-violet-500',
+                        'bg-violet-500',
+                      ].map((c, i) => (
+                        <span key={i} className={`flex-1 rounded-sm ${c}`} />
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-1">
+                      <span className="text-ink-4">{t('ds.demo.lock.age')}</span>
+                      <span className="text-success-400">{t('ds.demo.lock.age.locked')}</span>
+                    </div>
+                    <svg viewBox="0 0 400 40" className="w-full h-10" preserveAspectRatio="none">
+                      <path
+                        d="M0 30 L30 22 L60 26 L90 18 L120 22 L150 16 L180 20 L210 14 L240 16 L270 12 L300 14 L330 12 L360 13 L400 13"
+                        stroke="#c89bff"
+                        strokeWidth="2"
+                        fill="none"
+                      />
+                      <circle cx="400" cy="13" r="4" fill="#7de6ff" />
+                    </svg>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -797,84 +1625,158 @@ function TableIntelligence({ t }: { t: TFn }) {
   );
 }
 
-function ShowcaseStat({ label, value, tone }: { label: string; value: string; tone: 'brand' | 'accent' | 'violet' }) {
-  const accent = tone === 'brand' ? 'text-brand-300' : tone === 'accent' ? 'text-accent-300' : 'text-violet-400';
-  return (
-    <div className="surface-card p-3">
-      <div className={`text-xl font-display font-semibold ${accent}`}>{value}</div>
-      <div className="text-[11px] text-ink-3 uppercase tracking-wider mt-0.5">{label}</div>
-    </div>
-  );
-}
-
-function DetailChip({
+function HistoricalMetric({
   label,
   value,
-  icon: Icon,
-  tone,
+  delta,
+  deltaTone,
 }: {
   label: string;
   value: string;
-  icon?: React.ComponentType<{ className?: string }>;
-  tone: 'brand' | 'accent' | 'violet' | 'success' | 'warning' | 'muted';
+  delta: string;
+  deltaTone: string;
 }) {
-  const toneMap = {
-    brand:   'bg-brand-500/10 border-brand-500/25 text-brand-200',
-    accent:  'bg-accent-500/10 border-accent-500/25 text-accent-200',
-    violet:  'bg-violet-500/10 border-violet-500/25 text-violet-300',
-    success: 'bg-success-500/10 border-success-500/25 text-success-300',
-    warning: 'bg-warning-500/10 border-warning-500/25 text-warning-300',
-    muted:   'bg-white/[0.03] border-white/[0.08] text-ink-2',
-  } as const;
   return (
-    <div className={`px-3 py-2 rounded-lg border ${toneMap[tone]}`}>
-      <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider opacity-80">
-        {Icon && <Icon className="w-3 h-3" />}
-        {label}
-      </div>
-      <div className="mt-0.5 text-sm font-semibold">{value}</div>
+    <div>
+      <div className="text-[10px] font-mono uppercase text-ink-4 tracking-widest">{label}</div>
+      <div className="font-display text-xl text-ink-0 tabular-nums">{value}</div>
+      <div className={`text-[11px] font-mono ${deltaTone}`}>{delta}</div>
     </div>
   );
 }
 
-function HowItWorks({ t }: { t: TFn }) {
-  const steps = [
-    { step: '01', title: t('landing.how.step1.title'), desc: t('landing.how.step1.desc'), icon: Camera },
-    { step: '02', title: t('landing.how.step2.title'), desc: t('landing.how.step2.desc'), icon: MapPin },
-    { step: '03', title: t('landing.how.step3.title'), desc: t('landing.how.step3.desc'), icon: Brain },
-    { step: '04', title: t('landing.how.step4.title'), desc: t('landing.how.step4.desc'), icon: BarChart3 },
-    { step: '05', title: t('landing.how.step5.title'), desc: t('landing.how.step5.desc'), icon: Sparkles },
-  ];
+function GenderRow({ color, label, pct, n }: { color: string; label: string; pct: string; n: string }) {
   return (
-    <section id="how" className="relative z-10 px-6 md:px-10 py-24">
-      <div className="max-w-7xl mx-auto">
-        <SectionHeading
-          eyebrow={t('landing.how.eyebrow')}
-          title={t('landing.how.title')}
-          lead={t('landing.how.lead')}
-        />
-        <div className="relative mt-14">
-          <div className="hidden md:block absolute top-8 left-6 right-6 h-px bg-gradient-to-r from-brand-500/0 via-brand-500/40 to-violet-500/0" />
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
-            {steps.map((s, i) => (
-              <motion.div
-                key={s.step}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: i * 0.1 }}
-                className="relative"
-              >
-                <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-surface-2 to-surface-1 border border-white/[0.08] shadow-card mx-auto">
-                  <s.icon className="w-6 h-6 text-brand-300" />
-                  <span className="absolute -top-2 -right-2 px-2 py-0.5 rounded-full bg-brand-500 text-[10px] font-mono text-white shadow-glow-brand">
-                    {s.step}
-                  </span>
+    <div className="flex items-center gap-3 p-2 rounded-lg bg-white/[.02]">
+      <span className={`w-3 h-3 rounded-sm ${color}`} />
+      <span className="text-ink-2">{label}</span>
+      <span className="ml-auto font-mono text-ink-1 font-semibold">{pct}</span>
+      <span className="text-ink-4 font-mono text-xs">{n}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * AI INSIGHTS — violet bg, streaming terminal + 3 feature rows
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function AiInsightsSection({ t }: { t: TFn }) {
+  return (
+    <section
+      id="insights"
+      className="relative py-28 overflow-hidden"
+      style={{
+        background: 'linear-gradient(180deg, #050813 0%, #0a1130 50%, #050813 100%)',
+      }}
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          background: 'radial-gradient(900px 500px at 80% 20%, rgba(154,77,255,.25), transparent 60%)',
+        }}
+        aria-hidden
+      />
+
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+          {/* Terminal */}
+          <div className="lg:col-span-7 reveal">
+            <div className="ds-card-bright rounded-2xl overflow-hidden border border-violet-500/30 mock-shadow">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-surface-1">
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-danger-500/70" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-warning-500/70" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-success-500/70" />
+                  </div>
+                  <span className="ml-3 text-xs font-mono text-ink-3">{t('ds.ai.term.header')}</span>
                 </div>
-                <h4 className="mt-5 text-center font-semibold text-ink-0">{s.title}</h4>
-                <p className="mt-1 text-center text-sm text-ink-3 leading-relaxed">{s.desc}</p>
-              </motion.div>
-            ))}
+                <span className="ds-pill ds-pill-violet text-[10px]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-violet-400 live-dot" />
+                  {t('ds.ai.term.badge')}
+                </span>
+              </div>
+
+              <div className="p-6 font-mono text-sm space-y-3 bg-[#07091a]">
+                <TerminalLine prefix="14:32 →" muted>
+                  {t('ds.ai.term.line1')}
+                </TerminalLine>
+                <TerminalLine tag="INSIGHT" tagClass="text-violet-400">
+                  <span className="text-violet-300">{t('ds.ai.term.insight1.accent1')}</span>
+                  {t('ds.ai.term.insight1.mid')}
+                  <span className="text-success-400">{t('ds.ai.term.insight1.accent2')}</span>
+                  {t('ds.ai.term.insight1.end')}
+                  <span className="text-warning-400">{t('ds.ai.term.insight1.accent3')}</span>
+                  {t('ds.ai.term.insight1.stop')}
+                </TerminalLine>
+                <TerminalLine tag="ACTION" tagClass="text-violet-400">
+                  {t('ds.ai.term.action1.pre')}
+                  <span className="text-success-400">{t('ds.ai.term.action1.accent')}</span>
+                  {t('ds.ai.term.action1.post')}
+                </TerminalLine>
+                <TerminalLine prefix="14:33 →" muted>
+                  {t('ds.ai.term.line2')}
+                </TerminalLine>
+                <TerminalLine tag="INSIGHT" tagClass="text-violet-400">
+                  {t('ds.ai.term.insight2.pre')}
+                  <span className="text-brand-300">{t('ds.ai.term.insight2.accent1')}</span>
+                  {t('ds.ai.term.insight2.mid')}
+                  <span className="text-accent-300">{t('ds.ai.term.insight2.accent2')}</span>
+                  {t('ds.ai.term.insight2.end')}
+                  <span className="text-success-400">{t('ds.ai.term.insight2.accent3')}</span>
+                  {t('ds.ai.term.insight2.stop')}
+                </TerminalLine>
+                <TerminalLine tag="ACTION" tagClass="text-violet-400">
+                  {t('ds.ai.term.action2.pre')}
+                  <span className="text-violet-300">{t('ds.ai.term.action2.accent')}</span>
+                  {t('ds.ai.term.action2.post')}
+                </TerminalLine>
+                <TerminalLine prefix="14:33 →" muted>
+                  <span className="flex items-center gap-1">
+                    {t('ds.ai.term.line3')}
+                    <span className="inline-flex gap-0.5 ml-1">
+                      <span className="w-1 h-1 rounded-full bg-ink-3 live-dot" />
+                      <span className="w-1 h-1 rounded-full bg-ink-3 live-dot" style={{ animationDelay: '.2s' }} />
+                      <span className="w-1 h-1 rounded-full bg-ink-3 live-dot" style={{ animationDelay: '.4s' }} />
+                    </span>
+                  </span>
+                </TerminalLine>
+              </div>
+            </div>
+          </div>
+
+          {/* Copy + features */}
+          <div className="lg:col-span-5 reveal">
+            <div className="ds-pill ds-pill-violet mb-5">{t('ds.ai.eyebrow')}</div>
+            <h2
+              className="headline-xl text-ink-0 mb-6"
+              style={{ fontSize: 'clamp(2.25rem,5vw,4rem)' }}
+            >
+              {t('ds.ai.title.pre')}
+              <span className="italic tg-violet">{t('ds.ai.title.italic')}</span>
+              {t('ds.ai.title.post')}
+            </h2>
+            <p className="text-ink-2 text-lg leading-relaxed mb-8">{t('ds.ai.body')}</p>
+
+            <div className="space-y-3">
+              <AiFeature
+                tone="violet"
+                title={t('ds.ai.feat1.title')}
+                body={t('ds.ai.feat1.body')}
+                icon={<Sprout className="w-4 h-4" />}
+              />
+              <AiFeature
+                tone="brand"
+                title={t('ds.ai.feat2.title')}
+                body={t('ds.ai.feat2.body')}
+                icon={<Sparkles className="w-4 h-4" />}
+              />
+              <AiFeature
+                tone="accent"
+                title={t('ds.ai.feat3.title')}
+                body={t('ds.ai.feat3.body')}
+                icon={<LineIcon className="w-4 h-4" />}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -882,50 +1784,150 @@ function HowItWorks({ t }: { t: TFn }) {
   );
 }
 
-function WhyObservAI({ t }: { t: TFn }) {
-  const cols = [
+function TerminalLine({
+  prefix,
+  tag,
+  tagClass,
+  muted,
+  children,
+}: {
+  prefix?: string;
+  tag?: string;
+  tagClass?: string;
+  muted?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-3">
+      {prefix && <span className="text-ink-4 shrink-0">{prefix}</span>}
+      {tag && <span className={`shrink-0 ${tagClass ?? 'text-violet-400'}`}>{tag}</span>}
+      <div className={muted ? 'text-ink-3' : 'text-ink-1'}>{children}</div>
+    </div>
+  );
+}
+
+function AiFeature({
+  tone,
+  title,
+  body,
+  icon,
+}: {
+  tone: 'brand' | 'accent' | 'violet';
+  title: string;
+  body: string;
+  icon: React.ReactNode;
+}) {
+  const bubble = {
+    brand:  'bg-brand-500/15 border-brand-500/30 text-brand-300',
+    accent: 'bg-accent-500/15 border-accent-500/30 text-accent-300',
+    violet: 'bg-violet-500/15 border-violet-500/30 text-violet-300',
+  }[tone];
+  return (
+    <div className="flex items-start gap-3">
+      <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${bubble}`}>
+        {icon}
+      </div>
+      <div>
+        <div className="font-semibold text-ink-0">{title}</div>
+        <div className="text-sm text-ink-3">{body}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * OPERATIONS — 6 feature cards, gradient icons
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function OperationsSection({ t }: { t: TFn }) {
+  const cards: {
+    gradient: string;
+    hoverBorder: string;
+    icon: React.ReactNode;
+    title: string;
+    body: string;
+  }[] = [
     {
-      title: t('landing.why.col1.title'),
-      items: [t('landing.why.col1.item1'), t('landing.why.col1.item2'), t('landing.why.col1.item3')],
+      gradient: 'from-brand-500 to-accent-500',
+      hoverBorder: 'hover:border-brand-500/30',
+      icon: <Camera className="w-5 h-5 text-white" strokeWidth={1.8} />,
+      title: t('ds.ops.f1.title'),
+      body: t('ds.ops.f1.body'),
     },
     {
-      title: t('landing.why.col2.title'),
-      items: [t('landing.why.col2.item1'), t('landing.why.col2.item2'), t('landing.why.col2.item3')],
+      gradient: 'from-violet-500 to-brand-500',
+      hoverBorder: 'hover:border-violet-500/30',
+      icon: <Grid className="w-5 h-5 text-white" strokeWidth={1.8} />,
+      title: t('ds.ops.f2.title'),
+      body: t('ds.ops.f2.body'),
     },
     {
-      title: t('landing.why.col3.title'),
-      items: [t('landing.why.col3.item1'), t('landing.why.col3.item2'), t('landing.why.col3.item3')],
+      gradient: 'from-accent-500 to-success-500',
+      hoverBorder: 'hover:border-accent-500/30',
+      icon: <FileBarChart className="w-5 h-5 text-white" strokeWidth={1.8} />,
+      title: t('ds.ops.f3.title'),
+      body: t('ds.ops.f3.body'),
+    },
+    {
+      gradient: 'from-warning-500 to-danger-500',
+      hoverBorder: 'hover:border-warning-500/30',
+      icon: <Map className="w-5 h-5 text-white" strokeWidth={1.8} />,
+      title: t('ds.ops.f4.title'),
+      body: t('ds.ops.f4.body'),
+    },
+    {
+      gradient: 'from-success-500 to-accent-500',
+      hoverBorder: 'hover:border-success-500/30',
+      icon: <Users className="w-5 h-5 text-white" strokeWidth={1.8} />,
+      title: t('ds.ops.f5.title'),
+      body: t('ds.ops.f5.body'),
+    },
+    {
+      gradient: 'from-brand-500 to-violet-500',
+      hoverBorder: 'hover:border-violet-500/30',
+      icon: <ShieldCheck className="w-5 h-5 text-white" strokeWidth={1.8} />,
+      title: t('ds.ops.f6.title'),
+      body: t('ds.ops.f6.body'),
     },
   ];
+
   return (
-    <section id="why" className="relative z-10 px-6 md:px-10 py-24">
-      <div className="max-w-7xl mx-auto">
-        <SectionHeading
-          eyebrow={t('landing.why.eyebrow')}
-          title={t('landing.why.title')}
-          lead={t('landing.why.lead')}
-        />
-        <div className="grid md:grid-cols-3 gap-5 mt-12">
-          {cols.map((c, i) => (
-            <div key={c.title} className="surface-card p-6">
-              <div className="flex items-center gap-2 text-brand-300 text-xs font-mono uppercase tracking-wider">
-                <span className="font-display font-semibold text-ink-0 text-sm tracking-normal normal-case">
-                  {c.title}
-                </span>
+    <section className="relative py-28 overflow-hidden bg-navy-2">
+      <div className="absolute inset-0 grid-floor-flat opacity-25" aria-hidden />
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="flex flex-col lg:flex-row items-end justify-between mb-14 gap-6 reveal">
+          <div className="max-w-3xl">
+            <div className="ds-pill ds-pill-accent mb-4">{t('ds.ops.eyebrow')}</div>
+            <h2
+              className="headline-xl text-ink-0"
+              style={{ fontSize: 'clamp(2.25rem,5vw,4rem)' }}
+            >
+              {t('ds.ops.title.pre')}
+              <span className="italic tg-cool">{t('ds.ops.title.italic')}</span>
+              {t('ds.ops.title.post')}
+            </h2>
+          </div>
+          <a
+            href="#integrations"
+            className="text-sm text-ink-3 hover:text-ink-1 font-mono group inline-flex items-center gap-2"
+          >
+            {t('ds.ops.integrations')}
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+          </a>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {cards.map((c) => (
+            <div
+              key={c.title}
+              className={`ds-card p-6 transition group cursor-default ${c.hoverBorder}`}
+            >
+              <div
+                className={`w-11 h-11 rounded-xl bg-gradient-to-br ${c.gradient} flex items-center justify-center mb-5 group-hover:scale-110 transition`}
+              >
+                {c.icon}
               </div>
-              <ul className="mt-4 space-y-3">
-                {c.items.map((it) => (
-                  <li key={it} className="flex items-start gap-2 text-sm text-ink-2">
-                    <CheckCircle2 className="w-4 h-4 text-success-400 shrink-0 mt-0.5" />
-                    <span>{it}</span>
-                  </li>
-                ))}
-              </ul>
-              {i === 0 && (
-                <div className="mt-5 p-3 rounded-lg bg-success-500/10 border border-success-500/20 text-xs text-success-400">
-                  {t('landing.why.kvkkPill')}
-                </div>
-              )}
+              <h3 className="font-display text-lg font-semibold text-ink-0 mb-2">{c.title}</h3>
+              <p className="text-ink-3 text-sm leading-relaxed">{c.body}</p>
             </div>
           ))}
         </div>
@@ -934,39 +1936,107 @@ function WhyObservAI({ t }: { t: TFn }) {
   );
 }
 
-function CTASection({ t }: { t: TFn }) {
+/* ═══════════════════════════════════════════════════════════════════════════
+ * EDGE — architecture diagram: Sources → Python core → Outputs, hardware footer
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function EdgeSection({ t }: { t: TFn }) {
   return (
-    <section className="relative z-10 px-6 md:px-10 pb-24">
-      <div className="max-w-7xl mx-auto relative overflow-hidden rounded-3xl surface-card-elevated px-8 md:px-12 py-12 md:py-16">
-        <div className="absolute inset-0 bg-radial-aurora opacity-80 pointer-events-none" aria-hidden />
-        <div className="relative grid md:grid-cols-2 gap-8 items-center">
-          <div>
-            <div className="pill-live mb-5">
-              <Sparkles className="w-3.5 h-3.5" />
-              {t('landing.cta.pill')}
+    <section id="integrations" className="relative py-28 overflow-hidden bg-navy">
+      <div className="absolute inset-0 aurora-bg opacity-40" aria-hidden />
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="text-center max-w-3xl mx-auto mb-16 reveal">
+          <div className="ds-pill ds-pill-brand mb-4 mx-auto">{t('ds.edge.eyebrow')}</div>
+          <h2
+            className="headline-xl text-ink-0 mb-5"
+            style={{ fontSize: 'clamp(2.25rem,5vw,4rem)' }}
+          >
+            {t('ds.edge.title.pre')}
+            <span className="italic tg-violet">{t('ds.edge.title.italic')}</span>
+            {t('ds.edge.title.post')}
+          </h2>
+          <p className="text-ink-2 text-lg leading-relaxed">{t('ds.edge.body')}</p>
+        </div>
+
+        <div className="reveal">
+          <div className="ds-card-bright rounded-3xl p-10 border border-white/10 mock-shadow">
+            <div className="grid grid-cols-12 gap-6 items-center">
+              {/* Sources */}
+              <div className="col-span-12 md:col-span-3 space-y-3">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-ink-4 font-mono mb-2">
+                  {t('ds.edge.sources.label')}
+                </div>
+                <EdgeNode icon={<Camera className="w-5 h-5 text-accent-300" />} title={t('ds.edge.sources.cam')} meta={t('ds.edge.sources.cam.meta')} />
+                <EdgeNode icon={<Youtube className="w-5 h-5 text-accent-300" />} title={t('ds.edge.sources.yt')} meta={t('ds.edge.sources.yt.meta')} />
+                <EdgeNode icon={<MonitorSmartphone className="w-5 h-5 text-accent-300" />} title={t('ds.edge.sources.web')} meta={t('ds.edge.sources.web.meta')} />
+              </div>
+
+              <div className="col-span-12 md:col-span-1 hidden md:block">
+                <svg viewBox="0 0 100 200" className="w-full h-48">
+                  <path d="M0 30 Q50 30 100 100" stroke="#7de6ff" strokeWidth="1.5" fill="none" strokeDasharray="3 4" />
+                  <path d="M0 100 L100 100" stroke="#7de6ff" strokeWidth="1.5" fill="none" strokeDasharray="3 4" />
+                  <path d="M0 170 Q50 170 100 100" stroke="#7de6ff" strokeWidth="1.5" fill="none" strokeDasharray="3 4" />
+                </svg>
+              </div>
+
+              <div className="col-span-12 md:col-span-4">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-ink-4 font-mono mb-2 text-center">
+                  {t('ds.edge.core.label')}
+                </div>
+                <div className="gradient-border rounded-2xl p-5 relative bg-surface-2/70">
+                  <div className="text-center mb-3">
+                    <div className="inline-flex items-center gap-2 ds-pill ds-pill-brand">
+                      <span className="w-1.5 h-1.5 rounded-full bg-brand-300 live-dot" />
+                      {t('ds.edge.core.badge')}
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-xs font-mono">
+                    <EdgeCoreRow k="Capture" v="30 fps" />
+                    <EdgeCoreRow k="Inference" v="60 fps" />
+                    <EdgeCoreRow k="InsightFace" v="buffalo_l" />
+                    <EdgeCoreRow k="Tracker" v="BoT-SORT" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="col-span-12 md:col-span-1 hidden md:block">
+                <svg viewBox="0 0 100 200" className="w-full h-48">
+                  <path d="M0 100 L100 40" stroke="#c89bff" strokeWidth="1.5" fill="none" strokeDasharray="3 4" />
+                  <path d="M0 100 L100 100" stroke="#c89bff" strokeWidth="1.5" fill="none" strokeDasharray="3 4" />
+                  <path d="M0 100 L100 160" stroke="#c89bff" strokeWidth="1.5" fill="none" strokeDasharray="3 4" />
+                </svg>
+              </div>
+
+              <div className="col-span-12 md:col-span-3 space-y-3">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-ink-4 font-mono mb-2">
+                  {t('ds.edge.outputs.label')}
+                </div>
+                <EdgeNode
+                  icon={<LayoutDashboard className="w-5 h-5 text-violet-300" />}
+                  title={t('ds.edge.outputs.fe')}
+                  meta={t('ds.edge.outputs.fe.meta')}
+                  tone="violet"
+                />
+                <EdgeNode
+                  icon={<Zap className="w-5 h-5 text-violet-300" />}
+                  title={t('ds.edge.outputs.be')}
+                  meta={t('ds.edge.outputs.be.meta')}
+                  tone="violet"
+                />
+                <EdgeNode
+                  icon={<Database className="w-5 h-5 text-violet-300" />}
+                  title={t('ds.edge.outputs.db')}
+                  meta={t('ds.edge.outputs.db.meta')}
+                  tone="violet"
+                />
+              </div>
             </div>
-            <h3 className="font-display text-display-md text-gradient-brand mb-4">
-              {t('landing.cta.title')}
-            </h3>
-            <p className="text-ink-2 leading-relaxed max-w-md">
-              {t('landing.cta.lead')}
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row md:justify-end items-stretch sm:items-center gap-3">
-            <Link
-              to="/register"
-              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-gradient-to-r from-brand-500 to-accent-500 text-white font-semibold shadow-glow-brand hover:shadow-glow-accent transition-shadow"
-            >
-              {t('landing.cta.start')}
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              to="/demo"
-              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-white/5 border border-white/10 text-ink-1 hover:bg-white/10 transition-colors"
-            >
-              {t('landing.cta.demo')}
-              <ChevronRight className="w-4 h-4" />
-            </Link>
+
+            <div className="mt-10 pt-6 border-t border-white/5 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <HwMetric label={t('ds.edge.hw.gpu')} value={t('ds.edge.hw.gpu.v')} />
+              <HwMetric label={t('ds.edge.hw.ep')} value={t('ds.edge.hw.ep.v')} />
+              <HwMetric label={t('ds.edge.hw.engine')} value={t('ds.edge.hw.engine.v')} />
+              <HwMetric label={t('ds.edge.hw.cold')} value={t('ds.edge.hw.cold.v')} />
+            </div>
           </div>
         </div>
       </div>
@@ -974,31 +2044,195 @@ function CTASection({ t }: { t: TFn }) {
   );
 }
 
-function SectionHeading({ eyebrow, title, lead }: { eyebrow: string; title: string; lead: string }) {
+function EdgeNode({
+  icon,
+  title,
+  meta,
+  tone,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  meta: string;
+  tone?: 'violet';
+}) {
+  const cls = tone === 'violet' ? 'border-violet-500/20 bg-violet-500/5' : 'border-white/5 bg-surface-1';
   return (
-    <div className="text-center max-w-3xl mx-auto">
-      <div className="inline-flex items-center justify-center mb-4 pill-brand">{eyebrow}</div>
-      <h2 className="font-display text-display-lg text-gradient-cool mb-4">{title}</h2>
-      <p className="text-ink-2 text-lg leading-relaxed">{lead}</p>
+    <div className={`flex items-center gap-3 p-3 rounded-xl border ${cls}`}>
+      {icon}
+      <div>
+        <div className="text-sm text-ink-1">{title}</div>
+        <div className="text-[10px] text-ink-4 font-mono">{meta}</div>
+      </div>
     </div>
   );
 }
 
+function EdgeCoreRow({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex items-center justify-between p-2 rounded bg-surface-1/60">
+      <span className="text-ink-3">{k}</span>
+      <span className="text-accent-300">{v}</span>
+    </div>
+  );
+}
+
+function HwMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-widest text-ink-4 font-mono">{label}</div>
+      <div className="font-display text-lg text-ink-1 tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * FINAL CTA — big conic orb, 2 CTAs, 4 trust pills
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function FinalCtaSection({ t }: { t: TFn }) {
+  return (
+    <section id="start" className="relative py-28 overflow-hidden bg-navy">
+      <div className="absolute inset-0 conic-orb drift opacity-50" aria-hidden />
+      <div className="absolute inset-0 grid-floor-flat grid-floor-fade opacity-40" aria-hidden />
+      <div className="relative max-w-5xl mx-auto px-6 text-center reveal">
+        <div className="ds-pill ds-pill-brand mb-6 mx-auto">{t('ds.cta.eyebrow')}</div>
+        <h2
+          className="headline-xl text-ink-0 mb-6"
+          style={{ fontSize: 'clamp(2.5rem,6vw,5.5rem)' }}
+        >
+          {t('ds.cta.title.pre')}
+          <span className="italic tg-violet">{t('ds.cta.title.italic')}</span>
+          {t('ds.cta.title.post')}
+        </h2>
+        <p className="text-ink-2 text-lg leading-relaxed max-w-2xl mx-auto mb-10">{t('ds.cta.body')}</p>
+
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Link
+            to="/register"
+            className="btn-primary inline-flex items-center gap-2 px-8 py-4 rounded-xl text-white font-semibold text-lg"
+          >
+            {t('ds.cta.primary')}
+            <ArrowRight className="w-5 h-5" />
+          </Link>
+          <Link
+            to="/login"
+            className="inline-flex items-center gap-2 px-8 py-4 rounded-xl ds-card text-ink-1 font-semibold text-lg hover:border-brand-500/40 transition"
+          >
+            {t('ds.cta.secondary')}
+          </Link>
+        </div>
+
+        <div className="mt-10 flex items-center justify-center gap-6 text-xs font-mono text-ink-4 flex-wrap">
+          {[t('ds.cta.trust1'), t('ds.cta.trust2'), t('ds.cta.trust3'), t('ds.cta.trust4')].map((x) => (
+            <span key={x} className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-success-400" />
+              {x}
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * FOOTER — mega grid with large ObservAI watermark
+ * ═══════════════════════════════════════════════════════════════════════════ */
 function Footer({ t }: { t: TFn }) {
   return (
-    <footer className="relative z-10 border-t border-white/[0.06] px-6 md:px-10 py-10 mt-8">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-        <div className="flex items-center gap-3">
-          <img src={markSvg} alt="ObservAI" className="w-8 h-8" />
-          <div>
-            <div className="font-display font-semibold text-ink-0">ObservAI</div>
-            <div className="text-xs text-ink-3">{t('landing.footer.tagline')}</div>
+    <footer className="relative bg-navy-2 border-t border-white/5 pt-20 pb-10 overflow-hidden">
+      <div
+        className="absolute -top-40 left-1/2 -translate-x-1/2 w-[800px] h-[300px] rounded-full blur-3xl opacity-30"
+        style={{ background: 'radial-gradient(closest-side, #1d6bff, transparent)' }}
+        aria-hidden
+      />
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="grid grid-cols-12 gap-12 mb-16">
+          <div className="col-span-12 lg:col-span-6">
+            <div className="flex items-center gap-3 mb-4">
+              <img src={markSvg} className="h-10 w-10" alt="" />
+              <span className="font-display text-2xl font-semibold tracking-tight text-ink-0">ObservAI</span>
+            </div>
+            <p className="text-ink-3 max-w-md leading-relaxed mb-6">{t('ds.footer.tagline')}</p>
           </div>
+          <FooterColumn
+            title={t('ds.footer.group.product')}
+            items={[
+              t('ds.footer.group.product.l1'),
+              t('ds.footer.group.product.l2'),
+              t('ds.footer.group.product.l3'),
+              t('ds.footer.group.product.l4'),
+              t('ds.footer.group.product.l5'),
+            ]}
+          />
+          <FooterColumn
+            title={t('ds.footer.group.company')}
+            items={[
+              t('ds.footer.group.company.l1'),
+              t('ds.footer.group.company.l2'),
+              t('ds.footer.group.company.l3'),
+              t('ds.footer.group.company.l4'),
+              t('ds.footer.group.company.l5'),
+            ]}
+          />
+          <FooterColumn
+            title={t('ds.footer.group.legal')}
+            items={[
+              t('ds.footer.group.legal.l1'),
+              t('ds.footer.group.legal.l2'),
+              t('ds.footer.group.legal.l3'),
+              t('ds.footer.group.legal.l4'),
+            ]}
+          />
         </div>
-        <div className="text-xs text-ink-3 font-mono">
-          © 2026 ObservAI. {t('landing.footer.rights')}
+
+        {/* Giant watermark wordmark */}
+        <div className="relative">
+          <svg viewBox="0 0 1200 140" className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <linearGradient id="wm" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stopColor="#1d6bff" stopOpacity=".3" />
+                <stop offset=".5" stopColor="#9a4dff" stopOpacity=".25" />
+                <stop offset="1" stopColor="#06a1e6" stopOpacity=".3" />
+              </linearGradient>
+            </defs>
+            <text
+              x="600"
+              y="116"
+              textAnchor="middle"
+              fontFamily="Space Grotesk"
+              fontWeight="700"
+              fontSize="160"
+              fill="url(#wm)"
+              letterSpacing="-6"
+            >
+              ObservAI
+            </text>
+          </svg>
+        </div>
+
+        <div className="mt-10 flex items-center justify-between text-xs text-ink-4 font-mono border-t border-white/5 pt-6">
+          <div>{t('ds.footer.copyright')}</div>
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-success-400 live-dot" />
+            {t('ds.footer.status')}
+          </div>
         </div>
       </div>
     </footer>
+  );
+}
+
+function FooterColumn({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="col-span-6 md:col-span-3 lg:col-span-2">
+      <div className="text-[11px] uppercase tracking-[0.2em] text-ink-4 font-mono mb-4">{title}</div>
+      <ul className="space-y-2.5 text-sm">
+        {items.map((it) => (
+          <li key={it}>
+            <a className="text-ink-2 hover:text-ink-0 transition cursor-default">{it}</a>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

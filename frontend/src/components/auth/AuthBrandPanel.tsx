@@ -1,20 +1,17 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Activity, Clock, Eye, Gauge, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Activity, Clock, Gauge, ShieldCheck, Users, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import markSvg from '../../assets/mark.svg';
 
 /**
- * Branded left panel shared by Login, Register, ForgotPassword and ResetPassword.
+ * Editorial auth brand panel — mirrors the Landing hero visual language:
+ *   aurora mesh + conic orb + grid floor + tape-cornered camera feed with
+ *   silhouettes, bounding-box pulses, and a scan beam.
  *
- * Serves three purposes:
- *  1. Tells a new user in one glance what ObservAI is.
- *  2. Gives a visual anchor so the auth flow feels like part of the dashboard.
- *  3. Doubles as a photogenic asset for Instagram/YouTube captures.
- *
- * The mock metrics tick on a timer but with deterministic arithmetic so recordings
- * stay stable — no Math.random() in the render path.
+ * Copy is i18n-backed (ds.auth.brand.*). Counters tick deterministically
+ * (no Math.random) so recordings stay stable.
  */
 export default function AuthBrandPanel({
   heading,
@@ -28,38 +25,29 @@ export default function AuthBrandPanel({
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (reduce) return;
-    const id = window.setInterval(() => setTick((t) => t + 1), 1500);
+    const id = window.setInterval(() => setTick((x) => x + 1), 1500);
     return () => window.clearInterval(id);
   }, [reduce]);
 
-  const boxes = useMemo(
-    () => [
-      { id: 1, x: 10, y: 52, w: 14, h: 30, tone: 'violet' as const, label: 'K | 25-34' },
-      { id: 2, x: 34, y: 48, w: 13, h: 32, tone: 'accent' as const, label: 'E | 35-44' },
-      { id: 3, x: 58, y: 50, w: 14, h: 30, tone: 'accent' as const, label: 'E | 18-24' },
-      { id: 4, x: 78, y: 46, w: 12, h: 32, tone: 'violet' as const, label: 'K | 25-34' },
-    ],
-    [],
-  );
-
-  const visitors = 8 + (tick % 4);
-  const dwell = (4.2 + ((tick % 5) * 0.1)).toFixed(1);
-  const fps = 48 + (tick % 5);
+  const visitors = 3 + (tick % 3);
+  const dwell = (4.2 + (tick % 5) * 0.1).toFixed(1);
+  const fps = 58 + (tick % 5);
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
-      {/* Layered atmospheric background */}
-      <div className="absolute inset-0 bg-surface-0" aria-hidden />
-      <div className="absolute inset-0 bg-radial-aurora opacity-80" aria-hidden />
-      <div className="absolute inset-0 grid-floor opacity-60" aria-hidden />
-      <div className="absolute -top-32 -left-24 w-96 h-96 bg-brand-500/20 blur-3xl rounded-full animate-aurora-drift" aria-hidden />
-      <div className="absolute bottom-0 -right-24 w-96 h-96 bg-violet-500/20 blur-3xl rounded-full animate-aurora-drift" aria-hidden />
+    <div className="relative h-full w-full overflow-hidden bg-navy">
+      {/* Atmospheric layers */}
+      <div className="absolute inset-0 aurora-bg drift opacity-90" aria-hidden />
+      <div className="absolute inset-0 grid-floor-flat grid-floor-fade opacity-50" aria-hidden />
+      <div
+        className="absolute top-1/3 -left-20 w-[520px] h-[520px] conic-orb opacity-40"
+        aria-hidden
+      />
 
       <div className="relative z-10 h-full w-full flex flex-col justify-between p-10 lg:p-14">
         {/* Top: logo + tagline */}
         <div>
           <Link to="/" className="inline-flex items-center gap-2.5 group">
-            <img src={markSvg} alt="ObservAI" className="w-10 h-10 object-contain" />
+            <img src={markSvg} alt="" className="w-10 h-10 object-contain" />
             <span className="text-xl font-display font-bold tracking-tight text-ink-0">ObservAI</span>
           </Link>
 
@@ -69,67 +57,106 @@ export default function AuthBrandPanel({
             transition={{ duration: 0.6, delay: 0.1 }}
             className="mt-14 max-w-md"
           >
-            <div className="pill-brand mb-5">
-              <Sparkles className="w-3.5 h-3.5" />
-              {heading || t('auth.brand.pill')}
+            <div className="ds-pill ds-pill-brand mb-5">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-300 live-dot" />
+              {heading || t('ds.auth.brand.pill')}
             </div>
-            <h2 className="font-display text-3xl lg:text-4xl text-gradient-brand leading-tight">
-              {t('auth.brand.headline')}
+            <h2
+              className="headline-xl text-ink-0"
+              style={{ fontSize: 'clamp(2rem, 4.5vw, 3.25rem)' }}
+            >
+              {t('ds.auth.brand.title.pre')}
+              <span className="italic tg-violet">{t('ds.auth.brand.title.italic')}</span>
+              {t('ds.auth.brand.title.post')}
             </h2>
             <p className="mt-4 text-ink-2 leading-relaxed">
-              {subheading || t('auth.brand.copy')}
+              {subheading || t('ds.auth.brand.subtitle')}
             </p>
           </motion.div>
         </div>
 
-        {/* Middle: live preview card */}
+        {/* Middle: live preview mock (tape-corner, silhouettes, scan) */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.25 }}
-          className="mt-10 surface-card-elevated rounded-2xl p-3"
+          className="mt-8 ds-card-bright rounded-2xl p-3 mock-shadow"
         >
-          <div className="flex items-center justify-between px-1 pb-2 text-xs text-ink-3 font-mono">
-            <span>CAMERA 01 / ENTRANCE</span>
-            <span className="pill-live text-[10px] px-2 py-0.5">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-400 opacity-70" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent-400" />
+          <div className="flex items-center justify-between px-2 pb-2 text-[11px] text-ink-3 font-mono">
+            <div className="flex items-center gap-2">
+              <span className="flex gap-1">
+                <span className="w-2 h-2 rounded-full bg-danger-500/70" />
+                <span className="w-2 h-2 rounded-full bg-warning-500/70" />
+                <span className="w-2 h-2 rounded-full bg-success-500/70" />
               </span>
+              <span className="ml-2">{t('ds.auth.brand.mock.url')}</span>
+            </div>
+            <span className="ds-pill ds-pill-live text-[10px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-success-400 live-dot" />
               LIVE
             </span>
           </div>
 
-          <div className="relative aspect-[16/9] rounded-xl overflow-hidden bg-gradient-to-br from-surface-3 via-surface-2 to-surface-1">
-            <div className="absolute inset-0 bg-grid-faint bg-grid-sm opacity-[0.18] animate-grid-flow" />
-            <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/40 via-surface-2/30 to-transparent" />
-            <div className="scan-bar" />
-            {boxes.map((b, i) => (
-              <motion.div
-                key={b.id}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.5, delay: 0.4 + i * 0.1 }}
-                className="absolute"
-                style={{ left: `${b.x}%`, top: `${b.y}%`, width: `${b.w}%`, height: `${b.h}%` }}
-              >
-                <div
-                  className={`w-full h-full rounded-md border-2 ${
-                    b.tone === 'violet' ? 'border-violet-400' : 'border-accent-400'
-                  } animate-bbox-pulse`}
-                />
-                <div
-                  className={`absolute -top-5 left-0 text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                    b.tone === 'violet' ? 'bg-violet-500/90 text-white' : 'bg-accent-500/90 text-white'
-                  }`}
-                >
-                  {b.label}
-                </div>
-              </motion.div>
-            ))}
-            <div className="absolute right-2.5 bottom-2.5 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10">
-              <Eye className="w-3 h-3 text-accent-300" />
-              <span className="text-[11px] font-mono text-ink-1">{visitors}</span>
+          <div className="relative aspect-[16/9] rounded-xl overflow-hidden tape-corner border border-white/10">
+            <span className="tape-span" />
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  'radial-gradient(600px 300px at 30% 40%, #26314a, #0b1226 60%), linear-gradient(180deg, #0e1836 0%, #070d1e 100%)',
+              }}
+            />
+            <div
+              className="absolute inset-x-0 bottom-0 h-2/5"
+              style={{
+                background:
+                  'repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 2px, transparent 2px 80px), linear-gradient(180deg, transparent, rgba(255,255,255,.04))',
+                transform: 'perspective(500px) rotateX(55deg)',
+                transformOrigin: 'bottom',
+              }}
+            />
+
+            {/* Zones */}
+            <div
+              className="absolute left-[8%] top-[22%] w-[38%] h-[54%] rounded-lg"
+              style={{ border: '1.5px dashed rgba(6,161,230,.5)', background: 'rgba(6,161,230,.06)' }}
+            >
+              <div className="absolute -top-2.5 left-0 ds-pill ds-pill-accent text-[9px]">
+                {t('ds.hero.mock.zone.entry')}
+              </div>
+            </div>
+            <div
+              className="absolute right-[6%] top-[30%] w-[32%] h-[44%] rounded-lg"
+              style={{
+                border: '1.5px dashed rgba(154,77,255,.55)',
+                background: 'rgba(154,77,255,.06)',
+              }}
+            >
+              <div className="absolute -top-2.5 right-0 ds-pill ds-pill-violet text-[9px]">
+                {t('ds.hero.mock.zone.tables')}
+              </div>
+            </div>
+
+            {/* Silhouettes + bounding boxes */}
+            <PanelSilhouette x="20%" y="40%" w={50} h={110} tone="accent" delay="0s" />
+            <PanelSilhouette x="50%" y="34%" w={54} h={122} tone="violet" delay="0.4s" />
+            <PanelSilhouette x="74%" y="46%" w={48} h={100} tone="accent" delay="0.9s" />
+
+            <div className="scan-beam" />
+
+            <div className="absolute top-2.5 left-3 right-3 flex items-center justify-between text-[10px] font-mono">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-danger-500 live-dot" />
+                <span className="text-ink-1">{t('ds.auth.brand.mock.rec')}</span>
+              </div>
+              <div className="text-ink-3 tabular-nums">{String(14 + ((tick % 59) / 60)).slice(0, 5)}</div>
+            </div>
+            <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-[10px] font-mono">
+              <div className="flex gap-3">
+                <span className="text-accent-200">{t('ds.hero.mock.feed.people', { n: visitors })}</span>
+                <span className="text-ink-3">{t('ds.hero.mock.feed.zones', { n: 2 })}</span>
+              </div>
+              <div className="text-ink-3">{t('ds.auth.brand.mock.perf')}</div>
             </div>
           </div>
 
@@ -140,19 +167,52 @@ export default function AuthBrandPanel({
           </div>
         </motion.div>
 
-        {/* Bottom: trust strip */}
-        <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-ink-3">
+        {/* Bottom: trust strip — mono caps */}
+        <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] font-mono uppercase tracking-[0.15em] text-ink-3">
           <div className="flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-success-400" /> KVKK / GDPR
+            <ShieldCheck className="w-3.5 h-3.5 text-success-400" />
+            {t('ds.auth.brand.trust.kvkk')}
           </div>
           <div className="flex items-center gap-1.5">
-            <Zap className="w-3.5 h-3.5 text-accent-300" /> TensorRT FP16
+            <Zap className="w-3.5 h-3.5 text-accent-300" />
+            {t('ds.auth.brand.trust.trt')}
           </div>
           <div className="flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5 text-brand-300" /> {t('auth.brand.trust.local')}
+            <Activity className="w-3.5 h-3.5 text-brand-300" />
+            {t('ds.auth.brand.trust.local')}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PanelSilhouette({
+  x,
+  y,
+  w,
+  h,
+  tone,
+  delay,
+}: {
+  x: string;
+  y: string;
+  w: number;
+  h: number;
+  tone: 'accent' | 'violet';
+  delay: string;
+}) {
+  const bbox = tone === 'accent' ? 'border-accent-400/70 bbox-accent' : 'border-violet-400/70 bbox-violet';
+  const silCls = tone === 'accent' ? 'text-accent-200/70' : 'text-violet-300/70';
+  return (
+    <div className="absolute" style={{ left: x, top: y, width: `${w}px`, height: `${h}px` }}>
+      <div className={`absolute inset-0 border-2 rounded ${bbox}`} style={{ animationDelay: delay }} />
+      <svg viewBox="0 0 50 120" className={`absolute inset-0 w-full h-full ${silCls}`}>
+        <circle cx="25" cy="20" r="10" fill="currentColor" opacity=".5" />
+        <rect x="14" y="32" width="22" height="50" rx="6" fill="currentColor" opacity=".55" />
+        <rect x="15" y="82" width="8" height="30" rx="3" fill="currentColor" opacity=".5" />
+        <rect x="27" y="82" width="8" height="30" rx="3" fill="currentColor" opacity=".5" />
+      </svg>
     </div>
   );
 }
@@ -176,7 +236,7 @@ function MiniMetric({
         <Icon className={`w-3 h-3 ${toneColor}`} />
         {label}
       </div>
-      <div className="text-sm font-display font-semibold text-ink-0 mt-0.5">{value}</div>
+      <div className="text-sm font-display font-semibold text-ink-0 mt-0.5 tabular-nums">{value}</div>
     </div>
   );
 }

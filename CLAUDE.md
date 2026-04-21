@@ -51,6 +51,7 @@ git pull origin main
 | Frontend | 5173 | React 18 + Vite + TypeScript |
 | Backend API | 3001 | Express + Prisma + TypeScript |
 | Python Analytics | 5001 | YOLO11L + InsightFace + WebSocket |
+| Ollama AI | 11434 | Yerel LLM (qwen3:14b primary / llama3.1:8b fallback) |
 
 ## Baslatma / Durdurma (Windows)
 
@@ -93,7 +94,11 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 
 ### Frontend Onemli Dosyalar
 - `components/camera/CameraFeed.tsx` — Ana canli video (~1400 satir), MJPEG + WebSocket
-- `components/camera/ZoneCanvas.tsx` — Bolge cizim (normalize koordinat)
+- `components/camera/ZoneCanvas.tsx` — Bolge cizim: rect + polygon + freehand (framer-motion animasyonlu, ESC iptal, Enter/double-click/right-click tamamla)
+- `components/camera/ZonePolygonUtils.ts` — Ramer-Douglas-Peucker simplify + ray-casting + bbox
+- `components/staffing/{StaffForm,StaffList,ShiftCalendar,NotificationStatusBadge}.tsx` — Personel CRUD + haftalik vardiya takvimi + Telegram/Email bildirim durumu
+- `components/settings/BranchSection.tsx` — Sube CRUD + OSM Nominatim geocoding + Google Maps baglantisi
+- `components/dashboard/WeatherWidget.tsx` — Sube koordinatina bagli Open-Meteo widget, 10 dk localStorage cache
 - `services/cameraBackendService.ts` — WebSocket client, health polling
 - `contexts/AuthContext.tsx` — JWT auth (accountType: TRIAL/PAID/DEMO, demoLogin)
 - `contexts/DataModeContext.tsx` — Demo/Live (default: live, demo kullanici icin kilitli)
@@ -101,10 +106,29 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 
 ### Backend Onemli Dosyalar
 - `src/index.ts` — Express giris noktasi
-- `src/routes/` — REST: auth, analytics, cameras, zones, ai (Ollama/Gemini), export, python-backend, branches, insights
-- `src/lib/pythonBackendManager.ts` — Python process yonetimi (model: yolo11l.pt)
+- `src/routes/` — REST: auth, analytics, cameras, zones, ai (Ollama/Gemini), export, python-backend, branches, insights, notifications, staffing, staff, staff-assignments, tables
+- `scripts/backfill-analytics-summary.ts` — 30 gun realistic synthetic AnalyticsSummary (npm run seed:history)
+- `src/lib/pythonBackendManager.ts` — Python process yonetimi (model: yolo11l.pt) + health monitor (ADIM 17)
 - `src/middleware/roleCheck.ts` — RBAC (ADMIN, MANAGER, ANALYST, VIEWER)
-- `prisma/schema.prisma` — DB semasi (SQLite dev: `file:./dev.db`)
+- `prisma/schema.prisma` — DB semasi (SQLite dev: `file:./dev.db`) + ChatMessage + AnalyticsSummary
+
+#### Bildirim Servisleri (ADIM 4)
+- `src/services/telegramService.ts` — Telegram Bot API wrapper, severity bazli emoji
+- `src/services/emailService.ts` — Nodemailer + HTML template, gunluk ozet + kritik alert
+- `src/services/notificationDispatcher.ts` — Severity bazli dispatch (CRITICAL/HIGH/MEDIUM/LOW)
+
+#### Staff & Table Tracking (ADIM 5)
+- `src/routes/staffing.ts` — Vardiya bazli personel plani, peak saat + demografi verisine dayali
+- `src/routes/staff.ts` — Staff CRUD (Prisma Staff modeli: firstName, lastName, email, telegramChatId, phone, role)
+- `src/routes/staff-assignments.ts` — StaffAssignment CRUD + POST /:id/notify + GET /:id/accept|decline (JWT token'li public link)
+- `src/routes/tables.ts` — POST /ai-summary (Ollama brifi 30sn throttle), GET /:cameraId (zone+status), PATCH /:zoneId/status (manuel temizleme override → Python pipeline)
+- `src/services/notificationDispatcher.ts` — `notifyStaffShift(assignmentId)` Telegram + Email paralel, audit log `backend/logs/notification-dispatch.log`
+- TABLE zone tipi (analytics.py) — v2 state machine: occupied (>= 60sn) → empty buffer (2 dk user kurali) → needs_cleaning → auto_empty (15 dk), transit_grace 10sn (sandalye kaymasi)
+
+#### AI Config + Data Integrity (ADIM 11, 16, 17)
+- `src/lib/aiConfig.ts` — TEK kaynakta Ollama + Gemini listeler (routes/ai.ts ve services/insightEngine.ts ayni listeyi kullanir)
+- `src/lib/analyticsValidator.ts` — Payload range/freshness check, invalid → log + drop
+- `src/services/analyticsAggregator.ts` — node-cron saatlik + gunluk AnalyticsSummary upsert
 
 ### Python Analytics Onemli Dosyalar
 - `analytics.py` — Ana motor (~2200 satir): TrackedPerson, temporal smoothing, zone, heatmap, privacy blur
@@ -181,27 +205,45 @@ python -m camera_analytics.run_with_websocket --source 1 --model yolo11l.pt
 8. Demographics persistence cache: track drop → save → re-entry restore (120s pencere)
 9. Belirsiz bolgedeki (0.35-0.65) gender skorlari None gecer — zorla M/F atamasi yok
 
-### Konfigürasyon Parametreleri (default_zones.yaml)
+### Konfigürasyon Parametreleri (default_zones.yaml — Stage 2-4 calibrated)
 ```yaml
-yolo_input_size: 640          # YOLO giris boyutu
-face_detection_interval: 1    # Her frame'de InsightFace calistir (RTX 5070)
-demo_age_ema_alpha: 0.15      # Yas EMA smoothing (dusuk=daha stabil)
-demo_min_confidence: 0.40     # Min yuz tespit guven esigi (yuksek=temiz tahmin)
-demo_gender_consensus: 0.70   # Cinsiyet oylama esigi (yuksek=flip-flop engelleme)
-demo_gender_lower_band: 0.35  # Hysteresis alt sinir — skor <= kadin
-demo_gender_upper_band: 0.65  # Hysteresis ust sinir — skor >= erkek, arasi None
-demo_temporal_decay: 0.92     # Eski oylar icin azalma carpani (yuksek = daha uzun hafiza)
-demo_gender_lock_threshold: 8 # Cinsiyet kilitleme icin ardisik oy sayisi
-demo_age_lock_stability: 0.95 # Yas kilit stability esigi (EMA tutarlilik)
-demo_age_lock_min_samples: 30 # Yas kilit icin min sample sayisi
-demo_pose_max_yaw: 70.0       # Gender reject esigi (derece) — eski 55
-confidence_threshold: 0.5     # YOLO kisi tespit esigi
-queue_alert_threshold: 5      # Queue zone alert kisi esigi
-zone_enter_debounce_frames: 3 # Zone girisi icin ardisik frame sayisi
-zone_exit_debounce_frames: 5  # Zone cikisi icin ardisik frame sayisi
-bbox_smoothing_alpha_min: 0.2 # Bbox EMA min (jitter icin agir smoothing)
-bbox_smoothing_alpha_max: 0.9 # Bbox EMA max (gercek hareket icin hafif smoothing)
+yolo_input_size: 640           # YOLO giris boyutu
+face_detection_interval: 2     # Stage 2: 3 → 2 (inference ceiling 18-20 → 23-26 FPS)
+demo_age_ema_alpha: 0.20       # Stage 3: 0.25 → 0.20
+demo_min_confidence: 0.35      # Stage 3: 0.40 → 0.35 (uzak yuzlerden daha fazla sinyal)
+demo_gender_consensus: 0.70    # Stage 3: 0.80 → 0.70 (stuck gender fix)
+demo_gender_lower_band: 0.35
+demo_gender_upper_band: 0.65
+demo_temporal_decay: 0.90      # Stage 3: 0.92 → 0.90
+demo_gender_lock_threshold: 6  # Stage 3: 8 → 6 (hizli lock)
+demo_age_lock_stability: 0.92  # Stage 3: 0.95 → 0.92 (lock gerçekten devreye girsin)
+demo_age_lock_min_samples: 20  # Stage 3: 30 → 20
+demo_pose_max_yaw: 70.0
+confidence_threshold: 0.5
+queue_alert_threshold: 5
+zone_enter_debounce_frames: 5  # Stage 4: 3 → 5
+zone_exit_debounce_frames: 10  # Stage 4: 5 → 10
+zone_grace_period_s: 3.0       # Stage 4: YENI occlusion grace (seated occupant ghost-exit fix)
+table_max_capacity: 6          # Stage 4: YENI overcount clamp (user belirtti)
+bbox_smoothing_alpha_min: 0.2
+bbox_smoothing_alpha_max: 0.9
 ```
+
+```yaml
+# botsort.yaml (Stage 4 calibrated)
+track_high_thresh: 0.60        # Stage 4: 0.50 → 0.60 (false track azaltir)
+new_track_thresh: 0.70         # Stage 4: 0.60 → 0.70 (yeni ID olusturmayi zorlastirir)
+match_thresh: 0.65             # Stage 4: 0.75 → 0.65 (permissive IoU, ID swap azaltir)
+track_buffer: 150              # Stage 4: 90 → 150 (3sn → 5sn occlusion tolere)
+appearance_thresh: 0.50        # Stage 4: 0.35 → 0.50 (guclu re-ID)
+```
+
+### Display/Inference Decoupling (Stage 2 / ADIM 14)
+MJPEG endpoint iki mod destekler:
+- `GET /mjpeg?mode=inference` (default) — annotated frame stream, ~25 FPS
+- `GET /mjpeg?mode=smooth` — raw frame + interpolated bbox overlay, 60 FPS
+
+Default mod `OBSERVAI_MJPEG_MODE` env degiskeni ile degistirilir. Smooth mod `TrackedPerson.bbox_samples: deque(maxlen=2)` son 2 sample arasi linear extrapolation yapar; 200 ms inference gap'te freeze, 100 ms'den fazla extrapolate etmez (teleportation onler). Kullanim: `frontend/src/components/tables/TableFloorLiveView.tsx` smooth mode ile `<img>` tag uzerinden baglanir.
 
 ### JSON Serialization
 Numpy float32/int64 degerleri `json.dump()` ile uyumsuz. `metrics.py` icinde `_to_native()` ve `analytics.py` icinde `_NumpyEncoder` ile cozuldu.
@@ -252,6 +294,34 @@ Backend'te server-side validation ile guvenlik agi saglanir.
 
 ### ONNX Runtime Thread Safety
 InsightFace ONNX session'lari olusturuldugu thread'de kullanilmali. Inference thread'inde `prepare()` ile yeniden baslatiyor.
+
+## Test Altyapisi (ADIM 13)
+
+Her sonraki degisikligi olculebilir yapmak icin uc kanal test:
+
+### Python (packages/camera-analytics)
+- **pytest** + pytest-benchmark + pytest-timeout
+- Markers: `@pytest.mark.gpu` (CI GPU'suz runner'da atlar), `@pytest.mark.slow`
+- Fixtures: `tests/fixtures/mozart_cafe_{1,2}_short.mp4`, `ground_truth.json`, InsightFace t1-t4 sample'lari
+- Harness: `python -m camera_analytics.run --benchmark-mode --duration-s 30` → JSON rapor
+- Metrikler: `fps_mean`, `fps_p95`, `id_churn_rate`, `zone_count_delta`, gender F1, age MAE
+- Calistirma: `cd packages/camera-analytics && pytest -v`
+
+### Backend (Node)
+- **vitest** + supertest + coverage-v8
+- Test DB: `file:./test.db` (izole, seed helper var)
+- Kapsam: auth + session + ai-chat-history + ai-config + analytics-validator + analytics-aggregator + tables-ai-summary
+- Calistirma: `cd backend && npm test` (41 test)
+
+### Frontend E2E
+- **@playwright/test** chromium headless
+- Kapsam: auth-persistence (rememberMe browser restart), camera-mjpeg (smooth mode FPS overlay), tables-live-view (tab toggle)
+- Calistirma: `cd frontend && pnpm test:e2e`
+
+### CI (.github/workflows/ci.yml)
+- Python: `pytest -m "not gpu"`
+- Backend: `npm test`
+- Frontend: `pnpm test:e2e` (chromium headless)
 
 ## Kod Kurallari
 

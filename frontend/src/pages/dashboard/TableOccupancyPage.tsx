@@ -1,8 +1,22 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Clock, RefreshCw, Users, Coffee, UtensilsCrossed, ChefHat, Sparkles, X } from 'lucide-react';
-import { cameraBackendService, type TableData, type Zone } from '../../services/cameraBackendService';
+import { Activity, Clock, RefreshCw, Users, Coffee, UtensilsCrossed, ChefHat, Sparkles, X, LayoutGrid, Video, CheckCircle2, Loader2, UserCheck, Flame, Snowflake } from 'lucide-react';
+import { cameraBackendService, type TableData, type Zone, type AnalyticsData } from '../../services/cameraBackendService';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useToast } from '../../contexts/ToastContext';
+import TableFloorLiveView from '../../components/tables/TableFloorLiveView';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+interface StaffOnShift {
+  id: string;
+  staffId: string;
+  firstName: string;
+  lastName: string;
+  role?: string | null;
+  shiftStart: string;
+  shiftEnd: string;
+}
 
 // ─── Types & Helpers ─────────────────────────────────────────────────────────
 
@@ -121,22 +135,45 @@ function gridFallbackPosition(index: number, total: number): { x: number; y: num
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+type ViewMode = 'schematic' | 'live';
+
 export default function TableOccupancyPage() {
   const { t, lang } = useLanguage();
+  const { showToast } = useToast();
   const [tables, setTables] = useState<TableData[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [connected, setConnected] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('schematic');
+  const [latestAnalytics, setLatestAnalytics] = useState<AnalyticsData | null>(null);
+  const [staffOnShift, setStaffOnShift] = useState<StaffOnShift[]>([]);
+  const [cleaningInProgress, setCleaningInProgress] = useState<Set<string>>(new Set());
 
-  const handleAnalytics = useCallback((data: any) => {
+  const handleAnalytics = useCallback((data: AnalyticsData) => {
+    setLatestAnalytics(data);
     if (data.tables && Array.isArray(data.tables)) {
       setTables(data.tables);
       setConnected(true);
       setLastUpdate(new Date());
     }
   }, []);
+
+  // Restrict the floor plan to zones whose type is actually 'table'. The
+  // Python WebSocket payload can include entrance/exit/queue zones and the
+  // previous fallback would render them as tables — the rapor #3 bug where
+  // Entrance/Exit cards showed up under "Floor Plan" with occupancy 100%.
+  const tableZoneIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const z of zones) if (z.type === 'table') ids.add(z.id);
+    return ids;
+  }, [zones]);
+
+  const tableRows = useMemo(() => {
+    if (zones.length === 0) return tables; // zones list not loaded yet — pass through
+    return tables.filter((t) => tableZoneIds.has(t.id));
+  }, [tables, zones, tableZoneIds]);
 
   useEffect(() => {
     const unsub = cameraBackendService.onAnalytics(handleAnalytics);
@@ -147,34 +184,118 @@ export default function TableOccupancyPage() {
     return () => { unsub(); statusUnsub(); };
   }, [handleAnalytics]);
 
+  // Load staff on today's shift
+  useEffect(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    fetch(`${API_URL}/api/staff-assignments?from=${todayStr}&to=${todayStr}`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data?.assignments) return;
+        const now = new Date();
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        const currentlyOnShift: StaffOnShift[] = [];
+        for (const a of data.assignments) {
+          const [sh, sm] = a.shiftStart.split(':').map(Number);
+          const [eh, em] = a.shiftEnd.split(':').map(Number);
+          const start = sh * 60 + sm;
+          const end = eh * 60 + em;
+          const inShift = start <= end
+            ? (nowMin >= start && nowMin < end)
+            : (nowMin >= start || nowMin < end);
+          if (inShift && a.status !== 'declined') {
+            currentlyOnShift.push({
+              id: a.id,
+              staffId: a.staff.id,
+              firstName: a.staff.firstName,
+              lastName: a.staff.lastName,
+              role: a.role ?? a.staff.role,
+              shiftStart: a.shiftStart,
+              shiftEnd: a.shiftEnd,
+            });
+          }
+        }
+        setStaffOnShift(currentlyOnShift);
+      })
+      .catch(() => { /* silent — endpoint may be unauthenticated session */ });
+  }, []);
+
+  // Mark table cleaned — hits backend PATCH which queues override for Python
+  const markCleaned = useCallback(async (zoneId: string, cameraId: string) => {
+    setCleaningInProgress((prev) => { const s = new Set(prev); s.add(zoneId); return s; });
+    try {
+      const res = await fetch(`${API_URL}/api/tables/${zoneId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ cameraId, status: 'empty' }),
+      });
+      if (res.ok) {
+        showToast('success', lang === 'tr' ? 'Masa temizlendi olarak isaretlendi' : 'Table marked as cleaned');
+        // Optimistic update — analytics push will confirm shortly
+        setTables((prev) => prev.map((t) => (t.id === zoneId ? { ...t, status: 'empty' } : t)));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast('error', data.error || 'Failed to mark cleaned');
+      }
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setCleaningInProgress((prev) => { const s = new Set(prev); s.delete(zoneId); return s; });
+    }
+  }, [showToast, lang]);
+
   // Build the layout: prefer backend zone coords, fall back to derived grid.
   const layout = useMemo(() => {
     const tableZones = zones.filter(z => z.type === 'table');
-    return tables.map((tbl, i) => {
+    return tableRows.map((tbl, i) => {
       const zone = tableZones.find(z => z.id === tbl.id);
       const pos = zone
         ? { x: zone.x, y: zone.y, width: zone.width, height: zone.height }
-        : gridFallbackPosition(i, tables.length);
+        : gridFallbackPosition(i, tableRows.length);
       return { ...tbl, ...pos, hasRealCoords: !!zone };
     });
-  }, [tables, zones]);
+  }, [tableRows, zones]);
 
-  // KPIs
-  const occupied = tables.filter(t => t.status === 'occupied').length;
-  const empty = tables.filter(t => t.status === 'empty').length;
-  const needsCleaning = tables.filter(t => t.status === 'needs_cleaning').length;
-  const occupancyPct = tables.length > 0 ? Math.round((occupied / tables.length) * 100) : 0;
-  const totalTurnover = tables.reduce((sum, t) => sum + t.turnoverCount, 0);
-  const avgStay = tables.length > 0
-    ? tables.reduce((sum, t) => sum + t.avgStaySeconds, 0) / tables.length
+  // KPIs — derived from filtered TABLE rows only.
+  const occupied = tableRows.filter(t => t.status === 'occupied').length;
+  const empty = tableRows.filter(t => t.status === 'empty').length;
+  const needsCleaning = tableRows.filter(t => t.status === 'needs_cleaning').length;
+  const occupancyPct = tableRows.length > 0 ? Math.round((occupied / tableRows.length) * 100) : 0;
+  const totalTurnover = tableRows.reduce((sum, t) => sum + t.turnoverCount, 0);
+  const avgStay = tableRows.length > 0
+    ? tableRows.reduce((sum, t) => sum + t.avgStaySeconds, 0) / tableRows.length
+    : 0;
+  const avgRotationPerTable = tableRows.length > 0
+    ? Math.round((totalTurnover / tableRows.length) * 10) / 10
     : 0;
 
+  // Design-System KPIs: pick the single busiest / idlest table so shift
+  // managers see actionable names, not just totals. Hottest = most turnover
+  // today (tiebreaker: longest current occupancy). Dead = zero turnover AND
+  // zero current occupants (truly idle).
+  const hottestTable = useMemo(() => {
+    if (tableRows.length === 0) return null;
+    const sorted = [...tableRows].sort((a, b) => {
+      if (b.turnoverCount !== a.turnoverCount) return b.turnoverCount - a.turnoverCount;
+      return (b.occupancyDuration || 0) - (a.occupancyDuration || 0);
+    });
+    return sorted[0].turnoverCount > 0 || (sorted[0].occupancyDuration || 0) > 0 ? sorted[0] : null;
+  }, [tableRows]);
+
+  const deadTable = useMemo(() => {
+    const idle = tableRows.filter(t => t.turnoverCount === 0 && t.currentOccupants === 0);
+    if (idle.length === 0) return null;
+    // Pick the one with the longest-standing emptiness signal (proxy: smallest
+    // avgStaySeconds indicates history of short visits / ignored spot).
+    return idle.slice().sort((a, b) => (a.avgStaySeconds || 0) - (b.avgStaySeconds || 0))[0];
+  }, [tableRows]);
+
   // Heatmap intensity per table — uses occupancyDuration normalized by the longest seen.
-  const maxDuration = Math.max(...tables.map(t => t.occupancyDuration), 1);
+  const maxDuration = Math.max(...tableRows.map(t => t.occupancyDuration), 1);
 
   const selected = useMemo(
-    () => tables.find(t => t.id === selectedId) || null,
-    [tables, selectedId]
+    () => tableRows.find(t => t.id === selectedId) || null,
+    [tableRows, selectedId]
   );
 
   return (
@@ -196,17 +317,44 @@ export default function TableOccupancyPage() {
           <p className="text-sm text-ink-3">{t('tables.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowHeatmap(s => !s)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              showHeatmap
-                ? 'bg-brand-500/10 text-brand-200 border-brand-500/30'
-                : 'bg-white/5 text-ink-3 border-white/10 hover:text-ink-2'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            Heatmap
-          </button>
+          <div className="inline-flex items-center gap-1 rounded-lg bg-white/5 border border-white/10 p-0.5">
+            <button
+              onClick={() => setViewMode('schematic')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                viewMode === 'schematic'
+                  ? 'bg-brand-500/20 text-brand-100'
+                  : 'text-ink-3 hover:text-ink-2'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              {lang === 'tr' ? 'Semalar' : 'Schematic'}
+            </button>
+            <button
+              onClick={() => setViewMode('live')}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                viewMode === 'live'
+                  ? 'bg-brand-500/20 text-brand-100'
+                  : 'text-ink-3 hover:text-ink-2'
+              }`}
+            >
+              <Video className="w-3.5 h-3.5" />
+              {lang === 'tr' ? 'Canli' : 'Live'}
+            </button>
+          </div>
+
+          {viewMode === 'schematic' && (
+            <button
+              onClick={() => setShowHeatmap(s => !s)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                showHeatmap
+                  ? 'bg-brand-500/10 text-brand-200 border-brand-500/30'
+                  : 'bg-white/5 text-ink-3 border-white/10 hover:text-ink-2'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              Heatmap
+            </button>
+          )}
         </div>
       </div>
 
@@ -216,21 +364,21 @@ export default function TableOccupancyPage() {
           icon={Users}
           label={t('tables.kpi.occupancy')}
           value={`${occupancyPct}%`}
-          sub={`${occupied} / ${tables.length}`}
+          sub={`${occupied} / ${tableRows.length}`}
           accent="brand"
         />
         <KpiCard
           icon={Clock}
-          label={t('tables.kpi.avgStay')}
+          label={lang === 'tr' ? 'Ort. turnover' : 'Avg turnover'}
           value={avgStay > 0 ? formatDuration(avgStay) : '—'}
-          sub={`${tables.length} ${t('tables.title').toLowerCase()}`}
+          sub={`${tableRows.length} ${t('tables.title').toLowerCase()}`}
           accent="violet"
         />
         <KpiCard
           icon={RefreshCw}
-          label={t('tables.kpi.turnover')}
-          value={String(totalTurnover)}
-          sub={lang === 'tr' ? 'bugun' : 'today'}
+          label={lang === 'tr' ? 'Rotasyon / masa' : 'Rotation / table'}
+          value={String(avgRotationPerTable)}
+          sub={`${totalTurnover} ${lang === 'tr' ? 'toplam bugun' : 'total today'}`}
           accent="accent"
         />
         <KpiCard
@@ -242,7 +390,44 @@ export default function TableOccupancyPage() {
         />
       </div>
 
-      {/* ── Main: Floor plan + Detail panel ──────────────────────── */}
+      {/* ── Design-System secondary KPIs: HOTTEST + DEAD ──────────── */}
+      {(hottestTable || deadTable) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {hottestTable && (
+            <HighlightCard
+              icon={Flame}
+              kicker={lang === 'tr' ? 'EN YOGUN MASA' : 'HOTTEST TABLE'}
+              title={hottestTable.name || `T${hottestTable.id.slice(-2)}`}
+              metric={`${hottestTable.turnoverCount}×/day`}
+              hint={hottestTable.avgStaySeconds > 0
+                ? `${formatDuration(hottestTable.avgStaySeconds)} ${lang === 'tr' ? 'ort. turnover' : 'avg turnover'}`
+                : undefined}
+              tone="warm"
+            />
+          )}
+          {deadTable && (
+            <HighlightCard
+              icon={Snowflake}
+              kicker={lang === 'tr' ? 'OLU BOLGE' : 'DEAD ZONE'}
+              title={deadTable.name || `T${deadTable.id.slice(-2)}`}
+              metric={lang === 'tr' ? 'Bugun hic kullanilmadi' : 'Unused today'}
+              hint={lang === 'tr' ? 'Yer degisikligi veya promosyon dusun' : 'Consider relocation or promo'}
+              tone="cold"
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── Main: Live view vs Schematic (tab-switched) ───────────── */}
+      {viewMode === 'live' ? (
+        <TableFloorLiveView
+          cameraId="default"
+          tables={tables}
+          zones={zones}
+          latest={latestAnalytics}
+          connected={connected}
+        />
+      ) : (
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
 
         {/* Floor plan card */}
@@ -358,8 +543,12 @@ export default function TableOccupancyPage() {
           {selected ? (
             <DetailPanel
               table={selected}
+              staffOnShift={staffOnShift}
               onClose={() => setSelectedId(null)}
+              onMarkCleaned={() => markCleaned(selected.id, 'default')}
+              isCleaning={cleaningInProgress.has(selected.id)}
               t={t}
+              lang={lang}
             />
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center py-16">
@@ -376,6 +565,7 @@ export default function TableOccupancyPage() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -416,16 +606,64 @@ function KpiCard({
   );
 }
 
+// ─── Highlight Card (Design System: HOTTEST / DEAD) ─────────────────────────
+
+function HighlightCard({
+  icon: Icon,
+  kicker,
+  title,
+  metric,
+  hint,
+  tone,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  kicker: string;
+  title: string;
+  metric: string;
+  hint?: string;
+  tone: 'warm' | 'cold';
+}) {
+  const toneClasses = tone === 'warm'
+    ? 'from-warning-500/15 via-warning-500/5 to-transparent border-warning-500/30'
+    : 'from-brand-500/10 via-brand-500/5 to-transparent border-brand-500/20';
+  const iconClasses = tone === 'warm'
+    ? 'bg-warning-500/20 text-warning-300 border-warning-500/40'
+    : 'bg-brand-500/15 text-brand-300 border-brand-500/30';
+  return (
+    <div className={`relative overflow-hidden surface-card border bg-gradient-to-br ${toneClasses} p-5 rounded-2xl`}>
+      <div className="flex items-start gap-4">
+        <div className={`w-10 h-10 rounded-xl border flex items-center justify-center ${iconClasses}`}>
+          <Icon className="w-5 h-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-wider text-ink-4 font-semibold font-mono">{kicker}</p>
+          <p className="text-lg font-bold text-ink-0 mt-0.5 truncate">{title}</p>
+          <p className="text-sm font-semibold text-ink-2 mt-0.5 font-mono">{metric}</p>
+          {hint && <p className="text-[11px] text-ink-3 mt-1">{hint}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Detail Panel ────────────────────────────────────────────────────────────
 
 function DetailPanel({
   table,
+  staffOnShift,
   onClose,
+  onMarkCleaned,
+  isCleaning,
   t,
+  lang,
 }: {
   table: TableData;
+  staffOnShift: StaffOnShift[];
   onClose: () => void;
+  onMarkCleaned: () => void;
+  isCleaning: boolean;
   t: (key: string, vars?: Record<string, string | number>) => string;
+  lang: string;
 }) {
   const status = (table.status as TableStatus) || 'empty';
   const style = STATUS_STYLES[status];
@@ -459,9 +697,26 @@ function DetailPanel({
 
         {/* Status pill */}
         <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full ${style.fill} ${style.stroke} border ${style.text} text-xs font-medium mb-4`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+          <span className={`w-1.5 h-1.5 rounded-full ${style.dot} ${status === 'needs_cleaning' ? 'animate-pulse' : ''}`} />
           {t(style.legendKey)}
         </div>
+
+        {/* Cleaning action */}
+        {status === 'needs_cleaning' && (
+          <motion.button
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={onMarkCleaned}
+            disabled={isCleaning}
+            className="w-full mb-4 px-4 py-2.5 bg-gradient-to-r from-success-500 to-success-600 text-white rounded-xl font-semibold hover:shadow-[0_0_18px_-4px_rgba(34,197,94,0.6)] transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {isCleaning ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+            {isCleaning
+              ? (lang === 'tr' ? 'Isleniyor...' : 'Working...')
+              : (lang === 'tr' ? 'Temizlendi' : 'Mark as cleaned')}
+          </motion.button>
+        )}
 
         {/* Stat rows */}
         <div className="space-y-3 text-sm">
@@ -482,6 +737,24 @@ function DetailPanel({
             <DetailRow label={t('tables.kpi.avgStay')} value={table.avgStaySeconds > 0 ? formatDuration(table.avgStaySeconds) : '—'} />
             <DetailRow label={t('tables.kpi.turnover')} value={String(table.turnoverCount)} />
           </div>
+
+          {/* Staff on shift now */}
+          {staffOnShift.length > 0 && (
+            <div className="border-t border-white/5 pt-3 mt-3">
+              <p className="text-[11px] uppercase tracking-wider text-ink-4 font-medium mb-2 flex items-center gap-1.5">
+                <UserCheck className="w-3 h-3" />
+                {lang === 'tr' ? 'Vardiyadaki personel' : 'Staff on shift'}
+              </p>
+              <div className="space-y-1.5">
+                {staffOnShift.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between text-xs">
+                    <span className="text-ink-2 truncate">{s.firstName} {s.lastName}</span>
+                    <span className="text-ink-4 font-mono text-[10px]">{s.shiftStart}–{s.shiftEnd}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
     </AnimatePresence>

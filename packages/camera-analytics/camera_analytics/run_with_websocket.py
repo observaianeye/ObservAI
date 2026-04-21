@@ -45,7 +45,8 @@ class CameraAnalyticsWithWebSocket:
         self.ws_server.on_start_stream = self.start_analytics
         self.ws_server.on_stop_stream = self.stop_analytics
         self.ws_server.on_snapshot = self.handle_snapshot
-        self.ws_server.on_get_frame = self.get_latest_frame  # For MJPEG streaming
+        self.ws_server.on_get_frame = self.get_latest_frame  # MJPEG inference-mode
+        self.ws_server.on_get_smooth_frame = self.get_smooth_frame  # MJPEG smooth-mode
         self.ws_server.on_change_source = self.change_source
         self.ws_server.on_toggle_heatmap = self.toggle_heatmap  # Heatmap toggle
         self.ws_server.on_update_zones = self.update_zones      # Zone update
@@ -134,15 +135,19 @@ class CameraAnalyticsWithWebSocket:
                 except Exception as e:
                     print(f"[WARN] Hardware optimization during preload failed: {e}")
 
-                # Warmup with a dummy forward pass (reduces first-inference latency)
+                # Stage 2: TensorRT warm-up loop (10 dummy frames) — cold-start
+                # can spike first-inference latency to 200-400 ms which shows up
+                # as a visible hitch when the smooth-mode stream launches. Ten
+                # forward passes are enough to settle the TRT graph.
                 try:
                     import numpy as np
                     warmup_size = self.config.yolo_input_size or 640
-                    dummy = np.zeros((1, 3, warmup_size, warmup_size), dtype=np.uint8)
-                    _ = model.predict(dummy, verbose=False, imgsz=warmup_size)
-                    print(f"✓ YOLO model warmed up ({warmup_size}p)")
-                except Exception:
-                    pass
+                    dummy = np.zeros((warmup_size, warmup_size, 3), dtype=np.uint8)
+                    for _ in range(10):
+                        _ = model.predict(dummy, verbose=False, imgsz=warmup_size)
+                    print(f"✓ YOLO TensorRT warm-up done ({warmup_size}p × 10)")
+                except Exception as _warm_err:
+                    print(f"[WARN] YOLO warm-up skipped: {_warm_err}")
                 return model
 
             self._preloaded_yolo = await loop.run_in_executor(None, _load_yolo)
@@ -341,6 +346,16 @@ class CameraAnalyticsWithWebSocket:
         """Get latest frame from analytics engine (thread-safe, for MJPEG streaming)"""
         if self.engine and self.engine.running:
             return self.engine.get_latest_frame_safe()
+        return None
+
+    def get_smooth_frame(self, now: float) -> Optional['np.ndarray']:
+        """Stage 2: raw capture frame + interpolated bbox overlay at display rate.
+
+        The smooth MJPEG mode calls this every ~17 ms to produce a 60 FPS stream
+        that doesn't stall when inference drops below the display cadence.
+        """
+        if self.engine and self.engine.running:
+            return self.engine.get_smooth_frame(now)
         return None
 
     async def handle_snapshot(self) -> Optional[str]:
