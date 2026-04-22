@@ -187,41 +187,29 @@ export default function CameraFeed() {
     fetchSavedCameras();
   }, [fetchSavedCameras]);
 
-  // Auto-start camera when entering Live mode
-  // Use last selected source from localStorage, or default to MacBook camera
-  const hasAutoStartedRef = useRef(false);
+  // Explicit-start policy: no auto-connect. The user must click a source to start
+  // streaming. We still remember the last source in localStorage so the form inputs
+  // stay prefilled, but we never open a socket, spawn Python, or poll /health until
+  // a source button is clicked. When leaving Live mode (e.g. switch to Demo), reset
+  // streaming state inline — we can't reference stopCamera here because it's
+  // declared later in the component.
   useEffect(() => {
-    if (dataMode === 'live' && !hasAutoStartedRef.current) {
-      hasAutoStartedRef.current = true;
-
-      // Check if we have a saved source and it's not the initial state
-      const savedSource = localStorage.getItem('lastCameraSource');
-      const isBackendRunning = localStorage.getItem('backendRunning') === 'true';
-
-      if (savedSource && isBackendRunning) {
-        // Backend is already running with a source, just reconnect UI
-        console.log('[CameraFeed] Backend already running, restoring UI state...');
-        setIsStreaming(true);
-      } else {
-        // Start with last used source or default to webcam
-        const sourceToUse = currentSource.type || 'webcam';
-        console.log(`[CameraFeed] Starting with source: ${sourceToUse}`);
-        handleSourceChange(sourceToUse, currentSource);
-      }
-    } else if (dataMode === 'demo') {
-      hasAutoStartedRef.current = false;
-      stopCamera();
-      localStorage.removeItem('backendRunning');
+    if (dataMode !== 'live') {
+      setIsStreaming(false);
+      setDetections([]);
+      setBackendConnected(false);
     }
   }, [dataMode]);
 
   // REMOVED: Initialize camera useEffect was causing race conditions
   // Camera initialization is now exclusively handled by handleSourceChange
 
-  // Connect to backend Socket.IO for detections + health monitoring
-  // This effect runs once when entering Live mode and stays connected
+  // Connect to backend Socket.IO for detections + health monitoring.
+  // Gated behind `isStreaming` — we only open the socket and start polling after
+  // the user has explicitly started a source. Keeps the idle state silent (no
+  // 503 spam, no WebSocket retry loop, no wasted CPU).
   useEffect(() => {
-    if (dataMode === 'live') {
+    if (dataMode === 'live' && isStreaming) {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
       console.log('[CameraFeed] Connecting to backend Socket.IO...');
@@ -368,7 +356,7 @@ export default function CameraFeed() {
       localStorage.removeItem('backendRunning');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataMode, sourceVersion]);
+  }, [dataMode, sourceVersion, isStreaming]);
 
   // Monitor fullscreen changes
   useEffect(() => {
@@ -452,13 +440,11 @@ export default function CameraFeed() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Calculate responsive sizes based on canvas dimensions
-      // Font size: 1.5% of canvas height (min 10px, max 18px)
-      const fontSize = Math.min(18, Math.max(10, canvas.height * 0.015));
-      // Line width: 0.25% of canvas width (min 2px, max 4px)
+      // Responsive sizing — previous values were too small to read age/gender at
+      // normal viewing distance on 1080p. Bumped ~75% and forced bold weight.
+      const fontSize = Math.min(28, Math.max(14, canvas.height * 0.028));
       const lineWidth = Math.min(4, Math.max(2, canvas.width * 0.0025));
-      // Badge font size: slightly smaller
-      const badgeFontSize = Math.floor(fontSize * 0.85);
+      const badgeFontSize = Math.floor(fontSize * 0.8);
 
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -517,25 +503,43 @@ export default function CameraFeed() {
         const lockMark = bothLocked ? ' =' : '';
         const labelText = `${gender} | ${ageBucket} | ${dwellTime}s${lockMark}`;
 
-        ctx.font = `${fontSize}px sans-serif`; // Use responsive font size
+        ctx.font = `bold ${fontSize}px "Inter", "Space Grotesk", system-ui, sans-serif`;
         const textMetrics = ctx.measureText(labelText);
-        const textHeight = Math.ceil(fontSize * 1.4); // Height proportional to font size
+        const padX = 8;
+        const padY = 4;
+        const textHeight = Math.ceil(fontSize * 1.35);
+        const boxWidth = textMetrics.width + padX * 2;
 
-        ctx.fillStyle = detection.state === 'entering' ? '#10b981' :
+        // Smart Y positioning: if label doesn't fit above the bbox, draw it just
+        // inside the top of the bbox instead so it never clips off-screen.
+        const labelAbove = py >= textHeight + 2;
+        const boxX = px;
+        const boxY = labelAbove ? py - textHeight : py;
+        const textY = boxY + textHeight - padY;
+
+        // Dark semi-opaque background for contrast against any video content,
+        // then a thin colored accent stripe on the left to preserve state color.
+        const accent = detection.state === 'entering' ? '#10b981' :
           detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
-        ctx.fillRect(px, py - textHeight, textMetrics.width + 10, textHeight);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+        ctx.fillRect(boxX, boxY, boxWidth, textHeight);
+        ctx.fillStyle = accent;
+        ctx.fillRect(boxX, boxY, Math.max(3, lineWidth), textHeight);
 
-        // Draw label text
+        // Bright white text — no shadow needed thanks to the opaque background.
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(labelText, px + 5, py - 5);
+        ctx.fillText(labelText, boxX + padX, textY);
 
-        // Draw ID badge with responsive font
-        ctx.font = `${badgeFontSize}px sans-serif`; // Use responsive badge font size
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        // ID badge at bottom-left of the bbox
+        ctx.font = `bold ${badgeFontSize}px "Inter", "Space Grotesk", system-ui, sans-serif`;
+        const badgeText = `#${detection.id.slice(-4)}`;
+        const badgeMetrics = ctx.measureText(badgeText);
         const badgeHeight = Math.ceil(badgeFontSize * 1.5);
-        ctx.fillRect(px, py + ph, 40, badgeHeight);
+        const badgeWidth = badgeMetrics.width + padX * 2;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+        ctx.fillRect(px, py + ph, badgeWidth, badgeHeight);
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(`#${detection.id.slice(-4)}`, px + 5, py + ph + badgeHeight - 5);
+        ctx.fillText(badgeText, px + padX, py + ph + badgeHeight - padY);
       });
 
       animationFrameRef.current = requestAnimationFrame(drawFrame);
@@ -714,114 +718,106 @@ export default function CameraFeed() {
   }, [stream]);
 
   const handleSourceChange = useCallback(async (type: CameraSource, config?: Partial<CameraSourceConfig>) => {
-    // Prevent multiple simultaneous source changes
-    if (isChangingSourceRef.current) {
-      return;
-    }
+    // Re-entrancy guard — set synchronously before any await so rapid clicks merge.
+    if (isChangingSourceRef.current) return;
     isChangingSourceRef.current = true;
     setIsSwitchingSource(true);
-
     setShowSourceSelect(false);
     setShowAdvancedSettings(false);
     setError(null);
-
-    // Reset canvas size initialization flag when changing sources
     canvasSizeInitialized.current = false;
 
+    // Clear MJPEG <img> first so it stops retrying the previous stream URL
+    // while we tear down and restart. Firefox otherwise keeps the old connection
+    // alive and surfaces "interrupted" errors during the switch.
+    if (mjpegImgRef.current) mjpegImgRef.current.src = '';
+
     try {
-      // 1. Stop current frontend camera and streams
+      // Frontend-side teardown (MediaStream tracks, video element, detections)
       stopCamera();
 
-      // 3. Stop backend stream if active (to release camera hardware)
-      if (dataMode === 'live') {
+      if (dataMode !== 'live') {
+        // Browser-local playback path (type === 'file')
+        const newSource = { type, ...config };
+        setCurrentSource(newSource);
+        localStorage.setItem('lastCameraSource', JSON.stringify(newSource));
+        return;
+      }
+
+      // Resolve the backend source descriptor
+      let backendSource: number | string = 0;
+      switch (type) {
+        case 'webcam':
+          backendSource = 0;
+          break;
+        case 'iphone':
+          backendSource = iphoneRemoteUrl.trim() || 1;
+          break;
+        case 'ip': {
+          const camera = config?.ipCameraId
+            ? ipCameras.find(cam => cam.id === config.ipCameraId)
+            : null;
+          if (!camera) throw new Error('Please select an IP camera from settings');
+          backendSource = camera.url;
+          break;
+        }
+        case 'videolink':
+          if (!config?.url) throw new Error('Please enter a video URL');
+          backendSource = config.url;
+          break;
+        default:
+          throw new Error(`Unsupported backend source type: ${type}`);
+      }
+
+      // Fast path: if Python is already running, skip the kill+respawn cycle and
+      // just emit `change_source` over the existing socket. Python's handler tears
+      // down the current analytics loop and starts the new source internally. This
+      // cuts a YouTube→file switch from ~10s to ~2-3s and preserves the loaded
+      // YOLO engine + InsightFace session.
+      //
+      // Readiness semantics: Python's /health returns HTTP 503 until `streaming`
+      // flips true, but we want to know "can I emit change_source yet?" — that's
+      // true as soon as the WS+HTTP server is bound. The Node proxy returns a
+      // body with status 'unreachable' when Python isn't running at all vs
+      // 'loading'/'ready' when it's up; use that to distinguish.
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const probePython = async (): Promise<boolean> => {
         try {
-          await cameraBackendService.stopStream();
+          const res = await fetch(`${apiUrl}/api/python-backend/health`, { credentials: 'include' });
+          const body = await res.json().catch(() => null);
+          return body?.status && body.status !== 'unreachable';
         } catch {
-          // Expected on first run or if already stopped
+          return false;
         }
+      };
 
-        // Give hardware time to release (500ms is safer for camera hardware)
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+      let pythonAlive = await probePython();
 
-      // 4. Start new backend stream with selected source
-      if (dataMode === 'live') {
-        let backendSource: number | string = 0;
-
-        // Map frontend source type to backend source
-        switch (type) {
-          case 'webcam':
-            backendSource = 0; // MacBook camera
-            break;
-          case 'iphone':
-            // Eğer Tailscale/remote URL girilmişse, ivCam HTTP stream'ini direkt kullan
-            // Bu sayede ivCam Windows client'a gerek kalmaz (Parsec/uzaktan erişim için)
-            if (iphoneRemoteUrl.trim()) {
-              backendSource = iphoneRemoteUrl.trim();
-            } else {
-              // Aynı ağdayken: ivCam virtual kamera (index 1)
-              backendSource = 1;
-            }
-            break;
-          case 'ip':
-            if (config?.ipCameraId) {
-              const camera = ipCameras.find(cam => cam.id === config.ipCameraId);
-              if (camera) {
-                backendSource = camera.url;
-              }
-            }
-            break;
-          case 'videolink':
-            if (config?.url) {
-              backendSource = config.url;
-            } else {
-              throw new Error('Please enter a video URL');
-            }
-            break;
-          // For 'file', backend doesn't process it (browser handles local playback)
-        }
-
-        // Start Python backend with the selected source
-        console.log(`[CameraFeed] Step 6: Starting Python backend with source: ${backendSource}...`);
+      if (!pythonAlive) {
+        console.log(`[CameraFeed] Spawning Python backend for source: ${backendSource}`);
         await startPythonBackend(backendSource);
-
-        // Ensure backend connection is established
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
-        console.log('[CameraFeed] Step 7: Connecting to backend...');
-        cameraBackendService.connect(backendUrl);
-
-        // Change source on backend - this will also start the analytics stream
-        console.log('[CameraFeed] Step 8: Changing source on backend...');
-        await cameraBackendService.changeSource(backendSource);
-        console.log('[CameraFeed] Backend source changed successfully');
-
-        // REMOVED: startStream() call - changeSource already starts the stream internally
-        // This was causing "Analytics already running" warning
-
-        // Wait for stream to initialize
-        console.log('[CameraFeed] Step 9: Waiting for stream initialization...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Set streaming state BEFORE updating source to trigger MJPEG display
-        setIsStreaming(true);
-
-        // Trigger re-subscription to backend detections + health polling
-        // The useEffect depends on sourceVersion and will re-run, establishing fresh subscriptions
-        setSourceVersion(v => v + 1);
+        const deadline = Date.now() + 60000; // models + InsightFace fallback can take ~20-40s
+        while (Date.now() < deadline) {
+          if (await probePython()) { pythonAlive = true; break; }
+          await new Promise(r => setTimeout(r, 500));
+        }
+        if (!pythonAlive) throw new Error('Python backend failed to come online within 60s');
       }
 
-      // 10. Update frontend source state AFTER backend has switched
-      console.log('[CameraFeed] Step 10: Updating frontend source state...');
+      // Open (or reuse) the Socket.IO connection and emit change_source
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+      cameraBackendService.connect(backendUrl);
+      console.log(`[CameraFeed] Emitting change_source → ${backendSource}`);
+      await cameraBackendService.changeSource(backendSource);
+
+      // Flip streaming state — this gates the Socket.IO/health-polling useEffect
+      // so it only subscribes now that we know Python is up and the source is set.
       const newSource = { type, ...config };
       setCurrentSource(newSource);
-
-      // Save to localStorage for persistence across page navigation
       localStorage.setItem('lastCameraSource', JSON.stringify(newSource));
-      localStorage.setItem('backendRunning', 'true');
-      console.log('[CameraFeed] ✅ Source saved to localStorage for persistence');
-
-      console.log(`[CameraFeed] ===== SOURCE CHANGE COMPLETED SUCCESSFULLY TO: ${type} =====`);
-
+      setIsStreaming(true);
+      setSourceVersion(v => v + 1);
+      console.log(`[CameraFeed] ✅ Source switched → ${type}`);
     } catch (err) {
       console.error('[CameraFeed] Source change failed:', err);
       setError(`Failed to switch to ${type}: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -830,7 +826,7 @@ export default function CameraFeed() {
       isChangingSourceRef.current = false;
       setIsSwitchingSource(false);
     }
-  }, [dataMode, ipCameras, stopCamera]);
+  }, [dataMode, ipCameras, iphoneRemoteUrl, stopCamera]);
 
   const handleFullscreen = () => {
     if (!document.fullscreenElement) {

@@ -93,6 +93,18 @@ class HardwareOptimizer:
         # NVIDIA TensorRT optimization
         if hw["cuda_available"] and not hw["system"] == "Darwin":
             if target_format == "tensorrt" or target_format is None:
+                # Skip TensorRT if the `tensorrt` module isn't importable — Ultralytics'
+                # model.export(format="engine") otherwise spawns a pip subprocess to
+                # auto-install it, which hangs indefinitely on Python versions with no
+                # published wheel (e.g. 3.14). Users can force a retry by installing
+                # tensorrt manually or setting OBSERVAI_FORCE_TRT=1.
+                force_trt = os.environ.get("OBSERVAI_FORCE_TRT", "0") == "1"
+                if not force_trt:
+                    try:
+                        import tensorrt  # noqa: F401
+                    except ImportError:
+                        print("[OPTIMIZE] tensorrt package not installed; skipping engine export, using CUDA PyTorch")
+                        return model_path
                 try:
                     # Ultralytics model.export(format="engine") creates "{stem}.engine"
                     # in the same directory as the source .pt file.

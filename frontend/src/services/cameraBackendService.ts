@@ -485,10 +485,10 @@ class CameraBackendService {
 
       console.log('[CameraBackendService] Changing source to:', source);
 
-      // Set up timeout first
+      // First-run TensorRT compile can take up to ~10 min; cached engine resolves in seconds.
       const timeout = setTimeout(() => {
-        reject(new Error('Timeout waiting for source change (30s)'));
-      }, 30000);
+        reject(new Error('Timeout waiting for source change (600s)'));
+      }, 600000);
 
       // Listen for both success and error responses
       const handleSuccess = (response: any) => {

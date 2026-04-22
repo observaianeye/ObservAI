@@ -128,6 +128,16 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const data = result.payload;
+
+    // The frontend persists analytics with a default `sample-camera-1` id when
+    // the user hasn't registered a real Camera row. Skip insertion in that case
+    // instead of crashing with a FK-constraint error — these are best-effort
+    // samples and the frontend already treats the POST as fire-and-forget.
+    const camera = await prisma.camera.findUnique({ where: { id: data.cameraId } });
+    if (!camera) {
+      return res.status(204).end();
+    }
+
     const log = await prisma.analyticsLog.create({
       data: {
         cameraId: data.cameraId,

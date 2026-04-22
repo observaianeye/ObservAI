@@ -85,10 +85,30 @@ class PythonBackendManager extends EventEmitter {
       console.log(`[PythonManager] Starting: ${venvPython} ${args.join(' ')}`);
       console.log(`[PythonManager] Working dir: ${cwd}`);
 
+      // Make onnxruntime find CUDA 12 runtime libs shipped as pip packages
+      // (nvidia-cublas-cu12, nvidia-cudnn-cu12, …). System CUDA is 13 so
+      // InsightFace's CUDA execution provider otherwise falls back to CPU.
+      // On Windows these packages install .dll files into the same nvidia/*/bin
+      // dir and Python adds them via os.add_dll_directory, so this env var is
+      // only needed on Linux/macOS.
+      const env = { ...process.env };
+      if (process.platform !== 'win32') {
+        const nvidiaBase = path.join(cwd, 'venv', 'lib', 'python3.14', 'site-packages', 'nvidia');
+        const nvidiaLibs = [
+          'cublas', 'cudnn', 'cuda_runtime', 'cufft', 'curand',
+          'cuda_nvrtc', 'nvjitlink',
+        ].map(pkg => path.join(nvidiaBase, pkg, 'lib'));
+        env.LD_LIBRARY_PATH = [
+          ...nvidiaLibs,
+          env.LD_LIBRARY_PATH,
+        ].filter(Boolean).join(':');
+      }
+
       this.process = spawn(venvPython, args, {
         cwd,
         stdio: 'pipe',
         detached: false,
+        env,
       });
 
       this.config = config;

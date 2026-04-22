@@ -37,8 +37,11 @@ yolo_input_size: 640
 # Class-agnostic NMS: faster for single-class (person) detection
 agnostic_nms: true
 
-# Confidence threshold for person detection
-confidence_threshold: 0.5
+# Confidence threshold for person detection.
+# Stage 5: 0.5 → 0.4 — static/seated persons often score 0.4-0.55; the previous
+# threshold dropped them entirely. Lower value + relaxed tracker thresholds in
+# botsort.yaml keep them tracked without noticeably more false positives.
+confidence_threshold: 0.4
 
 # Max detections per frame (increase for crowded scenes)
 max_detections: 100
