@@ -1,11 +1,11 @@
 tracker_type: botsort
-# Stage 5: relaxed thresholds so static/partially-occluded people keep their
-# tracks. Prior Stage 4 values (0.60/0.70) dropped tracks on weak detections
-# — static persons whose confidence dips below threshold for a few frames
-# disappeared from the UI even though YOLO still saw them.
-track_high_thresh: 0.50
+# Stage 6: further relaxed so weak detections (conf 0.25-0.4 after yaml change)
+# still survive tracking. High thresh 0.35 lets a low-confidence bbox confirm a
+# track; new_track 0.40 still guards against spurious new IDs from single-frame
+# noise. Extra ID churn is absorbed by appearance_thresh + track_buffer.
+track_high_thresh: 0.35
 track_low_thresh: 0.1
-new_track_thresh: 0.55
+new_track_thresh: 0.40
 # Stage 5: 150 → 300 (~5s → ~10s) — tolerate longer stillness/occlusion before ID reset
 track_buffer: 300
 # Lower IoU threshold is MORE permissive for matching (costs below threshold

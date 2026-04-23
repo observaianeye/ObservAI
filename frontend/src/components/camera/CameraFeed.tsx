@@ -135,9 +135,13 @@ export default function CameraFeed() {
   const mjpegImgRef = useRef<HTMLImageElement>(null);
   const canvasSizeInitialized = useRef(false);
 
-  // Stable MJPEG URL — computed once to avoid re-connecting on every re-render
+  // Stable MJPEG URL — computed once to avoid re-connecting on every re-render.
+  // `mode=smooth` decouples display from the inference thread: raw frames at
+  // ~60 FPS with bbox interpolation between YOLO samples, instead of annotated
+  // frames capped at inference FPS (~20-25). Detections still stream over
+  // Socket.IO so accuracy is unchanged.
   const mjpegUrl = useMemo(
-    () => `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg`,
+    () => `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg?mode=smooth`,
     []
   );
 

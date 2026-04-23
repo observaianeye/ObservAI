@@ -38,10 +38,11 @@ yolo_input_size: 640
 agnostic_nms: true
 
 # Confidence threshold for person detection.
-# Stage 5: 0.5 → 0.4 — static/seated persons often score 0.4-0.55; the previous
-# threshold dropped them entirely. Lower value + relaxed tracker thresholds in
-# botsort.yaml keep them tracked without noticeably more false positives.
-confidence_threshold: 0.4
+# Stage 6: 0.4 → 0.25 — seated/occluded/low-light persons often score 0.25-0.4.
+# User requirement: if a person is there, detect them. Extra false positives
+# (chair/mannequin edges) are filtered downstream by BoT-SORT re-ID + the
+# post-NMS overlap cleanup.
+confidence_threshold: 0.25
 
 # Max detections per frame (increase for crowded scenes)
 max_detections: 100
@@ -53,8 +54,9 @@ demo_age_ema_alpha: 0.20
 
 # Minimum model confidence to accept a demographic prediction
 # Higher = reject noisy detections. Range: 0.1-0.5.
-# Stage 3: 0.40 → 0.35 — more signal from distant/profile faces
-demo_min_confidence: 0.45
+# Stage 6: 0.45 → 0.30 — accept more samples per face; lock mechanism + temporal
+# voting filter out the bad ones, but we can't vote on samples we never see.
+demo_min_confidence: 0.30
 
 # Gender consensus threshold: fraction of weighted votes needed to assign gender
 # Higher = stronger agreement needed. Range: 0.55-0.85.
@@ -80,29 +82,33 @@ demo_gender_upper_band: 0.60
 demo_continuous_refinement: true
 
 # Performance: Face detection frequency (her kaç frame'de bir)
-# Stage 2: 3 → 2 — inference ceiling lifts from ~18-20 FPS to ~23-26 FPS on
-# RTX 5070, which combined with the 60 FPS smooth-mode overlay gives the
-# user "yağ gibi akıyor" without starving the demographics pipeline.
-face_detection_interval: 2
+# Stage 6: 4 → 3 — at interval=2 MiVOLO (~126ms) dominated the inference thread
+# and dragged FPS to ~7. At 3 we still refresh demographics every ~150ms
+# (plenty fast enough for gender lock at 6 votes) while keeping the pipeline
+# around 13-15 FPS. Display smoothness comes from MJPEG smooth mode serving
+# raw frames at ~60 FPS independent of inference cadence.
+face_detection_interval: 3
 
 # Gender lock: once gender has N consecutive same-gender high-confidence votes, lock it
 # Stage 3: 8 → 6 — lock faster once signal is consistent, reduces flip-flop window
 demo_gender_lock_threshold: 6
 
 # Performance: Demografi minimum bbox boyutları (pixels)
-# ivCam kalitesi arttığı için daha küçük kişileri de işliyoruz
-demo_min_bbox_width: 25
-demo_min_bbox_height: 40
-demo_min_crop_height: 30
-demo_min_crop_width: 20
+# Stage 6: lowered to capture demographics on distant/seated people who sit
+# further from the camera and produce smaller face bboxes.
+demo_min_bbox_width: 18
+demo_min_bbox_height: 28
+demo_min_crop_height: 22
+demo_min_crop_width: 14
 
 # Queue analytics
 queue_alert_threshold: 5
 queue_wait_time_window: 300
 
 # Zone entry/exit debounce (frame count)
-# Stage 4: stricter debounce so brief bbox flicker doesn't re-enter/exit zones
-zone_enter_debounce_frames: 5
+# Stage 6: enter 5 → 3 so sitting occupants commit faster; exit stays 10 to avoid
+# flip-flop when a waiter walks in front of a seated person for half a second.
+zone_enter_debounce_frames: 3
 zone_exit_debounce_frames: 10
 
 # Stage 4: occlusion grace — how long a track can be "stale" before its zone

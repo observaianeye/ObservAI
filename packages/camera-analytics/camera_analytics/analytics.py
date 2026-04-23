@@ -831,43 +831,20 @@ class CameraAnalyticsEngine:
     return snapshots
 
   def get_smooth_frame(self, now: Optional[float] = None) -> Optional[np.ndarray]:
-    """Render the latest raw frame with interpolated bboxes overlaid.
+    """Return the latest raw frame at display rate (up to 60 FPS).
 
-    Called by the MJPEG /smooth handler at display rate (up to 60 FPS) so the
-    video stays fluid even when inference runs at 20–25 FPS. Tracks are taken
-    from `get_interpolated_tracks`, which frees us from the inference cadence.
+    The inference-mode MJPEG caps frame delivery at inference cadence (~20-25
+    FPS) because it waits for annotated frames. Smooth mode sidesteps that by
+    serving the raw capture buffer directly so the video stays fluid.
+
+    Bbox overlays are intentionally NOT drawn here — the frontend canvas
+    renders them from the Socket.IO `tracks` stream, which keeps the single
+    source of truth for labels (gender, age bucket, dwell time) on the client
+    and avoids doubled/mismatched overlays.
     """
     if now is None:
       now = time.time()
-    frame = self.get_latest_raw_frame_safe()
-    if frame is None:
-      return None
-    tracks = self.get_interpolated_tracks(now)
-    if not tracks:
-      return frame
-    fh, fw = frame.shape[:2]
-    for t in tracks:
-      bx1, by1, bx2, by2 = t["bbox_norm"]
-      p1 = (int(bx1 * fw), int(by1 * fh))
-      p2 = (int(bx2 * fw), int(by2 * fh))
-      color = (0, 255, 0) if t["inside"] else (0, 0, 255)
-      cv2.rectangle(frame, p1, p2, color, 2)
-      label_bits = [f"#{t['track_id']}"]
-      if t["gender"] and t["gender"] != "unknown":
-        g = "M" if t["gender"] == "male" else "F"
-        if t["age"]:
-          label_bits.append(f"{g} {int(t['age'])}y")
-        else:
-          label_bits.append(g)
-      elif t["age"]:
-        label_bits.append(f"{int(t['age'])}y")
-      label = " | ".join(label_bits)
-      (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-      ly = max(th + 4, p1[1] - 6)
-      cv2.rectangle(frame, (p1[0], ly - th - 4), (p1[0] + tw + 6, ly + 2), (20, 20, 40), -1)
-      cv2.putText(frame, label, (p1[0] + 3, ly - 2),
-                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-    return frame
+    return self.get_latest_raw_frame_safe()
 
   def get_snapshot(self) -> Optional[str]:
     """Capture a single frame and return as base64 string (thread-safe)"""
@@ -2575,8 +2552,16 @@ class CameraAnalyticsEngine:
     enter_frames = getattr(self.config, 'zone_enter_debounce_frames', 3)
     exit_frames = getattr(self.config, 'zone_exit_debounce_frames', 5)
 
+    # Table zones sit at table-surface height; a seated person's bbox center is
+    # around chest level, well above that surface. Test with the bbox bottom
+    # (feet / lower body) so sitting occupants map inside the zone instead of
+    # drifting above it. Non-table zones keep using bbox center.
+    x1_n, y1_n, x2_n, y2_n = person.bbox_norm
+    foot_point = ((x1_n + x2_n) / 2.0, y2_n)
+
     for zone_id, zone in self.zone_definitions.items():
-      inside_zone = point_in_polygon(person.center_norm, zone.polygon)
+      test_point = foot_point if zone_id in self.table_ids else person.center_norm
+      inside_zone = point_in_polygon(test_point, zone.polygon)
       is_active = zone_id in person.active_zones
 
       if inside_zone:
