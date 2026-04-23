@@ -31,6 +31,10 @@ interface IPCamera {
   type: 'rtsp' | 'http';
 }
 
+// Set after the user explicitly starts a source; consulted on remount to decide
+// whether to auto-restore the stream subscription after navigation.
+const STREAMING_ACTIVE_KEY = 'cameraStreamingActive';
+
 export default function CameraFeed() {
   const { dataMode } = useDataMode();
   const { t } = useLanguage();
@@ -200,6 +204,49 @@ export default function CameraFeed() {
       setBackendConnected(false);
     }
   }, [dataMode]);
+
+  // Mirror `isStreaming` into a persistent flag whenever we reach an active
+  // live-mode stream. Used by the remount-restore effect below to distinguish
+  // "user already started a source" from a fresh explicit-start.
+  useEffect(() => {
+    if (dataMode === 'live' && isStreaming) {
+      localStorage.setItem(STREAMING_ACTIVE_KEY, '1');
+    }
+  }, [dataMode, isStreaming]);
+
+  // Restore streaming state after route change / remount. The user already clicked
+  // a source earlier (flag persisted in localStorage); Python runs as a separate
+  // process so it's still alive. We just re-subscribe to its Socket.IO + MJPEG
+  // streams by flipping `isStreaming` back to true. Guarded on a Python health
+  // probe so stale flags (Python killed between sessions) don't trigger false
+  // "connecting" states.
+  useEffect(() => {
+    if (dataMode !== 'live') return;
+    if (isStreaming) return;
+    if (localStorage.getItem(STREAMING_ACTIVE_KEY) !== '1') return;
+
+    let cancelled = false;
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/python-backend/health`, { credentials: 'include' });
+        const body = await res.json().catch(() => null);
+        const alive = body?.status && body.status !== 'unreachable';
+        if (cancelled) return;
+        if (alive) {
+          console.log('[CameraFeed] Restoring stream after remount');
+          setIsStreaming(true);
+        } else {
+          localStorage.removeItem(STREAMING_ACTIVE_KEY);
+        }
+      } catch {
+        // API unreachable — leave flag alone so next mount can retry
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [dataMode, isStreaming]);
 
   // REMOVED: Initialize camera useEffect was causing race conditions
   // Camera initialization is now exclusively handled by handleSourceChange
@@ -715,6 +762,7 @@ export default function CameraFeed() {
     setIsStreaming(false);
     setDetections([]);
     setBackendConnected(false);
+    localStorage.removeItem(STREAMING_ACTIVE_KEY);
   }, [stream]);
 
   const handleSourceChange = useCallback(async (type: CameraSource, config?: Partial<CameraSourceConfig>) => {
