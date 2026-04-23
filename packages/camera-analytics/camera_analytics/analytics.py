@@ -3106,6 +3106,7 @@ class CameraAnalyticsEngine:
     cleaning_threshold = self.config.table_cleaning_empty_threshold
     auto_empty = self.config.table_auto_empty_timeout
     transit_grace = self.config.table_transit_grace
+    confirm_duration = getattr(self.config, 'table_occupied_confirm_duration', 5.0)
 
     for table_id in self.table_ids:
       if table_id not in self.zone_definitions:
@@ -3116,12 +3117,18 @@ class CameraAnalyticsEngine:
       if occupants > 0:
         # Someone at the table
         if status == "empty" or status == "needs_cleaning":
-          # Transition → occupied
-          self.table_status[table_id] = "occupied"
-          self.table_occupy_start[table_id] = now
-          self.table_left_at.pop(table_id, None)
-          self.table_cleaning_since.pop(table_id, None)
-          self.table_transit_empty_since.pop(table_id, None)
+          # Provisionally note when the would-be occupancy started so we can
+          # debounce the empty→occupied flip. Stays in empty/needs_cleaning
+          # until sustained `confirm_duration` seconds of occupants > 0.
+          if table_id not in self.table_occupy_start:
+            self.table_occupy_start[table_id] = now
+          elapsed = now - self.table_occupy_start[table_id]
+          if elapsed >= confirm_duration:
+            self.table_status[table_id] = "occupied"
+            self.table_left_at.pop(table_id, None)
+            self.table_cleaning_since.pop(table_id, None)
+            self.table_transit_empty_since.pop(table_id, None)
+          # else: still empty/needs_cleaning; confirm timer keeps running
         else:
           # Still occupied — clear any transit-empty flag
           self.table_transit_empty_since.pop(table_id, None)
@@ -3129,7 +3136,13 @@ class CameraAnalyticsEngine:
           if table_id not in self.table_occupy_start:
             self.table_occupy_start[table_id] = now
       else:
-        # No occupants
+        # No occupants — if we were mid-confirm (empty/needs_cleaning with a
+        # provisional occupy_start), scrub it so a single flicker doesn't
+        # accumulate toward the confirm_duration threshold over multiple
+        # passers-by.
+        if status != "occupied" and table_id in self.table_occupy_start:
+          self.table_occupy_start.pop(table_id, None)
+
         if status == "occupied":
           # Just became empty during an occupancy — start transit buffer
           if table_id not in self.table_transit_empty_since:

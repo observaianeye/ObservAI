@@ -171,3 +171,7 @@ table_cleaning_empty_threshold: 120.0
 table_auto_empty_timeout: 900.0
 # Dolu masada kısa (sandalye değişimi, tuvalet) boş kalış tolerensı — bu süreden kısa ise occupied kalır
 table_transit_grace: 10.0
+# Stage 6: empty → occupied için gerekli sürekli algılama süresi (saniye).
+# Masanın yanından geçen biri anında "dolu" yapmasın; gerçekten oturdu mu
+# diye bekle. Kullanıcı "belli bir süredir birisi algılanıyorsa dolu de" dedi.
+table_occupied_confirm_duration: 5.0

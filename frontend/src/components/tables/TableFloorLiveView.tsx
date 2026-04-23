@@ -33,25 +33,29 @@ const NODE_API =
   (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3001';
 
 type Status = TableData['status'];
+// Simplified display: only "occupied" shows as Dolu. needs_cleaning + empty
+// collapse to Boş because users asked for a strict two-state view on this
+// floor plan. The underlying Python state machine still tracks cleaning —
+// it's just not surfaced here.
 const STATUS_FILL: Record<Status, string> = {
   empty: 'rgba(34,197,94,0.18)',
   occupied: 'rgba(29,107,255,0.22)',
-  needs_cleaning: 'rgba(234,179,8,0.22)',
+  needs_cleaning: 'rgba(34,197,94,0.18)',
 };
 const STATUS_STROKE: Record<Status, string> = {
   empty: 'rgba(34,197,94,0.8)',
   occupied: 'rgba(29,107,255,0.9)',
-  needs_cleaning: 'rgba(234,179,8,0.9)',
+  needs_cleaning: 'rgba(34,197,94,0.8)',
 };
 const STATUS_LABEL_TR: Record<Status, string> = {
   empty: 'Bos',
   occupied: 'Dolu',
-  needs_cleaning: 'Temizlik',
+  needs_cleaning: 'Bos',
 };
 const STATUS_LABEL_EN: Record<Status, string> = {
   empty: 'Free',
   occupied: 'Busy',
-  needs_cleaning: 'Cleaning',
+  needs_cleaning: 'Free',
 };
 
 export default function TableFloorLiveView({ cameraId, tables, zones, latest, connected }: Props) {
@@ -273,12 +277,6 @@ export default function TableFloorLiveView({ cameraId, tables, zones, latest, co
                   <span>{label}</span>
                   <span className="text-white/60">·</span>
                   <span>{statusText}</span>
-                  {t.status === 'occupied' && (
-                    <>
-                      <span className="text-white/60">·</span>
-                      <span>{t.currentOccupants}</span>
-                    </>
-                  )}
                 </div>
               );
             })}
@@ -303,10 +301,6 @@ export default function TableFloorLiveView({ cameraId, tables, zones, latest, co
           <span className="inline-flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full" style={{ background: STATUS_STROKE.occupied }} />
             {lang === 'tr' ? 'Dolu' : 'Occupied'}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full" style={{ background: STATUS_STROKE.needs_cleaning }} />
-            {lang === 'tr' ? 'Temizlik' : 'Cleaning'}
           </span>
           <span className="ml-auto text-ink-4">
             {tableZones.length

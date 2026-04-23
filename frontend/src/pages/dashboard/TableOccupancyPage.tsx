@@ -49,14 +49,17 @@ const STATUS_STYLES: Record<TableStatus, {
     glow: 'shadow-[0_0_28px_-6px_rgba(29,107,255,0.55)]',
     legendKey: 'tables.legend.occupied',
   },
+  // Simplified display: needs_cleaning shares empty's "Boş" styling on this
+  // view so the floor plan is strictly two-state (Dolu / Boş) per user
+  // requirement. The detail panel still surfaces cleaning workflow actions.
   needs_cleaning: {
-    fill: 'bg-warning-500/15',
-    stroke: 'border-warning-500/50',
-    ring: 'ring-warning-500/40',
-    text: 'text-warning-300',
-    dot: 'bg-warning-400',
-    glow: 'shadow-[0_0_24px_-6px_rgba(234,179,8,0.45)]',
-    legendKey: 'tables.legend.cleaning',
+    fill: 'bg-success-500/15',
+    stroke: 'border-success-500/40',
+    ring: 'ring-success-500/30',
+    text: 'text-success-300',
+    dot: 'bg-success-400',
+    glow: 'shadow-[0_0_24px_-6px_rgba(34,197,94,0.45)]',
+    legendKey: 'tables.legend.empty',
   },
   reserved: {
     fill: 'bg-violet-500/15',
@@ -499,32 +502,21 @@ export default function TableOccupancyPage() {
                       height: `${tbl.height * 100}%`,
                     }}
                   >
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <span className={`w-1.5 h-1.5 rounded-full ${style.dot} ${tbl.status === 'needs_cleaning' ? 'animate-pulse' : ''}`} />
+                    <div className="flex items-center gap-1">
+                      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
                       <span className="text-[11px] font-bold text-ink-1 truncate">
                         {tbl.name || `T${tbl.id.slice(-2)}`}
                       </span>
                     </div>
-                    {tbl.status === 'occupied' && (
-                      <div className="flex items-center gap-1 text-[10px] text-ink-2">
-                        <Users className="w-2.5 h-2.5" />
-                        <span>{tbl.currentOccupants}</span>
-                        <span className="text-ink-4">·</span>
-                        <span>{formatDuration(tbl.occupancyDuration)}</span>
-                      </div>
-                    )}
-                    {tbl.status === 'needs_cleaning' && (
-                      <span className="text-[9px] uppercase tracking-wide text-warning-300">{t('tables.legend.cleaning')}</span>
-                    )}
                   </motion.button>
                 );
               })}
             </div>
           )}
 
-          {/* Legend */}
+          {/* Legend — strict two-state (Dolu/Boş) per user request */}
           <div className="mt-4 flex flex-wrap items-center gap-3 text-[11px]">
-            {(['empty', 'occupied', 'needs_cleaning', 'reserved'] as TableStatus[]).map(s => (
+            {(['empty', 'occupied'] as TableStatus[]).map(s => (
               <div key={s} className="flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full ${STATUS_STYLES[s].dot}`} />
                 <span className="text-ink-3">{t(STATUS_STYLES[s].legendKey)}</span>

@@ -101,6 +101,11 @@ class AnalyticsConfig:
   table_cleaning_empty_threshold: float = 120.0  # Seconds of empty after occupancy → mark needs_cleaning (user's "2 min" rule)
   table_auto_empty_timeout: float = 900.0      # Auto-transition needs_cleaning → empty after 15 min (staff forgot)
   table_transit_grace: float = 10.0            # <N seconds empty during occupancy = ignore (chair shuffle, bathroom trip)
+  # Stage 6: seconds of sustained occupants required before flipping empty→occupied.
+  # Prevents a person walking past / briefly leaning over a table from being
+  # instantly counted as seated. User requested explicit debounce on the status
+  # flip so the floor plan doesn't flicker on transient detections.
+  table_occupied_confirm_duration: float = 5.0
 
   # Post-NMS overlap filtering
   post_nms_containment_thresh: float = 0.70  # Suppress nested bbox if containment > this
