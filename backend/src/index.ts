@@ -28,7 +28,6 @@ import staffingRouter from './routes/staffing';
 import staffRouter from './routes/staff';
 import staffAssignmentsRouter from './routes/staff-assignments';
 import tablesRouter from './routes/tables';
-import telegramWebhookRouter from './routes/telegram-webhook';
 import { pythonBackendManager } from './lib/pythonBackendManager';
 import { getKafkaConsumer } from './lib/kafkaConsumer';
 import { startAnalyticsAggregator, stopAnalyticsAggregator } from './services/analyticsAggregator';
@@ -81,7 +80,6 @@ app.use('/api/staffing', staffingRouter);
 app.use('/api/staff', staffRouter);
 app.use('/api/staff-assignments', staffAssignmentsRouter);
 app.use('/api/tables', tablesRouter);
-app.use('/api/webhooks', telegramWebhookRouter);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

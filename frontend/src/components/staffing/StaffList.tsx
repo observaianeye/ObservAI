@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Pencil, Trash2, Send, MessageSquare, Mail, UserCheck, UserX, QrCode } from 'lucide-react';
+import { Pencil, Trash2, Send, Mail, UserCheck, UserX } from 'lucide-react';
 import type { StaffRecord } from './StaffForm';
 
 interface Props {
@@ -7,15 +7,14 @@ interface Props {
   loading: boolean;
   onEdit: (s: StaffRecord) => void;
   onDelete: (id: string) => void;
-  onSendTest: (s: StaffRecord, mode: 'telegram' | 'email' | 'both') => void;
-  onLinkTelegram: (s: StaffRecord) => void;
+  onSendTest: (s: StaffRecord) => void;
 }
 
 const ROLE_LABEL: Record<string, string> = {
   server: 'Garson', chef: 'Asci', cashier: 'Kasiyer', host: 'Karsilayici', manager: 'Yonetici',
 };
 
-export function StaffList({ staff, loading, onEdit, onDelete, onSendTest, onLinkTelegram }: Props) {
+export function StaffList({ staff, loading, onEdit, onDelete, onSendTest }: Props) {
   if (loading) {
     return (
       <div className="text-center py-10">
@@ -73,10 +72,10 @@ export function StaffList({ staff, loading, onEdit, onDelete, onSendTest, onLink
             </div>
 
             <div className="space-y-1 text-xs text-ink-3 mb-4">
-              {s.email && <div className="flex items-center gap-1.5 truncate"><Mail className="w-3 h-3 text-ink-4" /> {s.email}</div>}
-              {s.telegramChatId && <div className="flex items-center gap-1.5 font-mono"><MessageSquare className="w-3 h-3 text-ink-4" /> {s.telegramChatId}</div>}
-              {!s.email && !s.telegramChatId && (
-                <div className="text-warning-300 text-[11px]">Iletisim bilgisi eksik</div>
+              {s.email ? (
+                <div className="flex items-center gap-1.5 truncate"><Mail className="w-3 h-3 text-ink-4" /> {s.email}</div>
+              ) : (
+                <div className="text-warning-300 text-[11px]">E-posta adresi eksik — vardiya bildirimi gonderilemez</div>
               )}
             </div>
 
@@ -88,19 +87,10 @@ export function StaffList({ staff, loading, onEdit, onDelete, onSendTest, onLink
                 <Pencil className="w-3.5 h-3.5" strokeWidth={1.5} />
                 Duzenle
               </button>
-              {!s.telegramChatId && (
+              {s.email && (
                 <button
-                  onClick={() => onLinkTelegram(s)}
-                  title="Telegram bagla (QR)"
-                  className="px-3 py-1.5 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-200 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <QrCode className="w-3.5 h-3.5" strokeWidth={1.5} />
-                </button>
-              )}
-              {(s.telegramChatId || s.email) && (
-                <button
-                  onClick={() => onSendTest(s, 'both')}
-                  title="Test bildirimi gonder"
+                  onClick={() => onSendTest(s)}
+                  title="Test e-posta gonder"
                   className="px-3 py-1.5 bg-brand-500/15 hover:bg-brand-500/25 border border-brand-500/30 text-brand-200 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
                 >
                   <Send className="w-3.5 h-3.5" strokeWidth={1.5} />

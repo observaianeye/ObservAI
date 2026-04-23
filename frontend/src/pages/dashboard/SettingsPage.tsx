@@ -3,7 +3,7 @@ import {
   Camera, Bell, Globe, Shield, User, Save, RotateCcw,
   Monitor, Wifi, AlertTriangle,
   CheckCircle, ChevronDown, ChevronUp, Sun, Moon,
-  Send, Mail, MessageSquare, Building2
+  Send, Mail, Building2
 } from 'lucide-react';
 import { useDataMode } from '../../contexts/DataModeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -318,18 +318,14 @@ export default function SettingsPage() {
 
   // Notification channels state (synced with backend)
   const [channels, setChannels] = useState({
-    telegramChatId: '',
-    telegramNotifications: false,
     emailNotifications: true,
     notifySeverity: 'high' as string,
     dailySummaryEnabled: false,
     dailySummaryTime: '09:00',
   });
   const [channelStatus, setChannelStatus] = useState<{
-    telegram: { configured: boolean; botValid: boolean; botName: string | null };
     email: { configured: boolean; connected: boolean };
   } | null>(null);
-  const [testingTelegram, setTestingTelegram] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
 
   // Track changes
@@ -357,8 +353,6 @@ export default function SettingsPage() {
         if (settingsRes.ok) {
           const data = await settingsRes.json();
           setChannels({
-            telegramChatId: data.telegramChatId || '',
-            telegramNotifications: data.telegramNotifications ?? false,
             emailNotifications: data.emailNotifications ?? true,
             notifySeverity: data.notifySeverity || 'high',
             dailySummaryEnabled: data.dailySummaryEnabled ?? false,
@@ -419,8 +413,6 @@ export default function SettingsPage() {
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
-            telegramChatId: channels.telegramChatId || null,
-            telegramNotifications: channels.telegramNotifications,
             emailNotifications: channels.emailNotifications,
             notifySeverity: channels.notifySeverity,
             dailySummaryEnabled: channels.dailySummaryEnabled,
@@ -783,58 +775,6 @@ export default function SettingsPage() {
                 <option value="high">{t('settings.channels.severity.high')}</option>
                 <option value="critical">{t('settings.channels.severity.critical')}</option>
               </select>
-            </div>
-
-            <div className="surface-card p-4 mb-3">
-              <div className="flex items-center gap-2 mb-3">
-                <MessageSquare className="w-4 h-4 text-brand-300" />
-                <span className="text-sm font-medium text-ink-0">{t('settings.channels.telegram')}</span>
-                {channelStatus?.telegram.botValid && (
-                  <span className="text-xs text-success-400 ml-auto font-mono">@{channelStatus.telegram.botName}</span>
-                )}
-                {channelStatus && !channelStatus.telegram.configured && (
-                  <span className="text-xs text-ink-4 ml-auto">{t('settings.channels.tgNotSet')}</span>
-                )}
-              </div>
-              <Toggle
-                label={t('settings.channels.tgEnabled')}
-                description={t('settings.channels.tgDesc')}
-                checked={channels.telegramNotifications}
-                onChange={(v) => setChannels(prev => ({ ...prev, telegramNotifications: v }))}
-              />
-              {channels.telegramNotifications && (
-                <div className="mt-2">
-                  <label className="block text-xs text-ink-3 mb-1">{t('settings.channels.tgChatId')}</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={channels.telegramChatId}
-                      onChange={(e) => setChannels(prev => ({ ...prev, telegramChatId: e.target.value }))}
-                      placeholder={t('settings.channels.tgPlaceholder')}
-                      className="flex-1 px-3 py-2 border border-white/[0.08] bg-surface-2/60 text-ink-0 rounded-lg text-sm focus:ring-2 focus:ring-brand-500/30 placeholder-ink-4"
-                    />
-                    <button
-                      onClick={async () => {
-                        setTestingTelegram(true);
-                        try {
-                          const res = await fetch(`${API_URL}/api/notifications/test/telegram`, {
-                            method: 'POST', credentials: 'include',
-                          });
-                          const data = await res.json();
-                          showToast(data.success ? 'success' : 'error', data.success ? t('settings.channels.testSent') : (data.error || t('settings.channels.testFailed')));
-                        } catch { showToast('error', t('settings.channels.connectError')); }
-                        setTestingTelegram(false);
-                      }}
-                      disabled={!channels.telegramChatId || testingTelegram}
-                      className="px-3 py-2 bg-brand-500 text-white rounded-lg text-xs font-semibold hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-                    >
-                      <Send className="w-3 h-3" />
-                      {testingTelegram ? '...' : t('settings.channels.test')}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-ink-4 mt-1">{t('settings.channels.tgBotHint')}</p>
-                </div>
-              )}
             </div>
 
             <div className="surface-card p-4 mb-3">

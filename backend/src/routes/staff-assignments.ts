@@ -2,8 +2,8 @@
  * Staff shift assignment routes.
  *
  * Each assignment pairs a Staff member with a specific date + shift window.
- * When created (or explicitly re-notified), we dispatch Telegram + Email
- * notifications with accept/decline links.
+ * When created (or explicitly re-notified), we dispatch an email with
+ * accept/decline links. Telegram was removed — email is the only channel.
  */
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
@@ -27,9 +27,8 @@ const CreateAssignmentBody = z.object({
   notifyNow: z.boolean().optional(),
 });
 
-const NotifyBody = z.object({
-  mode: z.enum(['telegram', 'email', 'both']).default('both'),
-});
+// Kept as an empty object so older clients that still POST a body don't 400.
+const NotifyBody = z.object({}).passthrough();
 
 /**
  * GET /api/staff-assignments
@@ -126,7 +125,7 @@ router.post('/:id/notify', authenticate, async (req: Request, res: Response) => 
   });
   if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
 
-  const result = await notifyStaffShift(assignment.id, { mode: parsed.data.mode });
+  const result = await notifyStaffShift(assignment.id);
   return res.json({ result });
 });
 

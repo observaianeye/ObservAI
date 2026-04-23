@@ -1,25 +1,15 @@
-import { Mail, MessageSquare, Check, AlertCircle } from 'lucide-react';
+import { Mail, Check, AlertCircle } from 'lucide-react';
 
 interface Props {
-  telegram?: boolean;
   email?: boolean;
   notifiedAt?: string | null;
   compact?: boolean;
 }
 
-export function NotificationStatusBadge({ telegram, email, notifiedAt, compact }: Props) {
-  const any = telegram || email;
+export function NotificationStatusBadge({ email, notifiedAt, compact }: Props) {
   if (compact) {
     return (
       <div className="flex items-center gap-1 text-[10px]">
-        <span
-          className={`inline-flex items-center justify-center w-5 h-5 rounded-full border ${
-            telegram ? 'bg-success-500/15 border-success-500/40 text-success-300' : 'bg-white/[0.03] border-white/[0.08] text-ink-4'
-          }`}
-          title={telegram ? 'Telegram gonderildi' : 'Telegram gonderilmedi'}
-        >
-          <MessageSquare className="w-2.5 h-2.5" />
-        </span>
         <span
           className={`inline-flex items-center justify-center w-5 h-5 rounded-full border ${
             email ? 'bg-success-500/15 border-success-500/40 text-success-300' : 'bg-white/[0.03] border-white/[0.08] text-ink-4'
@@ -33,14 +23,13 @@ export function NotificationStatusBadge({ telegram, email, notifiedAt, compact }
   }
   return (
     <div className="flex items-center gap-2 text-xs text-ink-3">
-      <ChannelChip on={!!telegram} icon={MessageSquare} label="Telegram" />
       <ChannelChip on={!!email} icon={Mail} label="Email" />
-      {notifiedAt && any && (
+      {notifiedAt && email && (
         <span className="text-ink-4 text-[10px]">
           · {new Date(notifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
       )}
-      {!any && <span className="text-warning-300 text-[10px] inline-flex items-center gap-1"><AlertCircle className="w-3 h-3" /> henuz gonderilmedi</span>}
+      {!email && <span className="text-warning-300 text-[10px] inline-flex items-center gap-1"><AlertCircle className="w-3 h-3" /> henuz gonderilmedi</span>}
     </div>
   );
 }

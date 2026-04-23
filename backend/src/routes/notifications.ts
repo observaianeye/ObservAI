@@ -1,24 +1,21 @@
 /**
  * Notification Settings & Channels API Routes
  *
- * Endpoints for managing user notification preferences (Telegram, Email, quiet hours).
+ * Email-only. Endpoints for managing user notification preferences
+ * and probing SMTP status. Telegram was removed per product decision.
  *
  * Routes:
  *   GET    /api/notifications/settings          - Get current user's notification settings
  *   PUT    /api/notifications/settings          - Update notification settings
- *   POST   /api/notifications/test/telegram     - Send test Telegram message
  *   POST   /api/notifications/test/email        - Send test email
- *   GET    /api/notifications/channels/status   - Check Telegram bot + SMTP status
+ *   GET    /api/notifications/channels/status   - Check SMTP status
+ *   POST   /api/notifications/test-staff        - Send a staff shift notification via email
+ *   GET    /api/notifications/summary           - KPI feed of sent notifications
  */
 
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
-import {
-  sendTelegramTest,
-  verifyTelegramBot,
-  sendStaffAssignmentTelegram,
-} from '../services/telegramService';
 import {
   verifySmtp,
   sendAlertEmail,
@@ -31,8 +28,6 @@ const router = Router();
 // ─── Validation ─────────────────────────────────────────────────────────────
 
 const UpdateSettingsSchema = z.object({
-  telegramChatId: z.string().nullable().optional(),
-  telegramNotifications: z.boolean().optional(),
   emailNotifications: z.boolean().optional(),
   notifySeverity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   quietHoursEnabled: z.boolean().optional(),
@@ -72,8 +67,6 @@ router.get('/settings', async (req: Request, res: Response) => {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        telegramChatId: true,
-        telegramNotifications: true,
         emailNotifications: true,
         notifySeverity: true,
         quietHoursEnabled: true,
@@ -110,8 +103,6 @@ router.put('/settings', async (req: Request, res: Response) => {
     const updated = await prisma.user.update({
       where: { id: userId },
       data: {
-        ...(data.telegramChatId !== undefined && { telegramChatId: data.telegramChatId }),
-        ...(data.telegramNotifications !== undefined && { telegramNotifications: data.telegramNotifications }),
         ...(data.emailNotifications !== undefined && { emailNotifications: data.emailNotifications }),
         ...(data.notifySeverity !== undefined && { notifySeverity: data.notifySeverity }),
         ...(data.quietHoursEnabled !== undefined && { quietHoursEnabled: data.quietHoursEnabled }),
@@ -121,8 +112,6 @@ router.put('/settings', async (req: Request, res: Response) => {
         ...(data.dailySummaryTime !== undefined && { dailySummaryTime: data.dailySummaryTime }),
       },
       select: {
-        telegramChatId: true,
-        telegramNotifications: true,
         emailNotifications: true,
         notifySeverity: true,
         quietHoursEnabled: true,
@@ -140,32 +129,6 @@ router.put('/settings', async (req: Request, res: Response) => {
     }
     console.error('[Notifications] Settings update error:', error);
     res.status(500).json({ error: 'Failed to update notification settings' });
-  }
-});
-
-// ─── POST /api/notifications/test/telegram ──────────────────────────────────
-
-router.post('/test/telegram', async (req: Request, res: Response) => {
-  try {
-    const userId = await getUserIdFromRequest(req);
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { telegramChatId: true },
-    });
-
-    if (!user?.telegramChatId) {
-      return res.status(400).json({ error: 'Telegram chat ID not configured' });
-    }
-
-    const result = await sendTelegramTest(user.telegramChatId);
-    res.json(result);
-  } catch (error) {
-    console.error('[Notifications] Telegram test error:', error);
-    res.status(500).json({ error: 'Failed to send test message' });
   }
 });
 
@@ -202,13 +165,11 @@ router.post('/test/email', async (req: Request, res: Response) => {
 });
 
 // ─── POST /api/notifications/test-staff ─────────────────────────────────────
-// Dispatch a staff shift notification via Telegram + Email. The audit log at
-// backend/logs/notification-dispatch.log records the delivery result so the
-// user can prove the system actually talks to Telegram/SMTP.
+// Dispatch a staff shift notification via email. The audit log at
+// backend/logs/notification-dispatch.log records the delivery result.
 
 const TestStaffSchema = z.object({
   staffId: z.string().uuid(),
-  mode: z.enum(['telegram', 'email', 'both']).default('both'),
   // Optional synthetic payload override — lets caller test without creating
   // a real StaffAssignment.
   preview: z.object({
@@ -235,7 +196,7 @@ router.post('/test-staff', async (req: Request, res: Response) => {
     if (parsed.preview) {
       const preview = parsed.preview;
       const fullName = `${staff.firstName} ${staff.lastName}`.trim();
-      const result: { telegram?: { sent: boolean; error?: string }; email?: { sent: boolean; error?: string } } = {};
+      const result: { email?: { sent: boolean; error?: string } } = {};
       const sharedPayload = {
         staffName: fullName,
         branchName: 'Test',
@@ -245,24 +206,7 @@ router.post('/test-staff', async (req: Request, res: Response) => {
         role: preview.role,
       };
 
-      if ((parsed.mode === 'telegram' || parsed.mode === 'both') && staff.telegramChatId) {
-        const tg = await sendStaffAssignmentTelegram(staff.telegramChatId, sharedPayload);
-        result.telegram = { sent: tg.success, error: tg.error };
-        await prisma.notificationLog.create({
-          data: {
-            userId,
-            staffId: staff.id,
-            event: 'test',
-            channel: 'telegram',
-            target: staff.telegramChatId,
-            success: tg.success,
-            error: tg.error ?? null,
-            payload: JSON.stringify(sharedPayload),
-          },
-        }).catch(() => {});
-      }
-
-      if ((parsed.mode === 'email' || parsed.mode === 'both') && staff.email) {
+      if (staff.email) {
         const em = await sendStaffShiftEmail(staff.email, sharedPayload);
         result.email = { sent: em.success, error: em.error };
         await prisma.notificationLog.create({
@@ -291,7 +235,7 @@ router.post('/test-staff', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'No assignment found for this staff — create one first' });
     }
 
-    const result = await notifyStaffShift(assignment.id, { mode: parsed.mode });
+    const result = await notifyStaffShift(assignment.id);
     return res.json({ assignmentId: assignment.id, result });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -303,9 +247,8 @@ router.post('/test-staff', async (req: Request, res: Response) => {
 });
 
 // ─── GET /api/notifications/summary ─────────────────────────────────────────
-// Authenticated KPI feed for the Staffing page. Reports how many notifications
-// actually left the server in the requested window, split by channel. The UI
-// "BILDIRIM GONDERILDI X/Y" badge reads from here instead of faking the count.
+// Authenticated KPI feed for the Staffing page. Reports how many emails
+// actually left the server in the requested window.
 
 router.get('/summary', async (req: Request, res: Response) => {
   try {
@@ -320,8 +263,6 @@ router.get('/summary', async (req: Request, res: Response) => {
       select: { channel: true, success: true, event: true, createdAt: true },
     });
 
-    const telegramSent = rows.filter((r) => r.channel === 'telegram' && r.success).length;
-    const telegramFailed = rows.filter((r) => r.channel === 'telegram' && !r.success).length;
     const emailSent = rows.filter((r) => r.channel === 'email' && r.success).length;
     const emailFailed = rows.filter((r) => r.channel === 'email' && !r.success).length;
 
@@ -329,9 +270,8 @@ router.get('/summary', async (req: Request, res: Response) => {
       windowDays,
       since: since.toISOString(),
       totals: {
-        telegram: { sent: telegramSent, failed: telegramFailed, total: telegramSent + telegramFailed },
         email: { sent: emailSent, failed: emailFailed, total: emailSent + emailFailed },
-        all: { sent: telegramSent + emailSent, attempted: rows.length },
+        all: { sent: emailSent, attempted: rows.length },
       },
     });
   } catch (error) {
@@ -342,19 +282,11 @@ router.get('/summary', async (req: Request, res: Response) => {
 
 // ─── GET /api/notifications/channels/status ─────────────────────────────────
 
-router.get('/channels/status', async (req: Request, res: Response) => {
+router.get('/channels/status', async (_req: Request, res: Response) => {
   try {
-    const [telegramBot, smtpStatus] = await Promise.all([
-      verifyTelegramBot(),
-      verifySmtp(),
-    ]);
+    const smtpStatus = await verifySmtp();
 
     res.json({
-      telegram: {
-        configured: !!process.env.TELEGRAM_BOT_TOKEN,
-        botValid: telegramBot.valid,
-        botName: telegramBot.botName || null,
-      },
       email: {
         configured: smtpStatus.configured,
         connected: smtpStatus.connected,

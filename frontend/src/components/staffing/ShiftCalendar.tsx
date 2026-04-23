@@ -14,7 +14,6 @@ export interface Assignment {
   shiftEnd: string;
   role?: string | null;
   status: string;
-  notifiedViaTelegram: boolean;
   notifiedViaEmail: boolean;
   notifiedAt?: string | null;
 }
@@ -154,7 +153,7 @@ export function ShiftCalendar({ staff, assignments, loading, branchId, weekStart
                       </div>
                       <div className="text-[10px] font-mono text-ink-2 mb-1">{a.shiftStart} – {a.shiftEnd}</div>
                       <div className="flex items-center justify-between">
-                        <NotificationStatusBadge telegram={a.notifiedViaTelegram} email={a.notifiedViaEmail} notifiedAt={a.notifiedAt} compact />
+                        <NotificationStatusBadge email={a.notifiedViaEmail} notifiedAt={a.notifiedAt} compact />
                         <StatusPill status={a.status} />
                       </div>
                     </motion.div>
@@ -304,7 +303,7 @@ function AssignmentForm({
           </div>
           <label className="flex items-center gap-2 text-xs text-ink-2 cursor-pointer">
             <input type="checkbox" checked={notifyNow} onChange={(e) => setNotifyNow(e.target.checked)} className="accent-brand-500" />
-            Telegram + email ile hemen bildir
+            E-posta ile hemen bildir
           </label>
 
           {err && (

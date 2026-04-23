@@ -1,10 +1,10 @@
 /**
  * Notification Dispatcher
  *
- * Orchestrates notification delivery across channels:
- *   - In-App: Always (saved to DB via insightEngine)
- *   - Telegram: severity >= user's notifySeverity threshold
- *   - Email: severity >= user's notifySeverity threshold (if emailNotifications enabled)
+ * Email-only dispatch. Telegram was removed per product decision — the
+ * in-app inbox stays as the always-on channel (saved to DB via
+ * insightEngine), and email is the single outbound channel for alerts
+ * and staff shift notifications.
  *
  * Respects quiet hours and rate limiting.
  */
@@ -12,7 +12,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { prisma } from '../lib/db';
-import { sendTelegramMessage, sendStaffAssignmentTelegram } from './telegramService';
 import { sendAlertEmail, sendStaffShiftEmail } from './emailService';
 
 // Append-only audit log for notification dispatches.
@@ -47,7 +46,7 @@ interface NotificationLogEntry {
   staffId?: string | null;
   assignmentId?: string | null;
   event: 'staff_shift' | 'alert' | 'test' | 'onboarding';
-  channel: 'telegram' | 'email';
+  channel: 'email';
   target?: string | null;
   success: boolean;
   messageId?: string | null;
@@ -58,8 +57,7 @@ interface NotificationLogEntry {
 /**
  * Persist a single notification attempt to the DB. Never throws — this must
  * never break the dispatch pipeline. The file log (writeAudit) remains the
- * belt, this is the suspenders: DB rows power the in-app KPI and feed the
- * StaffAssignment "notification count" UI.
+ * source of truth for debugging; the DB row is for the admin UI.
  */
 async function writeNotificationLog(entry: NotificationLogEntry): Promise<void> {
   try {
@@ -78,7 +76,7 @@ async function writeNotificationLog(entry: NotificationLogEntry): Promise<void> 
       },
     });
   } catch (err) {
-    console.error('[Dispatcher] NotificationLog insert failed:', err instanceof Error ? err.message : err);
+    console.error('[Dispatcher] notification log persist failed:', err instanceof Error ? err.message : err);
   }
 }
 
@@ -91,7 +89,6 @@ const SEVERITY_RANK: Record<string, number> = {
 };
 
 interface DispatchResult {
-  telegram: { sent: number; failed: number };
   email: { sent: number; failed: number };
 }
 
@@ -109,7 +106,6 @@ interface InsightPayload {
  */
 export async function dispatchNotification(insight: InsightPayload): Promise<DispatchResult> {
   const result: DispatchResult = {
-    telegram: { sent: 0, failed: 0 },
     email: { sent: 0, failed: 0 },
   };
 
@@ -126,8 +122,6 @@ export async function dispatchNotification(insight: InsightPayload): Promise<Dis
       select: {
         id: true,
         email: true,
-        telegramChatId: true,
-        telegramNotifications: true,
         emailNotifications: true,
         notifySeverity: true,
         quietHoursEnabled: true,
@@ -144,31 +138,6 @@ export async function dispatchNotification(insight: InsightPayload): Promise<Dis
       // Check quiet hours
       if (user.quietHoursEnabled && isInQuietHours(user.quietHoursStart, user.quietHoursEnd)) {
         continue;
-      }
-
-      // Telegram
-      if (user.telegramNotifications && user.telegramChatId) {
-        const tgResult = await sendTelegramMessage(
-          user.telegramChatId,
-          insight.title,
-          insight.message,
-          insight.severity,
-          insight.cameraName
-        );
-        if (tgResult.success) {
-          result.telegram.sent++;
-        } else {
-          result.telegram.failed++;
-        }
-        await writeNotificationLog({
-          userId: user.id,
-          event: 'alert',
-          channel: 'telegram',
-          target: user.telegramChatId,
-          success: tgResult.success,
-          error: tgResult.error,
-          payload: { title: insight.title, severity: insight.severity, cameraName: insight.cameraName },
-        });
       }
 
       // Email
@@ -200,10 +169,10 @@ export async function dispatchNotification(insight: InsightPayload): Promise<Dis
     console.error('[Dispatcher] Error dispatching notification:', err instanceof Error ? err.message : err);
   }
 
-  if (result.telegram.sent > 0 || result.email.sent > 0) {
+  if (result.email.sent > 0) {
     console.log(
       `[Dispatcher] ${insight.severity.toUpperCase()} "${insight.title}" → ` +
-      `Telegram: ${result.telegram.sent} sent, Email: ${result.email.sent} sent`
+      `Email: ${result.email.sent} sent`
     );
   }
 
@@ -215,14 +184,11 @@ export async function dispatchNotification(insight: InsightPayload): Promise<Dis
  */
 export async function dispatchBatch(insights: InsightPayload[]): Promise<DispatchResult> {
   const totals: DispatchResult = {
-    telegram: { sent: 0, failed: 0 },
     email: { sent: 0, failed: 0 },
   };
 
   for (const insight of insights) {
     const r = await dispatchNotification(insight);
-    totals.telegram.sent += r.telegram.sent;
-    totals.telegram.failed += r.telegram.failed;
     totals.email.sent += r.email.sent;
     totals.email.failed += r.email.failed;
   }
@@ -231,29 +197,25 @@ export async function dispatchBatch(insights: InsightPayload[]): Promise<Dispatc
 }
 
 interface StaffShiftDispatchResult {
-  telegram: { sent: boolean; error?: string };
   email: { sent: boolean; error?: string };
 }
 
 /**
- * Dispatch a staff shift assignment notification via Telegram + Email.
+ * Dispatch a staff shift assignment notification via email.
  *
  * The caller provides the assignment ID; this function loads the full record,
- * constructs the shareable accept/decline URLs, sends via both channels, and
- * persists the delivery status back to the assignment row.
+ * constructs the shareable accept/decline URLs, sends the email, and persists
+ * the delivery status back to the assignment row.
  */
 export async function notifyStaffShift(
   assignmentId: string,
   options: {
-    mode?: 'telegram' | 'email' | 'both';
     publicBaseUrl?: string; // e.g. "https://observai.local" — for accept/decline links
   } = {}
 ): Promise<StaffShiftDispatchResult> {
-  const mode = options.mode ?? 'both';
   const baseUrl = options.publicBaseUrl ?? process.env.PUBLIC_BASE_URL ?? 'http://localhost:3001';
 
   const result: StaffShiftDispatchResult = {
-    telegram: { sent: false },
     email: { sent: false },
   };
 
@@ -291,49 +253,7 @@ export async function notifyStaffShift(
     declineUrl,
   };
 
-  // Telegram delivery
-  if ((mode === 'telegram' || mode === 'both') && assignment.staff.telegramChatId) {
-    const tg = await sendStaffAssignmentTelegram(assignment.staff.telegramChatId, payload);
-    result.telegram = { sent: tg.success, error: tg.error };
-    writeAudit({
-      event: 'staff_shift',
-      channel: 'telegram',
-      assignmentId,
-      staffId: assignment.staff.id,
-      chatId: assignment.staff.telegramChatId,
-      success: tg.success,
-      error: tg.error,
-    });
-    await writeNotificationLog({
-      userId: assignment.staff.userId,
-      staffId: assignment.staff.id,
-      assignmentId,
-      event: 'staff_shift',
-      channel: 'telegram',
-      target: assignment.staff.telegramChatId,
-      success: tg.success,
-      error: tg.error,
-      payload,
-    });
-  } else if (mode === 'telegram' || mode === 'both') {
-    result.telegram.error = 'telegramChatId not set';
-    writeAudit({
-      event: 'staff_shift', channel: 'telegram', assignmentId, success: false,
-      error: 'telegramChatId not set',
-    });
-    await writeNotificationLog({
-      userId: assignment.staff.userId,
-      staffId: assignment.staff.id,
-      assignmentId,
-      event: 'staff_shift',
-      channel: 'telegram',
-      success: false,
-      error: 'telegramChatId not set',
-    });
-  }
-
-  // Email delivery
-  if ((mode === 'email' || mode === 'both') && assignment.staff.email) {
+  if (assignment.staff.email) {
     const em = await sendStaffShiftEmail(assignment.staff.email, payload);
     result.email = { sent: em.success, error: em.error };
     writeAudit({
@@ -356,7 +276,7 @@ export async function notifyStaffShift(
       error: em.error,
       payload,
     });
-  } else if (mode === 'email' || mode === 'both') {
+  } else {
     result.email.error = 'email not set';
     writeAudit({
       event: 'staff_shift', channel: 'email', assignmentId, success: false,
@@ -377,9 +297,8 @@ export async function notifyStaffShift(
   await prisma.staffAssignment.update({
     where: { id: assignmentId },
     data: {
-      notifiedViaTelegram: result.telegram.sent,
       notifiedViaEmail: result.email.sent,
-      notifiedAt: (result.telegram.sent || result.email.sent) ? new Date() : null,
+      notifiedAt: result.email.sent ? new Date() : null,
     },
   });
 
@@ -398,14 +317,12 @@ function isInQuietHours(start: string | null, end: string | null): boolean {
 
   const [sh, sm] = start.split(':').map(Number);
   const [eh, em] = end.split(':').map(Number);
-  const startMinutes = sh * 60 + sm;
-  const endMinutes = eh * 60 + em;
+  const startMin = sh * 60 + sm;
+  const endMin = eh * 60 + em;
 
-  if (startMinutes <= endMinutes) {
-    // Same day range: e.g. 09:00 - 17:00
-    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
-  } else {
-    // Overnight range: e.g. 22:00 - 08:00
-    return currentMinutes >= startMinutes || currentMinutes < endMinutes;
+  // Handle overnight quiet hours (e.g. 22:00 - 06:00)
+  if (startMin > endMin) {
+    return currentMinutes >= startMin || currentMinutes < endMin;
   }
+  return currentMinutes >= startMin && currentMinutes < endMin;
 }

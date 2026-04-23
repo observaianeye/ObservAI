@@ -987,7 +987,7 @@ export const STRINGS: Record<Lang, StringMap> = {
 
     'settings.channels.title': 'Bildirim Kanalları',
     'settings.channels.severity': 'Minimum Uyarı Önemi',
-    'settings.channels.severityDesc': 'Yalnızca bu seviyedeki uyarılar Telegram/E-posta gönderir',
+    'settings.channels.severityDesc': 'Yalnızca bu seviyedeki uyarılar e-posta gönderir',
     'settings.channels.severity.low': 'Düşük (tüm uyarılar)',
     'settings.channels.severity.medium': 'Orta+',
     'settings.channels.severity.high': 'Yüksek+ (önerilen)',
@@ -2448,7 +2448,7 @@ export const STRINGS: Record<Lang, StringMap> = {
 
     'settings.channels.title': 'Notification Channels',
     'settings.channels.severity': 'Minimum Alert Severity',
-    'settings.channels.severityDesc': 'Only alerts at or above this level trigger Telegram/Email',
+    'settings.channels.severityDesc': 'Only alerts at or above this level trigger email',
     'settings.channels.severity.low': 'Low (all alerts)',
     'settings.channels.severity.medium': 'Medium+',
     'settings.channels.severity.high': 'High+ (recommended)',

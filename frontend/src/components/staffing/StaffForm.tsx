@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Save, Mail, MessageSquare, Phone, User, Loader2 } from 'lucide-react';
+import { X, Save, Mail, Phone, User, Loader2 } from 'lucide-react';
 
 export interface StaffRecord {
   id: string;
@@ -8,7 +8,6 @@ export interface StaffRecord {
   lastName: string;
   email?: string | null;
   phone?: string | null;
-  telegramChatId?: string | null;
   role: string;
   isActive: boolean;
   branchId?: string | null;
@@ -35,7 +34,6 @@ export function StaffForm({ open, initial, branchId, onClose, onSubmit }: Props)
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [telegramChatId, setTelegramChatId] = useState('');
   const [role, setRole] = useState('server');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +44,6 @@ export function StaffForm({ open, initial, branchId, onClose, onSubmit }: Props)
       setLastName(initial?.lastName ?? '');
       setEmail(initial?.email ?? '');
       setPhone(initial?.phone ?? '');
-      setTelegramChatId(initial?.telegramChatId ?? '');
       setRole(initial?.role ?? 'server');
       setError(null);
     }
@@ -67,7 +64,6 @@ export function StaffForm({ open, initial, branchId, onClose, onSubmit }: Props)
         lastName: lastName.trim(),
         email: email.trim() || null,
         phone: phone.trim() || null,
-        telegramChatId: telegramChatId.trim() || null,
         role,
         branchId: branchId ?? undefined,
       });
@@ -152,20 +148,6 @@ export function StaffForm({ open, initial, branchId, onClose, onSubmit }: Props)
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="ayse@kafe.com"
                   className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-                />
-              </Field>
-
-              <Field
-                label="Telegram Chat ID (opsiyonel)"
-                icon={MessageSquare}
-                hint="Bos birakin; kaydettikten sonra personel listesinde QR kod ile otomatik baglayabilirsiniz."
-              >
-                <input
-                  type="text"
-                  value={telegramChatId}
-                  onChange={(e) => setTelegramChatId(e.target.value)}
-                  placeholder="QR ile otomatik gelir"
-                  className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40 font-mono text-sm"
                 />
               </Field>
 

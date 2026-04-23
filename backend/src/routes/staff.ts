@@ -1,21 +1,16 @@
 /**
  * Staff (personnel) CRUD routes.
  *
- * Staff records represent individual employees — their name, contact info, and
- * notification channels (telegram chat id, email). Shift assignments are
- * handled separately by staff-assignments.ts.
+ * Staff records represent individual employees — their name, contact info,
+ * and notification channel (email). Shift assignments are handled separately
+ * by staff-assignments.ts.
  */
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import crypto from 'node:crypto';
 import { prisma } from '../lib/db';
 import { authenticate } from '../middleware/authMiddleware';
 
 const router = Router();
-
-function makeOnboardingToken(): string {
-  return crypto.randomBytes(16).toString('hex');
-}
 
 const CreateStaffBody = z.object({
   branchId: z.string().optional(),
@@ -23,7 +18,6 @@ const CreateStaffBody = z.object({
   lastName: z.string().min(1).max(60),
   email: z.string().email().optional().or(z.literal('').transform(() => undefined)),
   phone: z.string().max(32).optional().or(z.literal('').transform(() => undefined)),
-  telegramChatId: z.string().max(64).optional().or(z.literal('').transform(() => undefined)),
   role: z.enum(['server', 'chef', 'cashier', 'host', 'manager']).optional(),
   isActive: z.boolean().optional(),
 });
@@ -64,10 +58,6 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid body', issues: parsed.error.issues });
   }
 
-  // Seed an onboarding token unless a chat_id was provided up front. The token
-  // powers the QR flow — once the staff member taps the deep link and Telegram
-  // webhook fires, we store the chat_id and null the token.
-  const chatId = parsed.data.telegramChatId ?? null;
   const created = await prisma.staff.create({
     data: {
       userId,
@@ -76,8 +66,6 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       lastName: parsed.data.lastName,
       email: parsed.data.email ?? null,
       phone: parsed.data.phone ?? null,
-      telegramChatId: chatId,
-      telegramOnboardingToken: chatId ? null : makeOnboardingToken(),
       role: parsed.data.role ?? 'server',
       isActive: parsed.data.isActive ?? true,
     },

@@ -6,7 +6,6 @@ import { useToast } from '../../contexts/ToastContext';
 import { StaffForm, type StaffRecord } from '../../components/staffing/StaffForm';
 import { StaffList } from '../../components/staffing/StaffList';
 import { ShiftCalendar, type Assignment } from '../../components/staffing/ShiftCalendar';
-import { TelegramLinkModal } from '../../components/staffing/TelegramLinkModal';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -47,12 +46,10 @@ export default function StaffingPage() {
   const [recSummary, setRecSummary] = useState<{ totalHoursOff?: number; efficiency?: number; message?: string } | null>(null);
   const [recLoading, setRecLoading] = useState(false);
   const [recMeta, setRecMeta] = useState<{ needsMoreData: boolean; daysCollected?: number; daysRemaining?: number; reason?: string }>({ needsMoreData: false });
-  const [notifSummary, setNotifSummary] = useState<{ telegramSent: number; emailSent: number; attempted: number }>({ telegramSent: 0, emailSent: 0, attempted: 0 });
+  const [notifSummary, setNotifSummary] = useState<{ emailSent: number; attempted: number }>({ emailSent: 0, attempted: 0 });
 
   const [branchId, setBranchId] = useState<string>('');
   const [cameraId, setCameraId] = useState<string>('');
-
-  const [tgLinkStaff, setTgLinkStaff] = useState<StaffRecord | null>(null);
 
   useEffect(() => {
     setBranchId(localStorage.getItem('selectedBranchId') || 'default');
@@ -105,7 +102,7 @@ export default function StaffingPage() {
     }
   };
 
-  const handleSendTest = async (s: StaffRecord, mode: 'telegram' | 'email' | 'both') => {
+  const handleSendTest = async (s: StaffRecord) => {
     try {
       const res = await fetch(`${API_URL}/api/notifications/test-staff`, {
         method: 'POST',
@@ -113,7 +110,6 @@ export default function StaffingPage() {
         credentials: 'include',
         body: JSON.stringify({
           staffId: s.id,
-          mode,
           preview: {
             date: new Date().toLocaleDateString('tr-TR'),
             shiftStart: '09:00',
@@ -127,12 +123,12 @@ export default function StaffingPage() {
         showToast('error', data.error || 'Test bildirimi basarisiz');
         return;
       }
-      const tg = data.result?.telegram;
       const em = data.result?.email;
-      const parts: string[] = [];
-      if (tg) parts.push(`Telegram: ${tg.sent ? 'OK' : `hata (${tg.error})`}`);
-      if (em) parts.push(`Email: ${em.sent ? 'OK' : `hata (${em.error})`}`);
-      showToast(parts.every((p) => p.includes('OK')) ? 'success' : 'warning', parts.join(' · ') || 'Bildirim gonderildi');
+      if (em?.sent) {
+        showToast('success', 'Test e-postasi gonderildi');
+      } else {
+        showToast('warning', `E-posta gonderilemedi: ${em?.error ?? 'bilinmeyen hata'}`);
+      }
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Network error');
     }
@@ -177,12 +173,10 @@ export default function StaffingPage() {
       throw new Error(data.error || 'Vardiya olusturulamadi');
     }
     const data = await res.json();
-    const tg = data.notification?.telegram;
     const em = data.notification?.email;
     if (payload.notifyNow) {
-      const ok = tg?.sent || em?.sent;
-      showToast(ok ? 'success' : 'warning',
-        ok ? 'Vardiya olusturuldu ve bildirim gonderildi' : `Vardiya olusturuldu (bildirim: ${tg?.error ?? em?.error ?? 'kanal eksik'})`);
+      showToast(em?.sent ? 'success' : 'warning',
+        em?.sent ? 'Vardiya olusturuldu ve e-posta gonderildi' : `Vardiya olusturuldu (e-posta: ${em?.error ?? 'adres eksik'})`);
     } else {
       showToast('success', 'Vardiya olusturuldu');
     }
@@ -203,12 +197,12 @@ export default function StaffingPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ mode: 'both' }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gonderilemedi');
-      const ok = data.result?.telegram?.sent || data.result?.email?.sent;
-      showToast(ok ? 'success' : 'warning', ok ? 'Bildirim yeniden gonderildi' : 'Hicbir kanal hazir degil');
+      const ok = data.result?.email?.sent;
+      showToast(ok ? 'success' : 'warning', ok ? 'E-posta yeniden gonderildi' : 'E-posta gonderilemedi');
       loadAssignments();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Network error');
@@ -257,7 +251,6 @@ export default function StaffingPage() {
       if (!res.ok) return;
       const data = await res.json();
       setNotifSummary({
-        telegramSent: data.totals?.telegram?.sent ?? 0,
         emailSent: data.totals?.email?.sent ?? 0,
         attempted: data.totals?.all?.attempted ?? 0,
       });
@@ -271,15 +264,14 @@ export default function StaffingPage() {
   // ── KPIs ─────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
     const active = staff.filter((s) => s.isActive).length;
-    const withTg = staff.filter((s) => s.isActive && s.telegramChatId).length;
+    const withEmail = staff.filter((s) => s.isActive && s.email).length;
     const thisWeek = assignments.length;
-    // Real KPI comes from NotificationLog (7-day window): successful sends
-    // across Telegram + Email. Falls back to the per-assignment flag count
-    // when the summary endpoint hasn't loaded yet.
-    const notifiedReal = notifSummary.telegramSent + notifSummary.emailSent;
-    const notifiedFallback = assignments.filter((a) => a.notifiedViaTelegram || a.notifiedViaEmail).length;
-    const notified = notifSummary.attempted > 0 ? notifiedReal : notifiedFallback;
-    return { active, withTg, thisWeek, notified };
+    // Real KPI comes from NotificationLog (7-day window): successful email
+    // sends. Falls back to the per-assignment flag count when the summary
+    // endpoint hasn't loaded yet.
+    const notifiedFallback = assignments.filter((a) => a.notifiedViaEmail).length;
+    const notified = notifSummary.attempted > 0 ? notifSummary.emailSent : notifiedFallback;
+    return { active, withEmail, thisWeek, notified };
   }, [staff, assignments, notifSummary]);
 
   return (
@@ -288,7 +280,7 @@ export default function StaffingPage() {
         <div>
           <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('nav.staffing') || 'Personel & Vardiya'}</h1>
           <p className="text-sm text-ink-3 mt-1">
-            {lang === 'tr' ? 'Ekibinizi yonetin, vardiya planlayin, telegram/email ile anlik bildirim gonderin' : 'Manage your team, plan shifts, notify via Telegram/email instantly'}
+            {lang === 'tr' ? 'Ekibinizi yonetin, vardiya planlayin, e-posta ile anlik bildirim gonderin' : 'Manage your team, plan shifts, notify via email instantly'}
           </p>
         </div>
         {tab === 'staff' && (
@@ -313,8 +305,8 @@ export default function StaffingPage() {
         />
         <KpiCard
           icon={Send}
-          label={lang === 'tr' ? 'Telegram bagli' : 'Telegram linked'}
-          value={`${kpis.withTg}/${kpis.active}`}
+          label={lang === 'tr' ? 'E-posta tanimli' : 'Email configured'}
+          value={`${kpis.withEmail}/${kpis.active}`}
           accent="violet"
         />
         <KpiCard
@@ -347,7 +339,6 @@ export default function StaffingPage() {
               onEdit={(s) => { setEditing(s); setFormOpen(true); }}
               onDelete={handleDeleteStaff}
               onSendTest={handleSendTest}
-              onLinkTelegram={(s) => setTgLinkStaff(s)}
             />
           </motion.div>
         )}
@@ -462,14 +453,6 @@ export default function StaffingPage() {
         branchId={branchId || null}
         onClose={() => { setFormOpen(false); setEditing(null); }}
         onSubmit={handleSaveStaff}
-      />
-
-      <TelegramLinkModal
-        open={!!tgLinkStaff}
-        staffId={tgLinkStaff?.id ?? null}
-        staffName={tgLinkStaff ? `${tgLinkStaff.firstName} ${tgLinkStaff.lastName}` : undefined}
-        onClose={() => setTgLinkStaff(null)}
-        onLinked={() => { loadStaff(); }}
       />
     </div>
   );

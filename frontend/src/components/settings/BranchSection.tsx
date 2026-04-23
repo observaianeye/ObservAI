@@ -64,8 +64,13 @@ export function BranchSection() {
       body: JSON.stringify(data),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Kaydetme basarisiz');
+      const err = await res.json().catch(() => ({})) as { error?: string; details?: Array<{ path?: string[]; message?: string }> };
+      // The backend returns a Zod issue list as `details`. Surface the first
+      // one so the user sees which field failed instead of just "Validation
+      // error" — saves a debug round-trip.
+      const detail = err.details?.[0];
+      const fieldMsg = detail ? `${detail.path?.join('.') ?? 'field'}: ${detail.message ?? 'invalid'}` : null;
+      throw new Error(fieldMsg ?? err.error ?? 'Kaydetme basarisiz');
     }
     showToast('success', editing ? 'Sube guncellendi' : 'Sube eklendi');
     setFormOpen(false); setEditing(null);
@@ -195,18 +200,31 @@ function BranchForm({
 
   if (!open) return null;
 
+  // Resolve city → coordinates via OSM Nominatim. Returns the parsed floats
+  // on success; throws a human-readable error on failure so both the "Bul"
+  // button and the submit-time fallback can reuse it.
+  const geocodeCity = async (cityQuery: string): Promise<{ lat: number; lon: number }> => {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityQuery)}&limit=1`, {
+      headers: { 'Accept-Language': 'tr' },
+    });
+    if (!res.ok) throw new Error('Geocoding servisi ulasilamaz');
+    const data = await res.json() as Array<{ lat: string; lon: string; display_name: string }>;
+    if (!data.length) throw new Error('Konum bulunamadi — lutfen daha acik yazin');
+    const latNum = parseFloat(data[0].lat);
+    const lonNum = parseFloat(data[0].lon);
+    if (Number.isNaN(latNum) || Number.isNaN(lonNum)) {
+      throw new Error('Geocoding gecersiz koordinat dondurdu');
+    }
+    return { lat: latNum, lon: lonNum };
+  };
+
   const geocode = async () => {
     if (!city.trim()) { setErr('Once sehir girin'); return; }
     setGeocoding(true); setErr(null);
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}&limit=1`, {
-        headers: { 'Accept-Language': 'tr' },
-      });
-      if (!res.ok) throw new Error('Geocoding basarisiz');
-      const data = await res.json() as Array<{ lat: string; lon: string; display_name: string }>;
-      if (!data.length) throw new Error('Konum bulunamadi');
-      setLat(parseFloat(data[0].lat).toFixed(6));
-      setLon(parseFloat(data[0].lon).toFixed(6));
+      const { lat: la, lon: lo } = await geocodeCity(city.trim());
+      setLat(la.toFixed(6));
+      setLon(lo.toFixed(6));
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Geocoding hatasi');
     } finally {
@@ -217,9 +235,31 @@ function BranchForm({
   const submit = async () => {
     setErr(null);
     if (!name.trim() || !city.trim()) { setErr('Ad ve sehir zorunlu'); return; }
-    const latNum = parseFloat(lat);
-    const lonNum = parseFloat(lon);
-    if (Number.isNaN(latNum) || Number.isNaN(lonNum)) { setErr('Koordinatlar gecerli degil'); return; }
+
+    let latNum = parseFloat(lat);
+    let lonNum = parseFloat(lon);
+
+    // Auto-geocode when the user hasn't provided coordinates. Keeps the
+    // "just add a branch by name" flow working without forcing them to
+    // click the Bul button first.
+    if (Number.isNaN(latNum) || Number.isNaN(lonNum)) {
+      setGeocoding(true);
+      try {
+        const coords = await geocodeCity(city.trim());
+        latNum = coords.lat;
+        lonNum = coords.lon;
+        setLat(coords.lat.toFixed(6));
+        setLon(coords.lon.toFixed(6));
+      } catch (e) {
+        setGeocoding(false);
+        setErr(e instanceof Error
+          ? `${e.message}. Koordinatlari manuel girin.`
+          : 'Koordinatlar cozulemedi — manuel girin');
+        return;
+      }
+      setGeocoding(false);
+    }
+
     setSaving(true);
     try {
       await onSubmit({

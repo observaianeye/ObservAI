@@ -6,7 +6,6 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
 import { validateAnalyticsPayload } from '../lib/analyticsValidator';
-import { sendTelegramMessage } from '../services/telegramService';
 import { sendAlertEmail } from '../services/emailService';
 
 const router = Router();
@@ -75,29 +74,6 @@ async function notifyCleaningRequested(input: {
 
   await Promise.all(onShift.map(async (a) => {
     const staff = a.staff;
-
-    if (staff.telegramChatId) {
-      const tg = await sendTelegramMessage(
-        staff.telegramChatId,
-        title,
-        body,
-        'high',
-        cameraLabel,
-      );
-      await prisma.notificationLog.create({
-        data: {
-          userId: staff.userId,
-          staffId: staff.id,
-          assignmentId: a.id,
-          event: 'alert',
-          channel: 'telegram',
-          target: staff.telegramChatId,
-          success: tg.success,
-          error: tg.error ?? null,
-          payload: JSON.stringify({ reason: 'cleaning_requested', zoneId: input.zoneId, tableLabel }),
-        },
-      }).catch(() => {});
-    }
 
     if (staff.email) {
       const em = await sendAlertEmail(staff.email, title, body, 'high', cameraLabel);
