@@ -10,7 +10,6 @@ import {
   X,
   Settings,
   Activity,
-  LayoutGrid,
   BarChart3,
   Users,
   Bell,
@@ -43,7 +42,6 @@ const menuGroups: MenuGroup[] = [
   {
     labelKey: 'nav.operasyon',
     items: [
-      { path: '/dashboard/tables', labelKey: 'nav.tables', icon: LayoutGrid },
       { path: '/dashboard/staffing', labelKey: 'nav.staffing', icon: Users },
     ],
   },
