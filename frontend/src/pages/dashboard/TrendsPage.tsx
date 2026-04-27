@@ -30,6 +30,12 @@ interface Prediction {
   message?: string;
 }
 
+const RANGE_OPTIONS: { days: number; key: string }[] = [
+  { days: 7, key: 'topbar.lastNDays' },
+  { days: 30, key: 'topbar.lastNDays' },
+  { days: 90, key: 'topbar.lastNDays' },
+];
+
 export default function TrendsPage() {
   const { t } = useLanguage();
   const { selectedBranch } = useDashboardFilter();
@@ -38,6 +44,7 @@ export default function TrendsPage() {
   const [hourlyProfile, setHourlyProfile] = useState<number[]>([]);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [selectedDay, setSelectedDay] = useState(new Date().getDay());
+  const [rangeDays, setRangeDays] = useState<number>(30);
   const [loading, setLoading] = useState(true);
   const [cameraId, setCameraId] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -57,14 +64,15 @@ export default function TrendsPage() {
     setCameraId('');
   }, [selectedBranch]);
 
-  const fetchData = useCallback(async (camId: string) => {
+  const fetchData = useCallback(async (camId: string, days: number) => {
     setLoading(true);
     setErrorMsg(null);
     try {
+      const qs = `?days=${days}`;
       const [weeklyRes, peakRes, predRes] = await Promise.all([
-        fetch(`${API_URL}/api/analytics/${camId}/trends/weekly`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
-        fetch(`${API_URL}/api/analytics/${camId}/peak-hours`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
-        fetch(`${API_URL}/api/analytics/${camId}/prediction`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_URL}/api/analytics/${camId}/trends/weekly${qs}`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_URL}/api/analytics/${camId}/peak-hours${qs}`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_URL}/api/analytics/${camId}/prediction${qs}`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
       ]);
       if (weeklyRes?.weekdays) setWeeklyData(weeklyRes.weekdays);
       if (peakRes) {
@@ -80,8 +88,8 @@ export default function TrendsPage() {
   }, []);
 
   useEffect(() => {
-    if (cameraId) fetchData(cameraId);
-  }, [cameraId, fetchData]);
+    if (cameraId) fetchData(cameraId, rangeDays);
+  }, [cameraId, rangeDays, fetchData]);
 
   const selectedTrend = weeklyData.find((w) => w.weekday === selectedDay);
   const hasData = weeklyData.some((w) => w.thisWeekTotal > 0 || w.lastWeekTotal > 0);
@@ -186,12 +194,30 @@ export default function TrendsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('nav.trends') || 'Trendler'}</h1>
           <p className="text-sm text-ink-3 mt-1">
             {t('trends.page.subtitle') || 'Haftalik karsilastirma, peak saatler ve tahminleme'}
           </p>
+        </div>
+        <div className="inline-flex rounded-xl border border-white/[0.08] overflow-hidden bg-surface-2/70 backdrop-blur-sm">
+          {RANGE_OPTIONS.map((opt) => {
+            const active = rangeDays === opt.days;
+            return (
+              <button
+                key={opt.days}
+                onClick={() => setRangeDays(opt.days)}
+                className={`px-3 py-2 text-xs font-medium font-mono transition-colors ${
+                  active
+                    ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white shadow-glow-brand'
+                    : 'text-ink-2 hover:text-ink-0 hover:bg-white/[0.04]'
+                }`}
+              >
+                {t(opt.key, { n: opt.days })}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -271,7 +297,7 @@ export default function TrendsPage() {
             <div className="surface-card rounded-2xl p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Clock className="w-4 h-4 text-warning-300" />
-                <h3 className="font-semibold text-ink-0">Peak Saatler (son 30 gun)</h3>
+                <h3 className="font-semibold text-ink-0">Peak Saatler (son {rangeDays} gun)</h3>
               </div>
               {peakHours.length === 0 ? (
                 <p className="text-sm text-ink-3">Veri yok</p>

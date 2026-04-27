@@ -12,45 +12,20 @@ interface Branch {
   cameras?: { id: string; name: string; isActive: boolean }[];
 }
 
-interface DateRange {
-  start: Date;
-  end: Date;
-  label: string;
-}
-
 interface DashboardFilterContextType {
   branches: Branch[];
   selectedBranch: Branch | null;
   setSelectedBranch: (branch: Branch | null) => void;
   fetchBranches: () => Promise<void>;
-  dateRange: DateRange;
-  setDateRange: (range: DateRange) => void;
   isLoading: boolean;
 }
 
 const DashboardFilterContext = createContext<DashboardFilterContextType | undefined>(undefined);
 
-const DEFAULT_DATE_RANGES: { label: string; days: number }[] = [
-  { label: 'Last 7 days', days: 7 },
-  { label: 'Last 30 days', days: 30 },
-  { label: 'Last 90 days', days: 90 },
-];
-
-function getDateRange(days: number): DateRange {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days);
-  const match = DEFAULT_DATE_RANGES.find(r => r.days === days);
-  return { start, end, label: match?.label || `Last ${days} days` };
-}
-
-export { DEFAULT_DATE_RANGES };
-
 export function DashboardFilterProvider({ children }: { children: ReactNode }) {
   const { user, isAuthReady } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranchState] = useState<Branch | null>(null);
-  const [dateRange, setDateRange] = useState<DateRange>(getDateRange(7));
   const [isLoading, setIsLoading] = useState(false);
 
   // Re-resolves branches from server. Picks the previously-saved branch when
@@ -116,8 +91,6 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
         selectedBranch,
         setSelectedBranch,
         fetchBranches,
-        dateRange,
-        setDateRange,
         isLoading,
       }}
     >

@@ -770,62 +770,77 @@ router.get('/:cameraId/tables', authenticate, requireCameraOwnership('cameraId')
 // ============================================================
 
 // GET /api/analytics/:cameraId/trends/weekly - Weekly comparison
+//
+// "This week" = the most recent 7-day rolling window ending today.
+// "Last week" = the 7-day window before that — averaged hour-by-hour across
+// all matching weekdays inside the larger ?days= lookback so longer windows
+// (30/90) actually move the dotted "lastWeek" curve. We compute averages
+// rather than raw sums so a 90-day window doesn't dwarf a 7-day window.
 router.get('/:cameraId/trends/weekly', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
+    const days = Math.max(7, Math.min(180, parseInt((req.query.days as string) || '30', 10) || 30));
     const now = new Date();
-    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+    const lookbackStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
     const summaries = await prisma.analyticsSummary.findMany({
       where: {
         cameraId,
-        date: { gte: fourWeeksAgo },
+        date: { gte: lookbackStart },
         hour: { not: null },
       },
       orderBy: [{ date: 'asc' }, { hour: 'asc' }],
     });
 
-    // Group by weekday (0=Sunday ... 6=Saturday)
-    const weekdays: Record<number, { thisWeek: number[]; lastWeek: number[]; older: number[][] }> = {};
-    for (let d = 0; d < 7; d++) {
-      weekdays[d] = { thisWeek: new Array(24).fill(0), lastWeek: new Array(24).fill(0), older: [] };
-    }
-
     const thisWeekStart = new Date(now);
-    thisWeekStart.setDate(now.getDate() - now.getDay());
+    thisWeekStart.setDate(now.getDate() - 7);
     thisWeekStart.setHours(0, 0, 0, 0);
 
-    const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Per weekday/hour we accumulate sums + counts so we can take the mean
+    // across all matching past weeks (excluding the current 7-day window).
+    type Bucket = { thisWeek: number[]; pastSum: number[]; pastCount: number[] };
+    const weekdays: Record<number, Bucket> = {};
+    for (let d = 0; d < 7; d++) {
+      weekdays[d] = {
+        thisWeek: new Array(24).fill(0),
+        pastSum: new Array(24).fill(0),
+        pastCount: new Array(24).fill(0),
+      };
+    }
 
     for (const s of summaries) {
       const date = new Date(s.date);
       const weekday = date.getDay();
       const hour = s.hour ?? 0;
+      const bucket = weekdays[weekday];
 
       if (date >= thisWeekStart) {
-        weekdays[weekday].thisWeek[hour] = s.totalEntries;
-      } else if (date >= lastWeekStart) {
-        weekdays[weekday].lastWeek[hour] = s.totalEntries;
+        bucket.thisWeek[hour] = s.totalEntries;
+      } else {
+        bucket.pastSum[hour] += s.totalEntries;
+        bucket.pastCount[hour] += 1;
       }
     }
 
-    // Calculate changes per weekday
     const result = Object.entries(weekdays).map(([day, data]) => {
+      const lastWeek = data.pastSum.map((sum, h) =>
+        data.pastCount[h] > 0 ? Math.round(sum / data.pastCount[h]) : 0
+      );
       const thisTotal = data.thisWeek.reduce((a, b) => a + b, 0);
-      const lastTotal = data.lastWeek.reduce((a, b) => a + b, 0);
+      const lastTotal = lastWeek.reduce((a, b) => a + b, 0);
       const change = lastTotal > 0 ? Math.round(((thisTotal - lastTotal) / lastTotal) * 100) : 0;
 
       return {
         weekday: parseInt(day),
         thisWeek: data.thisWeek,
-        lastWeek: data.lastWeek,
+        lastWeek,
         thisWeekTotal: thisTotal,
         lastWeekTotal: lastTotal,
         changePercent: change,
       };
     });
 
-    res.json({ weekdays: result });
+    res.json({ weekdays: result, days });
   } catch (error: any) {
     console.error('[trends/weekly] Error:', error);
     res.status(500).json({ error: 'Failed to fetch weekly trends' });
@@ -836,12 +851,13 @@ router.get('/:cameraId/trends/weekly', authenticate, requireCameraOwnership('cam
 router.get('/:cameraId/peak-hours', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const days = Math.max(7, Math.min(180, parseInt((req.query.days as string) || '30', 10) || 30));
+    const lookbackStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     const summaries = await prisma.analyticsSummary.findMany({
       where: {
         cameraId,
-        date: { gte: thirtyDaysAgo },
+        date: { gte: lookbackStart },
         hour: { not: null },
       },
     });
@@ -869,6 +885,7 @@ router.get('/:cameraId/peak-hours', authenticate, requireCameraOwnership('camera
       peakHours: sorted.slice(0, 3),
       quietHours: sorted.filter(h => h.avg > 0).slice(-3).reverse(),
       totalDays: new Set(summaries.map(s => s.date.toISOString().split('T')[0])).size,
+      days,
     });
   } catch (error: any) {
     console.error('[peak-hours] Error:', error);
@@ -877,43 +894,48 @@ router.get('/:cameraId/peak-hours', authenticate, requireCameraOwnership('camera
 });
 
 // GET /api/analytics/:cameraId/prediction - Traffic prediction for tomorrow
+//
+// Uses a recency-weighted average of past same-weekday hourly profiles. The
+// ?days= window controls how many weeks back we pull — 7d = at most 1 week,
+// 30d ≈ 4 weeks, 90d ≈ 12 weeks. More history → tighter prediction, higher
+// reported confidence (capped at 95%).
 router.get('/:cameraId/prediction', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
+    const days = Math.max(7, Math.min(180, parseInt((req.query.days as string) || '30', 10) || 30));
     const now = new Date();
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const targetWeekday = tomorrow.getDay();
 
-    // Get last 4 weeks of same weekday data
-    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+    const lookbackStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     const summaries = await prisma.analyticsSummary.findMany({
       where: {
         cameraId,
-        date: { gte: fourWeeksAgo },
+        date: { gte: lookbackStart },
         hour: { not: null },
       },
       orderBy: [{ date: 'desc' }, { hour: 'asc' }],
     });
 
-    // Filter to same weekday and group by week
-    const weeklyData: number[][] = [];
-    let currentWeek: number[] = new Array(24).fill(0);
-    let lastDate = '';
-
+    // Filter to same weekday and group by date (each date is one historical sample).
+    const weeksByDate = new Map<string, number[]>();
     for (const s of summaries) {
       const date = new Date(s.date);
       if (date.getDay() !== targetWeekday) continue;
-
       const dateStr = date.toISOString().split('T')[0];
-      if (lastDate && dateStr !== lastDate) {
-        weeklyData.push(currentWeek);
-        currentWeek = new Array(24).fill(0);
+      let week = weeksByDate.get(dateStr);
+      if (!week) {
+        week = new Array(24).fill(0);
+        weeksByDate.set(dateStr, week);
       }
-      currentWeek[s.hour ?? 0] = s.totalEntries;
-      lastDate = dateStr;
+      week[s.hour ?? 0] = s.totalEntries;
     }
-    if (lastDate) weeklyData.push(currentWeek);
+
+    // Sort by date descending so the most recent week wins highest weight.
+    const weeklyData = Array.from(weeksByDate.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([, hours]) => hours);
 
     if (weeklyData.length === 0) {
       return res.json({
@@ -922,23 +944,27 @@ router.get('/:cameraId/prediction', authenticate, requireCameraOwnership('camera
         hourlyPrediction: new Array(24).fill(0).map((_, hour) => ({ hour, predicted: 0 })),
         confidence: 0,
         dataWeeks: 0,
+        days,
         message: 'Yeterli veri yok — en az 1 haftalık veri gerekli',
       });
     }
 
-    // Weighted average: most recent week gets highest weight
-    const weights = [0.4, 0.3, 0.2, 0.1];
-    const totalWeight = weights.slice(0, weeklyData.length).reduce((a, b) => a + b, 0);
+    // Exponentially decaying weights: recent weeks dominate, older weeks still
+    // contribute (avoids cliff between week 4 and week 5 with the old fixed
+    // [0.4,0.3,0.2,0.1] table when the user pulled a 90-day window).
+    const lambda = 0.6; // higher = older weeks decay faster
+    const rawWeights = weeklyData.map((_, i) => Math.pow(lambda, i));
+    const totalWeight = rawWeights.reduce((a, b) => a + b, 0);
 
     const prediction = new Array(24).fill(0);
-    for (let w = 0; w < Math.min(weeklyData.length, 4); w++) {
-      const weight = weights[w] / totalWeight;
+    for (let w = 0; w < weeklyData.length; w++) {
+      const weight = rawWeights[w] / totalWeight;
       for (let h = 0; h < 24; h++) {
         prediction[h] += weeklyData[w][h] * weight;
       }
     }
 
-    const confidence = Math.min(95, weeklyData.length * 25);
+    const confidence = Math.min(95, weeklyData.length * 18 + 10);
 
     res.json({
       date: tomorrow.toISOString().split('T')[0],
@@ -946,6 +972,7 @@ router.get('/:cameraId/prediction', authenticate, requireCameraOwnership('camera
       hourlyPrediction: prediction.map((val, hour) => ({ hour, predicted: Math.round(val) })),
       confidence,
       dataWeeks: weeklyData.length,
+      days,
     });
   } catch (error: any) {
     console.error('[prediction] Error:', error);

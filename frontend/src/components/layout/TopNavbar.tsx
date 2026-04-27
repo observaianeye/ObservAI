@@ -1,7 +1,7 @@
-import { Settings, User, ChevronDown, LogOut, Menu, Home, Calendar, Building2, Globe, Check } from 'lucide-react';
+import { Settings, User, ChevronDown, LogOut, Menu, Home, Building2, Globe, Check } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { useDashboardFilter, DEFAULT_DATE_RANGES } from '../../contexts/DashboardFilterContext';
+import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useState, useRef, useEffect } from 'react';
 import type { Lang } from '../../i18n/strings';
@@ -19,7 +19,7 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
   const [showLangMenu, setShowLangMenu] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const langMenuRef = useRef<HTMLDivElement>(null);
-  const { branches, selectedBranch, setSelectedBranch, dateRange, setDateRange } = useDashboardFilter();
+  const { branches, selectedBranch, setSelectedBranch } = useDashboardFilter();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -49,17 +49,6 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
     const branch = branches.find((b) => b.id === value);
     if (branch) setSelectedBranch(branch);
   };
-
-  const handleDateRangeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const days = parseInt(e.target.value);
-    if (isNaN(days)) return;
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - days);
-    setDateRange({ start, end, label: t('topbar.lastNDays', { n: days }) });
-  };
-
-  const currentDays = Math.round((dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24));
 
   const handleLangChange = (next: Lang) => {
     setLang(next);
@@ -115,22 +104,6 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-4 pointer-events-none" />
           </div>
 
-          {/* Date range selector */}
-          <div className="hidden sm:block relative">
-            <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-4 pointer-events-none" />
-            <select
-              value={currentDays}
-              onChange={handleDateRangeChange}
-              className="appearance-none pl-8 pr-8 py-2 bg-surface-2/70 border border-white/[0.08] rounded-xl text-xs lg:text-sm font-medium text-ink-1 hover:border-brand-500/40 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/60 transition-all backdrop-blur-sm"
-            >
-              {DEFAULT_DATE_RANGES.map((r) => (
-                <option key={r.days} value={r.days} className="bg-surface-2 text-ink-1">
-                  {t('topbar.lastNDays', { n: r.days })}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-4 pointer-events-none" />
-          </div>
         </div>
 
         <div className="flex items-center gap-2 lg:gap-3">
