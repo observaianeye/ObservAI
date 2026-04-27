@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Pencil, Trash2, Send, Mail, UserCheck, UserX } from 'lucide-react';
+import { useLanguage } from '../../contexts/LanguageContext';
 import type { StaffRecord } from './StaffForm';
 
 interface Props {
@@ -10,16 +11,20 @@ interface Props {
   onSendTest: (s: StaffRecord) => void;
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  server: 'Garson', chef: 'Asci', cashier: 'Kasiyer', host: 'Karsilayici', manager: 'Yonetici',
-};
-
 export function StaffList({ staff, loading, onEdit, onDelete, onSendTest }: Props) {
+  const { t } = useLanguage();
+
+  const roleLabel = (role: string) => {
+    const key = `staffList.role.${role}`;
+    const val = t(key);
+    return val === key ? role : val;
+  };
+
   if (loading) {
     return (
       <div className="text-center py-10">
         <div className="inline-block w-6 h-6 rounded-full border-2 border-brand-400/30 border-t-brand-400 animate-spin" />
-        <p className="text-sm text-ink-3 mt-3">Yukleniyor...</p>
+        <p className="text-sm text-ink-3 mt-3">{t('common.loading')}</p>
       </div>
     );
   }
@@ -30,8 +35,8 @@ export function StaffList({ staff, loading, onEdit, onDelete, onSendTest }: Prop
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-brand-500/10 mb-4">
           <UserCheck className="w-7 h-7 text-brand-300" strokeWidth={1.5} />
         </div>
-        <p className="text-ink-2 font-medium">Henuz personel eklenmedi</p>
-        <p className="text-sm text-ink-4 mt-1">"Yeni personel" ile ekip uyelerinizi sisteme tanitip vardiya atayabilirsiniz.</p>
+        <p className="text-ink-2 font-medium">{t('staffList.empty.title')}</p>
+        <p className="text-sm text-ink-4 mt-1">{t('staffList.empty.hint')}</p>
       </div>
     );
   }
@@ -57,16 +62,16 @@ export function StaffList({ staff, loading, onEdit, onDelete, onSendTest }: Prop
                 </div>
                 <div>
                   <div className="font-semibold text-ink-0">{s.firstName} {s.lastName}</div>
-                  <div className="text-[11px] uppercase tracking-wide text-ink-4 font-mono">{ROLE_LABEL[s.role] || s.role}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-ink-4 font-mono">{roleLabel(s.role)}</div>
                 </div>
               </div>
               {!s.isActive ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-danger-500/10 text-danger-300 border border-danger-500/30">
-                  <UserX className="w-3 h-3" /> Pasif
+                  <UserX className="w-3 h-3" /> {t('staffList.status.inactive')}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-success-500/10 text-success-300 border border-success-500/30">
-                  <UserCheck className="w-3 h-3" /> Aktif
+                  <UserCheck className="w-3 h-3" /> {t('staffList.status.active')}
                 </span>
               )}
             </div>
@@ -75,7 +80,7 @@ export function StaffList({ staff, loading, onEdit, onDelete, onSendTest }: Prop
               {s.email ? (
                 <div className="flex items-center gap-1.5 truncate"><Mail className="w-3 h-3 text-ink-4" /> {s.email}</div>
               ) : (
-                <div className="text-warning-300 text-[11px]">E-posta adresi eksik — vardiya bildirimi gonderilemez</div>
+                <div className="text-warning-300 text-[11px]">{t('staffList.emailMissing')}</div>
               )}
             </div>
 
@@ -85,12 +90,12 @@ export function StaffList({ staff, loading, onEdit, onDelete, onSendTest }: Prop
                 className="flex-1 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-ink-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
               >
                 <Pencil className="w-3.5 h-3.5" strokeWidth={1.5} />
-                Duzenle
+                {t('staffList.action.edit')}
               </button>
               {s.email && (
                 <button
                   onClick={() => onSendTest(s)}
-                  title="Test e-posta gonder"
+                  title={t('staffList.action.sendTest')}
                   className="px-3 py-1.5 bg-brand-500/15 hover:bg-brand-500/25 border border-brand-500/30 text-brand-200 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
                 >
                   <Send className="w-3.5 h-3.5" strokeWidth={1.5} />
@@ -98,7 +103,7 @@ export function StaffList({ staff, loading, onEdit, onDelete, onSendTest }: Prop
               )}
               <button
                 onClick={() => onDelete(s.id)}
-                title="Pasiflestir"
+                title={t('staffList.action.deactivate')}
                 className="px-3 py-1.5 text-danger-400 hover:bg-danger-500/10 rounded-lg transition-colors border border-white/[0.08]"
               >
                 <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />

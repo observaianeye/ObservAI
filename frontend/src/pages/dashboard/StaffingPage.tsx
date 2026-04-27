@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, CalendarDays, Sparkles, Plus, Send, TrendingUp, TrendingDown, Circle, Building2 } from 'lucide-react';
+import { Users, CalendarDays, Sparkles, Plus, Send, TrendingUp, TrendingDown, Circle, Building2, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
@@ -9,6 +9,7 @@ import { StaffList } from '../../components/staffing/StaffList';
 import { ShiftCalendar, type Assignment } from '../../components/staffing/ShiftCalendar';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const FETCH_TIMEOUT_MS = 8000;
 
 type Tab = 'staff' | 'schedule' | 'recommendations';
 
@@ -29,8 +30,21 @@ function startOfWeek(d: Date): Date {
   return x;
 }
 
+// Wrap fetch with abortable timeout so a hung backend can't keep a panel
+// stuck on "Loading..." forever — surfaces an error instead.
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { credentials: 'include', ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export default function StaffingPage() {
   const { t, lang } = useLanguage();
+  const locale = lang === 'tr' ? 'tr-TR' : 'en-US';
   const { showToast } = useToast();
   const { selectedBranch } = useDashboardFilter();
   const branchId = selectedBranch?.id || '';
@@ -40,6 +54,7 @@ export default function StaffingPage() {
   const [staffLoading, setStaffLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<StaffRecord | null>(null);
+  const [staffError, setStaffError] = useState<string>('');
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [weekStart, setWeekStart] = useState<Date>(startOfWeek(new Date()));
@@ -60,30 +75,34 @@ export default function StaffingPage() {
     if (!branchId) {
       setStaff([]);
       setStaffLoading(false);
+      setStaffError('');
       return;
     }
     setStaffLoading(true);
+    setStaffError('');
     try {
-      const res = await fetch(
-        `${API_URL}/api/staff?branchId=${encodeURIComponent(branchId)}`,
-        { credentials: 'include' },
-      );
+      const res = await fetchWithTimeout(`${API_URL}/api/staff?branchId=${encodeURIComponent(branchId)}`);
       if (res.ok) {
         const data = await res.json();
         setStaff(data.staff || []);
+      } else {
+        setStaff([]);
+        setStaffError(t('staffing.error.fetchFailed'));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[staffing] load staff failed:', err);
+      setStaff([]);
+      setStaffError(err?.name === 'AbortError' ? t('staffing.error.timeout') : t('staffing.error.fetchFailed'));
     } finally {
       setStaffLoading(false);
     }
-  }, [branchId]);
+  }, [branchId, t]);
 
   useEffect(() => { loadStaff(); }, [loadStaff]);
 
   const handleSaveStaff = async (payload: Partial<StaffRecord>) => {
     if (!editing && !branchId) {
-      throw new Error('Once bir sube secin');
+      throw new Error(t('staffing.toast.selectBranchFirst'));
     }
     const method = editing ? 'PATCH' : 'POST';
     const url = editing ? `${API_URL}/api/staff/${editing.id}` : `${API_URL}/api/staff`;
@@ -96,19 +115,19 @@ export default function StaffingPage() {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || 'Failed to save staff');
+      throw new Error(data.error || t('staffing.error.staffSaveFailed'));
     }
-    showToast('success', editing ? 'Personel guncellendi' : 'Personel eklendi');
+    showToast('success', editing ? t('staffing.toast.staffUpdated') : t('staffing.toast.staffSaved'));
     setFormOpen(false);
     setEditing(null);
     loadStaff();
   };
 
   const handleDeleteStaff = async (id: string) => {
-    if (!confirm(lang === 'tr' ? 'Bu personeli pasiflestirmek istediginizden emin misiniz?' : 'Deactivate this staff member?')) return;
+    if (!confirm(t('staffing.confirm.deactivate'))) return;
     const res = await fetch(`${API_URL}/api/staff/${id}`, { method: 'DELETE', credentials: 'include' });
     if (res.ok) {
-      showToast('warning', 'Personel pasiflestirildi');
+      showToast('warning', t('staffing.toast.staffDeactivated'));
       loadStaff();
     }
   };
@@ -122,7 +141,7 @@ export default function StaffingPage() {
         body: JSON.stringify({
           staffId: s.id,
           preview: {
-            date: new Date().toLocaleDateString('tr-TR'),
+            date: new Date().toLocaleDateString(locale),
             shiftStart: '09:00',
             shiftEnd: '17:00',
             role: s.role,
@@ -131,17 +150,17 @@ export default function StaffingPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        showToast('error', data.error || 'Test bildirimi basarisiz');
+        showToast('error', data.error || t('staffing.toast.testEmailFailed'));
         return;
       }
       const em = data.result?.email;
       if (em?.sent) {
-        showToast('success', 'Test e-postasi gonderildi');
+        showToast('success', t('staffing.toast.testEmailSent'));
       } else {
-        showToast('warning', `E-posta gonderilemedi: ${em?.error ?? 'bilinmeyen hata'}`);
+        showToast('warning', `${t('staffing.toast.emailResendFailed')}: ${em?.error ?? t('staffing.toast.emailUnknownErr')}`);
       }
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Network error');
+      showToast('error', err instanceof Error ? err.message : t('staffing.toast.networkError'));
     }
   };
 
@@ -157,7 +176,7 @@ export default function StaffingPage() {
         from: from.toISOString().slice(0, 10),
         to: to.toISOString().slice(0, 10),
       });
-      const res = await fetch(`${API_URL}/api/staff-assignments?${qs}`, { credentials: 'include' });
+      const res = await fetchWithTimeout(`${API_URL}/api/staff-assignments?${qs}`);
       if (res.ok) {
         const data = await res.json();
         setAssignments(data.assignments || []);
@@ -172,7 +191,7 @@ export default function StaffingPage() {
   useEffect(() => { loadAssignments(); }, [loadAssignments]);
 
   const handleCreateAssignment = async (payload: { staffId: string; date: string; shiftStart: string; shiftEnd: string; role?: string; notifyNow: boolean }) => {
-    if (!branchId) throw new Error('Sube secili degil');
+    if (!branchId) throw new Error(t('staffing.toast.selectBranchFirst'));
     const res = await fetch(`${API_URL}/api/staff-assignments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -181,15 +200,17 @@ export default function StaffingPage() {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || 'Vardiya olusturulamadi');
+      throw new Error(data.error || t('staffing.error.shiftCreateFailed'));
     }
     const data = await res.json();
     const em = data.notification?.email;
     if (payload.notifyNow) {
       showToast(em?.sent ? 'success' : 'warning',
-        em?.sent ? 'Vardiya olusturuldu ve e-posta gonderildi' : `Vardiya olusturuldu (e-posta: ${em?.error ?? 'adres eksik'})`);
+        em?.sent
+          ? t('staffing.toast.shiftWithEmail')
+          : t('staffing.toast.shiftWithEmailFail', { err: em?.error ?? t('staffing.toast.emailMissingAddr') }));
     } else {
-      showToast('success', 'Vardiya olusturuldu');
+      showToast('success', t('staffing.toast.shiftCreated'));
     }
     loadAssignments();
   };
@@ -197,7 +218,7 @@ export default function StaffingPage() {
   const handleDeleteAssignment = async (id: string) => {
     const res = await fetch(`${API_URL}/api/staff-assignments/${id}`, { method: 'DELETE', credentials: 'include' });
     if (res.ok) {
-      showToast('warning', 'Vardiya silindi');
+      showToast('warning', t('staffing.toast.shiftDeleted'));
       loadAssignments();
     }
   };
@@ -211,12 +232,12 @@ export default function StaffingPage() {
         body: JSON.stringify({}),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gonderilemedi');
+      if (!res.ok) throw new Error(data.error || t('staffing.toast.emailResendFailed'));
       const ok = data.result?.email?.sent;
-      showToast(ok ? 'success' : 'warning', ok ? 'E-posta yeniden gonderildi' : 'E-posta gonderilemedi');
+      showToast(ok ? 'success' : 'warning', ok ? t('staffing.toast.emailResent') : t('staffing.toast.emailResendFailed'));
       loadAssignments();
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Network error');
+      showToast('error', err instanceof Error ? err.message : t('staffing.toast.networkError'));
     }
   };
 
@@ -226,9 +247,7 @@ export default function StaffingPage() {
     setRecLoading(true);
     try {
       const qs = cameraId ? `?cameraId=${encodeURIComponent(cameraId)}` : '';
-      const res = await fetch(`${API_URL}/api/staffing/${branchId}/recommendations${qs}`, {
-        credentials: 'include',
-      });
+      const res = await fetchWithTimeout(`${API_URL}/api/staffing/${branchId}/recommendations${qs}`);
       if (res.ok) {
         const data = await res.json();
         setRecommendations(data.recommendations || []);
@@ -258,7 +277,7 @@ export default function StaffingPage() {
   // ── Notification summary (real KPI from NotificationLog) ──────────────
   const loadNotifSummary = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/notifications/summary?days=7`, { credentials: 'include' });
+      const res = await fetchWithTimeout(`${API_URL}/api/notifications/summary?days=7`);
       if (!res.ok) return;
       const data = await res.json();
       setNotifSummary({
@@ -289,9 +308,9 @@ export default function StaffingPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('nav.staffing') || 'Personel & Vardiya'}</h1>
+          <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('nav.staffing')}</h1>
           <p className="text-sm text-ink-3 mt-1">
-            {lang === 'tr' ? 'Ekibinizi yonetin, vardiya planlayin, e-posta ile anlik bildirim gonderin' : 'Manage your team, plan shifts, notify via email instantly'}
+            {t('staffing.subtitle.team')}
           </p>
         </div>
         {tab === 'staff' && branchId && (
@@ -301,7 +320,7 @@ export default function StaffingPage() {
             className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-semibold hover:shadow-glow-brand flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            {lang === 'tr' ? 'Yeni personel' : 'Add staff'}
+            {t('staffing.addStaff')}
           </motion.button>
         )}
       </div>
@@ -310,7 +329,7 @@ export default function StaffingPage() {
         <div className="surface-card rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-ink-2">
           <Building2 className="w-4 h-4 text-brand-300" strokeWidth={1.5} />
           <span>
-            <span className="text-ink-3">{lang === 'tr' ? 'Aktif sube' : 'Active branch'}:</span>{' '}
+            <span className="text-ink-3">{t('staffing.activeBranch')}:</span>{' '}
             <span className="font-semibold text-ink-0">{selectedBranch.name}</span>
             <span className="text-ink-4"> &middot; {selectedBranch.city}</span>
           </span>
@@ -319,9 +338,7 @@ export default function StaffingPage() {
         <div className="surface-card rounded-xl px-4 py-3 flex items-center gap-3 text-sm border border-warning-500/30 bg-warning-500/5">
           <Building2 className="w-4 h-4 text-warning-300" strokeWidth={1.5} />
           <span className="text-warning-200">
-            {lang === 'tr'
-              ? 'Once ust menuden bir sube secin — personel ve vardiyalar subeye baglidir.'
-              : 'Select a branch from the top bar — staff and shifts are scoped per branch.'}
+            {t('staffing.selectBranchHint')}
           </span>
         </div>
       )}
@@ -330,25 +347,25 @@ export default function StaffingPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
           icon={Users}
-          label={lang === 'tr' ? 'Aktif personel' : 'Active staff'}
+          label={t('staffing.kpi.activeStaff')}
           value={String(kpis.active)}
           accent="brand"
         />
         <KpiCard
           icon={Send}
-          label={lang === 'tr' ? 'E-posta tanimli' : 'Email configured'}
+          label={t('staffing.kpi.emailConfigured')}
           value={`${kpis.withEmail}/${kpis.active}`}
           accent="violet"
         />
         <KpiCard
           icon={CalendarDays}
-          label={lang === 'tr' ? 'Bu hafta vardiya' : 'Shifts this week'}
+          label={t('staffing.kpi.shiftsThisWeek')}
           value={String(kpis.thisWeek)}
           accent="accent"
         />
         <KpiCard
           icon={Circle}
-          label={lang === 'tr' ? 'Bildirim gonderildi (7g)' : 'Notifications sent (7d)'}
+          label={t('staffing.kpi.notifsSent7d')}
           value={notifSummary.attempted > 0 ? String(kpis.notified) : `${kpis.notified}/${kpis.thisWeek}`}
           accent="success"
         />
@@ -356,21 +373,38 @@ export default function StaffingPage() {
 
       {/* Tabs */}
       <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-surface-1/60 border border-white/[0.08]">
-        <TabButton active={tab === 'staff'} onClick={() => setTab('staff')} icon={<Users className="w-4 h-4" />} label={lang === 'tr' ? 'Personel' : 'Staff'} />
-        <TabButton active={tab === 'schedule'} onClick={() => setTab('schedule')} icon={<CalendarDays className="w-4 h-4" />} label={lang === 'tr' ? 'Vardiya Takvimi' : 'Shift Calendar'} />
-        <TabButton active={tab === 'recommendations'} onClick={() => setTab('recommendations')} icon={<Sparkles className="w-4 h-4" />} label={lang === 'tr' ? 'Tavsiyeler' : 'Recommendations'} />
+        <TabButton active={tab === 'staff'} onClick={() => setTab('staff')} icon={<Users className="w-4 h-4" />} label={t('staffing.tab.staff')} />
+        <TabButton active={tab === 'schedule'} onClick={() => setTab('schedule')} icon={<CalendarDays className="w-4 h-4" />} label={t('staffing.tab.shifts')} />
+        <TabButton active={tab === 'recommendations'} onClick={() => setTab('recommendations')} icon={<Sparkles className="w-4 h-4" />} label={t('staffing.tab.recommendations')} />
       </div>
 
       <AnimatePresence mode="wait">
         {tab === 'staff' && (
           <motion.div key="staff" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
-            <StaffList
-              staff={staff}
-              loading={staffLoading}
-              onEdit={(s) => { setEditing(s); setFormOpen(true); }}
-              onDelete={handleDeleteStaff}
-              onSendTest={handleSendTest}
-            />
+            {staffError && !staffLoading ? (
+              <div className="surface-card rounded-2xl p-6 border border-danger-500/30 bg-danger-500/5">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-danger-400 mt-0.5" strokeWidth={1.5} />
+                  <div className="flex-1">
+                    <p className="text-danger-300 font-medium">{staffError}</p>
+                    <button
+                      onClick={loadStaff}
+                      className="mt-3 px-3 py-1.5 bg-danger-500/15 text-danger-200 border border-danger-500/30 rounded-lg text-sm font-medium hover:bg-danger-500/25 transition-colors"
+                    >
+                      {t('common.retry')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <StaffList
+                staff={staff}
+                loading={staffLoading}
+                onEdit={(s) => { setEditing(s); setFormOpen(true); }}
+                onDelete={handleDeleteStaff}
+                onSendTest={handleSendTest}
+              />
+            )}
           </motion.div>
         )}
 
@@ -397,31 +431,23 @@ export default function StaffingPage() {
             )}
             {recLoading ? (
               <div className="text-center py-10 text-ink-3">
-                {lang === 'tr' ? 'Yukleniyor...' : 'Loading...'}
+                {t('common.loading')}
               </div>
             ) : recommendations.length === 0 ? (
               <div className="surface-card rounded-xl p-10 text-center">
                 <Sparkles className="w-8 h-8 text-brand-300 mx-auto mb-3" />
                 <p className="text-ink-2 font-medium">
                   {recMeta.reason === 'no_branch'
-                    ? (lang === 'tr' ? 'Once bir sube ekleyin' : 'Add a branch first')
+                    ? t('staffing.recs.empty.noBranch')
                     : recMeta.reason === 'no_cameras'
-                      ? (lang === 'tr' ? 'Bu subede henuz kamera yok' : 'No cameras configured for this branch')
-                      : (lang === 'tr' ? 'Tavsiye uretmek icin daha fazla gecmis veri gerekiyor' : 'More historical data needed to generate recommendations')}
+                      ? t('staffing.recs.empty.noCameras')
+                      : t('staffing.recs.empty.notEnough')}
                 </p>
                 {typeof recMeta.daysCollected === 'number' && typeof recMeta.daysRemaining === 'number' && recMeta.daysRemaining > 0 && (
                   <div className="mt-4 max-w-sm mx-auto">
                     <div className="flex items-center justify-between text-xs text-ink-4 mb-1">
-                      <span>
-                        {lang === 'tr'
-                          ? `Toplanan gun: ${recMeta.daysCollected}/3`
-                          : `Days collected: ${recMeta.daysCollected}/3`}
-                      </span>
-                      <span>
-                        {lang === 'tr'
-                          ? `${recMeta.daysRemaining} gun kaldi`
-                          : `${recMeta.daysRemaining} day${recMeta.daysRemaining === 1 ? '' : 's'} left`}
-                      </span>
+                      <span>{t('staffing.recs.daysCollected', { n: recMeta.daysCollected })}</span>
+                      <span>{t('staffing.recs.daysLeft', { n: recMeta.daysRemaining })}</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
                       <motion.div
@@ -433,11 +459,7 @@ export default function StaffingPage() {
                     </div>
                   </div>
                 )}
-                <p className="text-xs text-ink-4 mt-3">
-                  {lang === 'tr'
-                    ? 'Kamera ile birkac gun gecin veya Historical backfill calistirin.'
-                    : 'Let the camera run for a few days or run the historical backfill script.'}
-                </p>
+                <p className="text-xs text-ink-4 mt-3">{t('staffing.recs.runHint')}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -455,18 +477,18 @@ export default function StaffingPage() {
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <div className="text-[10px] uppercase tracking-wide text-ink-4 font-mono">Saat</div>
+                        <div className="text-[10px] uppercase tracking-wide text-ink-4 font-mono">{t('staffing.recs.col.hour')}</div>
                         <div className="text-2xl font-bold text-ink-0">{String(r.hour).padStart(2, '0')}:00</div>
                       </div>
                       <StatusBadge status={r.status} />
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <div className="text-ink-4">Ort. musteri</div>
+                        <div className="text-ink-4">{t('staffing.recs.col.avgCustomers')}</div>
                         <div className="text-ink-1 font-semibold">{Math.round(r.avgCustomers)}</div>
                       </div>
                       <div>
-                        <div className="text-ink-4">Simdi / optimal</div>
+                        <div className="text-ink-4">{t('staffing.recs.col.nowOptimal')}</div>
                         <div className="text-ink-1 font-semibold">{r.staffCount} / {r.optimal}</div>
                       </div>
                     </div>
@@ -511,15 +533,16 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 }
 
 function StatusBadge({ status }: { status: 'optimal' | 'understaffed' | 'overstaffed' }) {
+  const { t } = useLanguage();
   const map = {
-    optimal: { bg: 'bg-success-500/15 text-success-300 border-success-500/30', label: 'Uygun', icon: <Circle className="w-3 h-3" /> },
-    understaffed: { bg: 'bg-danger-500/15 text-danger-300 border-danger-500/30', label: 'Az', icon: <TrendingDown className="w-3 h-3" /> },
-    overstaffed: { bg: 'bg-warning-500/15 text-warning-300 border-warning-500/30', label: 'Fazla', icon: <TrendingUp className="w-3 h-3" /> },
+    optimal: { bg: 'bg-success-500/15 text-success-300 border-success-500/30', labelKey: 'staffing.recs.statusBadge.optimal', icon: <Circle className="w-3 h-3" /> },
+    understaffed: { bg: 'bg-danger-500/15 text-danger-300 border-danger-500/30', labelKey: 'staffing.recs.statusBadge.understaffed', icon: <TrendingDown className="w-3 h-3" /> },
+    overstaffed: { bg: 'bg-warning-500/15 text-warning-300 border-warning-500/30', labelKey: 'staffing.recs.statusBadge.overstaffed', icon: <TrendingUp className="w-3 h-3" /> },
   } as const;
   const s = map[status];
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${s.bg}`}>
-      {s.icon} {s.label}
+      {s.icon} {t(s.labelKey)}
     </span>
   );
 }

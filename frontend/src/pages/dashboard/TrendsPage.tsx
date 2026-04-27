@@ -81,11 +81,11 @@ export default function TrendsPage() {
       }
       if (predRes) setPrediction(predRes);
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : 'Veri alinirken hata olustu');
+      setErrorMsg(e instanceof Error ? e.message : t('trends.empty.error.fallback'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (cameraId) fetchData(cameraId, rangeDays);
@@ -196,9 +196,9 @@ export default function TrendsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('nav.trends') || 'Trendler'}</h1>
+          <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('nav.trends')}</h1>
           <p className="text-sm text-ink-3 mt-1">
-            {t('trends.page.subtitle') || 'Haftalik karsilastirma, peak saatler ve tahminleme'}
+            {t('trends.page.subtitle')}
           </p>
         </div>
         <div className="inline-flex rounded-xl border border-white/[0.08] overflow-hidden bg-surface-2/70 backdrop-blur-sm">
@@ -223,18 +223,18 @@ export default function TrendsPage() {
 
       {!cameraId ? (
         <EmptyState
-          title="Kamera bulunamadi"
-          hint="Trends verilerini gormek icin once bir kamera ekleyin veya sube secin."
+          title={t('trends.empty.noCamera.title')}
+          hint={t('trends.empty.noCamera.hint')}
           icon={<AlertCircle className="w-7 h-7 text-warning-300" />}
         />
       ) : loading ? (
-        <div className="text-center py-14 text-ink-3">Yukleniyor...</div>
+        <div className="text-center py-14 text-ink-3">{t('common.loading')}</div>
       ) : errorMsg ? (
-        <EmptyState title="Bir hata olustu" hint={errorMsg} icon={<AlertCircle className="w-7 h-7 text-danger-300" />} />
+        <EmptyState title={t('trends.empty.error.title')} hint={errorMsg} icon={<AlertCircle className="w-7 h-7 text-danger-300" />} />
       ) : !hasData ? (
         <EmptyState
-          title="Henuz yeterli veri yok"
-          hint="AnalyticsSummary tablosunda kayit yok. `npm run seed:history` ile son 30 gun icin ornek veri uretin veya kamera ile birkac saat calistirin."
+          title={t('trends.empty.noData.title')}
+          hint={t('trends.empty.noData.hint')}
           icon={<TrendingUp className="w-7 h-7 text-brand-300" />}
         />
       ) : (
@@ -263,7 +263,7 @@ export default function TrendsPage() {
                     {label}
                     {isFuture && (
                       <span className="px-1 py-0.5 rounded-full bg-white/[0.06] text-[9px] font-mono uppercase tracking-wide">
-                        Yakinda
+                        {t('trends.dayBadge.upcoming')}
                       </span>
                     )}
                   </div>
@@ -286,7 +286,7 @@ export default function TrendsPage() {
             <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="surface-card rounded-2xl p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Calendar className="w-4 h-4 text-brand-300" />
-                <h3 className="font-semibold text-ink-0">{weekdayLabels[selectedDay]} &mdash; {t('trends.thisWeek')} vs {t('trends.lastWeek')}</h3>
+                <h3 className="font-semibold text-ink-0">{t('trends.weekVsLast', { day: weekdayLabels[selectedDay] })}</h3>
               </div>
               <ReactECharts option={weeklyChartOption} style={{ height: '260px' }} />
             </motion.div>
@@ -297,10 +297,10 @@ export default function TrendsPage() {
             <div className="surface-card rounded-2xl p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Clock className="w-4 h-4 text-warning-300" />
-                <h3 className="font-semibold text-ink-0">Peak Saatler (son {rangeDays} gun)</h3>
+                <h3 className="font-semibold text-ink-0">{t('trends.peakHours.title', { n: rangeDays })}</h3>
               </div>
               {peakHours.length === 0 ? (
-                <p className="text-sm text-ink-3">Veri yok</p>
+                <p className="text-sm text-ink-3">{t('trends.noData')}</p>
               ) : (
                 <div className="space-y-2">
                   {peakHours.map((p, i) => (
@@ -315,7 +315,7 @@ export default function TrendsPage() {
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-mono font-semibold text-ink-0">{String(p.hour).padStart(2, '0')}:00</span>
-                          <span className="text-xs text-ink-3 font-mono">{p.avg} kisi ort</span>
+                          <span className="text-xs text-ink-3 font-mono">{t('trends.peakHours.avgPeople', { n: p.avg })}</span>
                         </div>
                         <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
                           <motion.div
@@ -339,10 +339,10 @@ export default function TrendsPage() {
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-violet-300" />
-                  <h3 className="font-semibold text-ink-0">Tahmin &mdash; {prediction.date}</h3>
+                  <h3 className="font-semibold text-ink-0">{t('trends.prediction.title')} &mdash; {prediction.date}</h3>
                 </div>
                 <div className="text-xs text-ink-3 font-mono">
-                  guven: <span className="text-violet-300">{Math.round(prediction.confidence)}%</span> &middot; {prediction.dataWeeks} hafta veri
+                  {t('trends.prediction.confidence')}: <span className="text-violet-300">{Math.round(prediction.confidence)}%</span> &middot; {t('trends.prediction.weeksData', { n: prediction.dataWeeks })}
                 </div>
               </div>
               {prediction.message && <p className="text-xs text-ink-4 mb-3">{prediction.message}</p>}
