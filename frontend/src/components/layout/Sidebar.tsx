@@ -2,14 +2,12 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
-  TrendingUp,
   Sparkles,
   Camera,
   Video,
   HelpCircle,
   X,
   Settings,
-  BarChart3,
   Users,
   Bell,
 } from 'lucide-react';
@@ -46,9 +44,7 @@ const menuGroups: MenuGroup[] = [
   {
     labelKey: 'nav.analiz',
     items: [
-      { path: '/dashboard/trends', labelKey: 'nav.trends', icon: BarChart3 },
-      { path: '/dashboard/ai-insights', labelKey: 'nav.aiInsights', icon: Sparkles },
-      { path: '/dashboard/historical', labelKey: 'nav.historical', icon: TrendingUp },
+      { path: '/dashboard/analytics', labelKey: 'nav.analytics', icon: Sparkles },
     ],
   },
   {

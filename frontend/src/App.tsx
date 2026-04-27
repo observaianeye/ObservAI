@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { DashboardFilterProvider } from './contexts/DashboardFilterContext';
 import { ToastProvider } from './contexts/ToastContext';
@@ -19,11 +19,9 @@ const DashboardLayout = lazy(() => import('./components/layout/DashboardLayout')
 const CameraAnalyticsPage = lazy(() => import('./pages/dashboard/CameraAnalyticsPage'));
 const ZoneLabelingPage = lazy(() => import('./pages/dashboard/ZoneLabelingPage'));
 const CameraSelectionPage = lazy(() => import('./pages/dashboard/CameraSelectionPage'));
-const AIInsightsPage = lazy(() => import('./pages/dashboard/AIInsightsPage'));
-const HistoricalAnalyticsPage = lazy(() => import('./pages/dashboard/HistoricalAnalyticsPage'));
+const AnalyticsPage = lazy(() => import('./pages/dashboard/AnalyticsPage'));
 const NotificationsPage = lazy(() => import('./pages/dashboard/NotificationsPage'));
 const SettingsPage = lazy(() => import('./pages/dashboard/SettingsPage'));
-const TrendsPage = lazy(() => import('./pages/dashboard/TrendsPage'));
 const StaffingPage = lazy(() => import('./pages/dashboard/StaffingPage'));
 
 function App() {
@@ -67,21 +65,17 @@ function App() {
                 }
               />
               <Route
-                path="/dashboard/ai-insights"
+                path="/dashboard/analytics"
                 element={
                   <ProtectedRoute>
-                    <DashboardLayout><AIInsightsPage /></DashboardLayout>
+                    <DashboardLayout><AnalyticsPage /></DashboardLayout>
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/dashboard/historical"
-                element={
-                  <ProtectedRoute>
-                    <DashboardLayout><HistoricalAnalyticsPage /></DashboardLayout>
-                  </ProtectedRoute>
-                }
-              />
+              {/* Redirects from legacy paths (Trends/AIInsights/Historical merged into Analytics) */}
+              <Route path="/dashboard/ai-insights" element={<Navigate to="/dashboard/analytics" replace />} />
+              <Route path="/dashboard/historical" element={<Navigate to="/dashboard/analytics" replace />} />
+              <Route path="/dashboard/trends" element={<Navigate to="/dashboard/analytics" replace />} />
               <Route
                 path="/dashboard/notifications"
                 element={
@@ -95,14 +89,6 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <DashboardLayout><SettingsPage /></DashboardLayout>
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/dashboard/trends"
-                element={
-                  <ProtectedRoute>
-                    <DashboardLayout><TrendsPage /></DashboardLayout>
                   </ProtectedRoute>
                 }
               />

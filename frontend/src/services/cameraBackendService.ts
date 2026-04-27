@@ -142,10 +142,21 @@ class CameraBackendService {
   private persistCameraId: string = 'sample-camera-1';
   private lastPersistTime: number = 0;
   private readonly PERSIST_INTERVAL_MS = 30_000; // save to DB every 30 seconds
+  // Python emits cumulative-since-boot entries/exits. We persist the DELTA per
+  // sample so downstream sums (analyticsAggregator + dashboard widgets) stay
+  // accurate. A drop in cumulative (Python restart) resets the baseline to 0.
+  private lastEntries: number = 0;
+  private lastExits: number = 0;
+  private hasBaseline: boolean = false;
 
   /** Set the camera ID to use when saving analytics to the Node.js backend */
   setCameraId(id: string): void {
-    this.persistCameraId = id;
+    if (id !== this.persistCameraId) {
+      this.persistCameraId = id;
+      this.lastEntries = 0;
+      this.lastExits = 0;
+      this.hasBaseline = false;
+    }
   }
 
   /** Save latest analytics snapshot to the Node.js backend (throttled) */
@@ -153,14 +164,27 @@ class CameraBackendService {
     const now = Date.now();
     if (now - this.lastPersistTime < this.PERSIST_INTERVAL_MS) return;
     this.lastPersistTime = now;
+
+    const cumIn = data.entries || 0;
+    const cumOut = data.exits || 0;
+    let deltaIn = 0;
+    let deltaOut = 0;
+    if (this.hasBaseline) {
+      deltaIn = Math.max(0, cumIn - this.lastEntries);
+      deltaOut = Math.max(0, cumOut - this.lastExits);
+    }
+    this.lastEntries = cumIn;
+    this.lastExits = cumOut;
+    this.hasBaseline = true;
+
     try {
       await fetch(`${NODE_BACKEND_URL}/api/analytics`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cameraId: this.persistCameraId,
-          peopleIn: data.entries || 0,
-          peopleOut: data.exits || 0,
+          peopleIn: deltaIn,
+          peopleOut: deltaOut,
           currentCount: data.current || 0,
           demographics: data.demographics || {},
           queueCount: data.queue || undefined,

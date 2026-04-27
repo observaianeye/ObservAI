@@ -69,6 +69,30 @@ export default function TableFloorMini() {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
+  // No saved snapshot? Pull one from the live Python pipeline so zones land on
+  // the actual camera framing. Best-effort — if WebSocket isn't ready or the
+  // fetch fails we fall back to the abstract grid background.
+  useEffect(() => {
+    if (snapshot) return;
+    let cancelled = false;
+    const grab = async () => {
+      try {
+        if (!cameraBackendService.getConnectionStatus()) {
+          cameraBackendService.connect();
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+        const img = await cameraBackendService.getSnapshot();
+        if (cancelled || !img) return;
+        setSnapshot(img);
+        try { localStorage.setItem('zoneLabelingBackground', img); } catch { /* quota */ }
+      } catch {
+        // pipeline offline — leave grid background
+      }
+    };
+    const timer = setTimeout(grab, 800);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [snapshot]);
+
   useEffect(() => {
     const unsub = cameraBackendService.onAnalytics((data: AnalyticsData) => {
       if (Array.isArray(data.tables)) setTables(data.tables);
@@ -184,13 +208,13 @@ export default function TableFloorMini() {
   const empty = rendered.length === 0;
 
   return (
-    <GlassCard variant="neon" className="p-5 text-ink-0">
-      <div className="flex items-center justify-between mb-3 gap-3">
+    <GlassCard variant="neon" className="p-4 text-ink-0">
+      <div className="flex items-center justify-between mb-2.5 gap-2">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-ink-3 uppercase tracking-[0.18em] font-mono">
+          <p className="text-[11px] font-semibold text-ink-3 uppercase tracking-[0.18em] font-mono">
             {lang === 'tr' ? 'Yerleşim Planı' : 'Floor Plan'}
           </p>
-          <p className="text-[11px] text-ink-4 mt-0.5 truncate">
+          <p className="text-[10px] text-ink-4 mt-0.5 truncate">
             {lang === 'tr'
               ? `${tableSummary.occupied} dolu · ${tableSummary.free} boş`
               : `${tableSummary.occupied} occupied · ${tableSummary.free} free`}
@@ -200,12 +224,6 @@ export default function TableFloorMini() {
               </span>
             )}
           </p>
-        </div>
-        <div className="hidden sm:flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-ink-3">
-          <Legend dotClass="bg-danger-400" label={lang === 'tr' ? 'Dolu' : 'Occupied'} />
-          <Legend dotClass="bg-success-400" label={lang === 'tr' ? 'Boş' : 'Free'} />
-          <Legend dotClass="bg-warning-400" label={lang === 'tr' ? 'Sıra' : 'Queue'} />
-          <Legend dotClass="bg-cyan-400" label={lang === 'tr' ? 'Giriş' : 'Entry'} />
         </div>
       </div>
 
@@ -224,11 +242,11 @@ export default function TableFloorMini() {
               src={snapshot}
               alt=""
               aria-hidden
-              className="absolute inset-0 w-full h-full object-cover opacity-20"
-              style={{ filter: 'grayscale(1) contrast(0.9) brightness(0.55) hue-rotate(190deg) saturate(1.3)' }}
+              className="absolute inset-0 w-full h-full object-cover opacity-55"
+              style={{ filter: 'grayscale(0.6) contrast(0.95) brightness(0.7) saturate(1.05)' }}
             />
           )}
-          <div className="absolute inset-0 grid-floor opacity-30" />
+          <div className={`absolute inset-0 grid-floor ${snapshot ? 'opacity-15' : 'opacity-30'}`} />
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
@@ -524,15 +542,6 @@ function CrowdDetail({
         <X className="w-3.5 h-3.5" />
       </button>
     </div>
-  );
-}
-
-function Legend({ dotClass, label }: { dotClass: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
-      {label}
-    </span>
   );
 }
 

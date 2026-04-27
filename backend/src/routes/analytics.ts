@@ -1005,4 +1005,384 @@ function generateComparisonSummary(period1: any, period2: any): string {
   );
 }
 
+// ============================================================
+// UNIFIED OVERVIEW ENDPOINT
+// ============================================================
+
+type OverviewRange = '1h' | '1d' | '1w' | '1m' | '3m';
+const RANGE_DAYS: Record<OverviewRange, number> = { '1h': 0, '1d': 1, '1w': 7, '1m': 30, '3m': 90 };
+
+interface DemoSnap { gender: { male: number; female: number; unknown: number }; age: Record<string, number>; samples: number; }
+
+function emptyDemo(): DemoSnap {
+  return { gender: { male: 0, female: 0, unknown: 0 }, age: {}, samples: 0 };
+}
+
+function mergeDemographics(into: DemoSnap, jsonStr: string | null | undefined) {
+  if (!jsonStr) return;
+  try {
+    const d = JSON.parse(jsonStr);
+    if (d.gender) {
+      into.gender.male += d.gender.male ?? 0;
+      into.gender.female += d.gender.female ?? 0;
+      into.gender.unknown += d.gender.unknown ?? 0;
+    }
+    if (d.age) {
+      for (const [k, v] of Object.entries(d.age)) {
+        if (typeof v === 'number') into.age[k] = (into.age[k] ?? 0) + v;
+      }
+    }
+    if (typeof d.samples === 'number') into.samples += d.samples;
+  } catch { /* skip */ }
+}
+
+// GET /api/analytics/:cameraId/overview?range=1h|1d|1w|1m|3m
+//
+// Single bundled response for the unified Analytics page. Replaces three
+// separate page-specific endpoints (trends, historical, insights). The range
+// determines the data source AND the compare window:
+//   - 1h: AnalyticsLog 5-min buckets, compare to previous hour
+//   - 1d: AnalyticsSummary hourly today, compare to same weekday last week
+//   - 1w/1m/3m: AnalyticsSummary daily, compare to prior same-length window
+//
+// Only verifiably-present data is returned. When the prior baseline is empty,
+// delta fields are null (frontend renders "—" instead of fake +100%).
+router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
+  try {
+    const { cameraId } = req.params;
+    const range = (req.query.range as OverviewRange) || '1d';
+    if (!['1h', '1d', '1w', '1m', '3m'].includes(range)) {
+      return res.status(400).json({ error: 'Invalid range. Use: 1h | 1d | 1w | 1m | 3m' });
+    }
+
+    const now = new Date();
+    const rangeEnd = new Date(now);
+
+    // ─── 1h branch ── live data from AnalyticsLog, 5-min buckets ──
+    if (range === '1h') {
+      const rangeStart = new Date(now.getTime() - 60 * 60 * 1000);
+      const prevStart = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+
+      const [currentLogs, prevLogs] = await Promise.all([
+        prisma.analyticsLog.findMany({
+          where: { cameraId, timestamp: { gte: rangeStart, lte: rangeEnd } },
+          orderBy: { timestamp: 'asc' },
+        }),
+        prisma.analyticsLog.findMany({
+          where: { cameraId, timestamp: { gte: prevStart, lt: rangeStart } },
+          orderBy: { timestamp: 'asc' },
+        }),
+      ]);
+
+      // 12 5-minute buckets
+      const buckets: { ts: string; label: string; visitors: number; occupancy: number; samples: number }[] = [];
+      for (let i = 0; i < 12; i++) {
+        const bStart = new Date(rangeStart.getTime() + i * 5 * 60 * 1000);
+        buckets.push({
+          ts: bStart.toISOString(),
+          label: `${String(bStart.getHours()).padStart(2, '0')}:${String(bStart.getMinutes()).padStart(2, '0')}`,
+          visitors: 0, occupancy: 0, samples: 0,
+        });
+      }
+      for (const l of currentLogs) {
+        const idx = Math.floor((new Date(l.timestamp).getTime() - rangeStart.getTime()) / (5 * 60 * 1000));
+        if (idx >= 0 && idx < 12) {
+          buckets[idx].visitors += l.peopleIn;
+          buckets[idx].occupancy += l.currentCount;
+          buckets[idx].samples += 1;
+        }
+      }
+      const timeline = buckets.map((b) => ({
+        ts: b.ts, label: b.label, visitors: b.visitors,
+        occupancy: b.samples > 0 ? Math.round(b.occupancy / b.samples) : 0,
+      }));
+
+      const totalVisitors = currentLogs.reduce((s, l) => s + l.peopleIn, 0);
+      const avgOccupancy = currentLogs.length > 0
+        ? Math.round((currentLogs.reduce((s, l) => s + l.currentCount, 0) / currentLogs.length) * 10) / 10
+        : 0;
+      const peakOccupancy = currentLogs.length > 0 ? Math.max(...currentLogs.map((l) => l.currentCount)) : 0;
+      const peakLog = currentLogs.reduce((max, l) => (l.currentCount > (max?.currentCount ?? -1) ? l : max), currentLogs[0]);
+      const peakHour = peakLog ? `${String(new Date(peakLog.timestamp).getHours()).padStart(2, '0')}:${String(new Date(peakLog.timestamp).getMinutes()).padStart(2, '0')}` : null;
+
+      const prevVisitors = prevLogs.reduce((s, l) => s + l.peopleIn, 0);
+      const prevAvgOcc = prevLogs.length > 0
+        ? Math.round((prevLogs.reduce((s, l) => s + l.currentCount, 0) / prevLogs.length) * 10) / 10
+        : 0;
+      const calcDelta = (a: number, b: number): number | null => (b === 0 ? null : Math.round(((a - b) / b) * 100));
+
+      const demoAgg = emptyDemo();
+      for (const l of currentLogs) mergeDemographics(demoAgg, l.demographics);
+
+      return res.json({
+        range,
+        rangeStart: rangeStart.toISOString(),
+        rangeEnd: rangeEnd.toISOString(),
+        hasData: currentLogs.length > 0,
+        dataSource: 'logs',
+        kpis: { totalVisitors, avgOccupancy, peakOccupancy, peakHour },
+        timeline,
+        peakHours: [],
+        weekdayCompare: null,
+        demographics: demoAgg.samples > 0 ? demoAgg : null,
+        compare: {
+          current: { visitors: totalVisitors, avgOccupancy },
+          previous: { visitors: prevVisitors, avgOccupancy: prevAvgOcc },
+          delta: { visitors: calcDelta(totalVisitors, prevVisitors), avgOccupancy: calcDelta(avgOccupancy, prevAvgOcc) },
+          previousLabel: 'previous_hour',
+        },
+        prediction: null,
+      });
+    }
+
+    // ─── 1d branch ── hourly summaries today, compare to same weekday last week ──
+    if (range === '1d') {
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const lastWeekStart = new Date(todayStart);
+      lastWeekStart.setDate(todayStart.getDate() - 7);
+      const lastWeekEnd = new Date(lastWeekStart);
+      lastWeekEnd.setHours(23, 59, 59, 999);
+
+      const [todayHourly, prevHourly] = await Promise.all([
+        prisma.analyticsSummary.findMany({
+          where: { cameraId, date: { gte: todayStart, lte: rangeEnd }, hour: { not: null } },
+          orderBy: [{ date: 'asc' }, { hour: 'asc' }],
+        }),
+        prisma.analyticsSummary.findMany({
+          where: { cameraId, date: { gte: lastWeekStart, lte: lastWeekEnd }, hour: { not: null } },
+          orderBy: [{ date: 'asc' }, { hour: 'asc' }],
+        }),
+      ]);
+
+      const timeline = todayHourly.map((s) => ({
+        ts: s.date.toISOString(),
+        label: `${String(s.hour ?? 0).padStart(2, '0')}:00`,
+        visitors: s.totalEntries,
+        occupancy: Math.round(s.avgOccupancy ?? 0),
+        hour: s.hour,
+      }));
+
+      const totalVisitors = todayHourly.reduce((s, r) => s + r.totalEntries, 0);
+      const activeHours = todayHourly.filter((r) => r.totalEntries > 0);
+      const avgOccupancy = activeHours.length > 0
+        ? Math.round((activeHours.reduce((s, r) => s + (r.avgOccupancy ?? 0), 0) / activeHours.length) * 10) / 10
+        : 0;
+      const peakRow = todayHourly.reduce((max, r) => (r.totalEntries > (max?.totalEntries ?? -1) ? r : max), todayHourly[0]);
+      const peakOccupancy = todayHourly.length > 0 ? Math.max(...todayHourly.map((r) => r.peakOccupancy)) : 0;
+      const peakHour = peakRow && peakRow.totalEntries > 0 ? `${String(peakRow.hour ?? 0).padStart(2, '0')}:00` : null;
+
+      const prevVisitors = prevHourly.reduce((s, r) => s + r.totalEntries, 0);
+      const prevAvgOcc = (() => {
+        const ah = prevHourly.filter((r) => r.totalEntries > 0);
+        return ah.length > 0 ? Math.round((ah.reduce((s, r) => s + (r.avgOccupancy ?? 0), 0) / ah.length) * 10) / 10 : 0;
+      })();
+      const calcDelta = (a: number, b: number): number | null => (b === 0 ? null : Math.round(((a - b) / b) * 100));
+
+      const demoAgg = emptyDemo();
+      for (const r of todayHourly) mergeDemographics(demoAgg, r.demographics);
+
+      // Peak hours top-3 from today
+      const sortedHours = [...todayHourly].sort((a, b) => b.totalEntries - a.totalEntries).slice(0, 3);
+      const peakHours = sortedHours.filter((r) => r.totalEntries > 0).map((r) => ({ hour: r.hour ?? 0, avg: r.totalEntries }));
+
+      return res.json({
+        range,
+        rangeStart: todayStart.toISOString(),
+        rangeEnd: rangeEnd.toISOString(),
+        hasData: todayHourly.length > 0,
+        dataSource: 'summary',
+        kpis: { totalVisitors, avgOccupancy, peakOccupancy, peakHour },
+        timeline,
+        peakHours,
+        weekdayCompare: null,
+        demographics: demoAgg.samples > 0 ? demoAgg : null,
+        compare: {
+          current: { visitors: totalVisitors, avgOccupancy },
+          previous: { visitors: prevVisitors, avgOccupancy: prevAvgOcc },
+          delta: { visitors: calcDelta(totalVisitors, prevVisitors), avgOccupancy: calcDelta(avgOccupancy, prevAvgOcc) },
+          previousLabel: 'same_weekday_last_week',
+        },
+        prediction: null,
+      });
+    }
+
+    // ─── 1w / 1m / 3m branch ── daily summaries, prior same-length window ──
+    const days = RANGE_DAYS[range];
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const rangeStart = new Date(todayStart);
+    rangeStart.setDate(rangeStart.getDate() - (days - 1));
+    const prevEnd = new Date(rangeStart);
+    prevEnd.setMilliseconds(-1);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevStart.getDate() - days + 1);
+    prevStart.setHours(0, 0, 0, 0);
+
+    const [dailyRows, hourlyRows, prevRows] = await Promise.all([
+      prisma.analyticsSummary.findMany({
+        where: { cameraId, date: { gte: rangeStart, lte: rangeEnd }, hour: null },
+        orderBy: { date: 'asc' },
+      }),
+      prisma.analyticsSummary.findMany({
+        where: { cameraId, date: { gte: rangeStart, lte: rangeEnd }, hour: { not: null } },
+        orderBy: [{ date: 'asc' }, { hour: 'asc' }],
+      }),
+      prisma.analyticsSummary.findMany({
+        where: { cameraId, date: { gte: prevStart, lte: prevEnd }, hour: null },
+        orderBy: { date: 'asc' },
+      }),
+    ]);
+
+    const timeline = dailyRows.map((r) => ({
+      ts: r.date.toISOString(),
+      label: r.date.toISOString().slice(0, 10),
+      visitors: r.totalEntries,
+      occupancy: Math.round(r.avgOccupancy ?? 0),
+      peakOccupancy: r.peakOccupancy,
+    }));
+
+    const totalVisitors = dailyRows.reduce((s, r) => s + r.totalEntries, 0);
+    const activeDays = dailyRows.filter((r) => r.totalEntries > 0);
+    const avgOccupancy = activeDays.length > 0
+      ? Math.round((activeDays.reduce((s, r) => s + (r.avgOccupancy ?? 0), 0) / activeDays.length) * 10) / 10
+      : 0;
+    const peakOccupancy = dailyRows.length > 0 ? Math.max(...dailyRows.map((r) => r.peakOccupancy)) : 0;
+
+    // Peak hour across the whole range
+    const hourTotals: number[] = new Array(24).fill(0);
+    const hourCounts: number[] = new Array(24).fill(0);
+    for (const r of hourlyRows) {
+      const h = r.hour ?? 0;
+      hourTotals[h] += r.totalEntries;
+      hourCounts[h] += 1;
+    }
+    const hourlyAvg = hourTotals.map((t, i) => (hourCounts[i] > 0 ? Math.round(t / hourCounts[i]) : 0));
+    const peakHourIdx = hourlyAvg.reduce((maxI, v, i) => (v > hourlyAvg[maxI] ? i : maxI), 0);
+    const peakHour = hourlyAvg[peakHourIdx] > 0 ? `${String(peakHourIdx).padStart(2, '0')}:00` : null;
+    const peakHours = hourlyAvg
+      .map((avg, hour) => ({ hour, avg }))
+      .sort((a, b) => b.avg - a.avg)
+      .slice(0, 3)
+      .filter((p) => p.avg > 0);
+
+    // Demographics aggregation across the range (use daily rows — they roll up hourly)
+    const demoAgg = emptyDemo();
+    for (const r of dailyRows) mergeDemographics(demoAgg, r.demographics);
+
+    // Compare to prior same-length window
+    const prevVisitors = prevRows.reduce((s, r) => s + r.totalEntries, 0);
+    const prevActiveDays = prevRows.filter((r) => r.totalEntries > 0);
+    const prevAvgOcc = prevActiveDays.length > 0
+      ? Math.round((prevActiveDays.reduce((s, r) => s + (r.avgOccupancy ?? 0), 0) / prevActiveDays.length) * 10) / 10
+      : 0;
+    const calcDelta = (a: number, b: number): number | null => (b === 0 ? null : Math.round(((a - b) / b) * 100));
+
+    // Weekday compare (only meaningful for ≥1w ranges) — this rolling 7d vs prior 7d
+    let weekdayCompare: any = null;
+    if (range === '1w' || range === '1m' || range === '3m') {
+      const thisWeekStart = new Date(todayStart);
+      thisWeekStart.setDate(thisWeekStart.getDate() - 6);
+      const lastWeekEnd = new Date(thisWeekStart);
+      lastWeekEnd.setMilliseconds(-1);
+      const lastWeekStart = new Date(thisWeekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+      const wkRows = await prisma.analyticsSummary.findMany({
+        where: {
+          cameraId,
+          date: { gte: lastWeekStart, lte: rangeEnd },
+          hour: { not: null },
+        },
+        orderBy: [{ date: 'asc' }, { hour: 'asc' }],
+      });
+
+      const buckets: Record<number, { thisWeek: number[]; lastWeek: number[]; thisTotal: number; lastTotal: number }> = {};
+      for (let d = 0; d < 7; d++) {
+        buckets[d] = { thisWeek: new Array(24).fill(0), lastWeek: new Array(24).fill(0), thisTotal: 0, lastTotal: 0 };
+      }
+      for (const r of wkRows) {
+        const d = new Date(r.date);
+        const wd = d.getDay();
+        const h = r.hour ?? 0;
+        if (d >= thisWeekStart) {
+          buckets[wd].thisWeek[h] = r.totalEntries;
+          buckets[wd].thisTotal += r.totalEntries;
+        } else {
+          buckets[wd].lastWeek[h] = r.totalEntries;
+          buckets[wd].lastTotal += r.totalEntries;
+        }
+      }
+      weekdayCompare = Object.entries(buckets).map(([d, b]) => ({
+        weekday: parseInt(d),
+        thisWeek: b.thisWeek,
+        lastWeek: b.lastWeek,
+        thisWeekTotal: b.thisTotal,
+        lastWeekTotal: b.lastTotal,
+        changePercent: b.lastTotal > 0 ? Math.round(((b.thisTotal - b.lastTotal) / b.lastTotal) * 100) : null,
+      }));
+    }
+
+    // Tomorrow prediction (only when ≥1w of history available)
+    let prediction: any = null;
+    if (range === '1w' || range === '1m' || range === '3m') {
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const targetWeekday = tomorrow.getDay();
+      const weeksByDate = new Map<string, number[]>();
+      for (const r of hourlyRows) {
+        const d = new Date(r.date);
+        if (d.getDay() !== targetWeekday) continue;
+        const key = d.toISOString().slice(0, 10);
+        let week = weeksByDate.get(key);
+        if (!week) { week = new Array(24).fill(0); weeksByDate.set(key, week); }
+        week[r.hour ?? 0] = r.totalEntries;
+      }
+      const weeklyData = Array.from(weeksByDate.entries())
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([, hrs]) => hrs);
+      if (weeklyData.length > 0) {
+        const lambda = 0.6;
+        const rawW = weeklyData.map((_, i) => Math.pow(lambda, i));
+        const totalW = rawW.reduce((a, b) => a + b, 0);
+        const pred = new Array(24).fill(0);
+        for (let w = 0; w < weeklyData.length; w++) {
+          const wt = rawW[w] / totalW;
+          for (let h = 0; h < 24; h++) pred[h] += weeklyData[w][h] * wt;
+        }
+        prediction = {
+          date: tomorrow.toISOString().slice(0, 10),
+          weekday: targetWeekday,
+          hourlyPrediction: pred.map((v, h) => ({ hour: h, predicted: Math.round(v) })),
+          confidence: Math.min(95, weeklyData.length * 18 + 10),
+          dataWeeks: weeklyData.length,
+        };
+      }
+    }
+
+    res.json({
+      range,
+      rangeStart: rangeStart.toISOString(),
+      rangeEnd: rangeEnd.toISOString(),
+      hasData: dailyRows.length > 0,
+      dataSource: 'summary',
+      kpis: { totalVisitors, avgOccupancy, peakOccupancy, peakHour },
+      timeline,
+      peakHours,
+      weekdayCompare,
+      demographics: demoAgg.samples > 0 ? demoAgg : null,
+      compare: {
+        current: { visitors: totalVisitors, avgOccupancy },
+        previous: { visitors: prevVisitors, avgOccupancy: prevAvgOcc },
+        delta: { visitors: calcDelta(totalVisitors, prevVisitors), avgOccupancy: calcDelta(avgOccupancy, prevAvgOcc) },
+        previousLabel: 'previous_period',
+      },
+      prediction,
+    });
+  } catch (error: any) {
+    console.error('[overview] Error:', error);
+    res.status(500).json({ error: 'Failed to load overview', message: error.message });
+  }
+});
+
 export default router;

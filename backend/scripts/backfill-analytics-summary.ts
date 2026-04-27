@@ -165,10 +165,126 @@ function seasonalMultiplier(dayOffset: number): number {
   return trend * weekly;
 }
 
-async function backfillOneCamera(cameraId: string, days: number): Promise<number> {
+// ─── Real historical weather per branch ──────────────────────────────────────
+// Open-Meteo Archive API (free, no key). Returns daily aggregates for the
+// branch's exact lat/lon, so two cafes in different cities see different
+// weather-driven traffic. Cached per (lat,lon) within a single backfill run.
+interface DailyWeather {
+  precipitation: number;  // mm
+  tMax: number;           // °C
+  tMin: number;           // °C
+  weatherCode: number;    // WMO code
+}
+const weatherCache = new Map<string, Map<string, DailyWeather>>();
+
+async function fetchHistoricalWeather(
+  latitude: number,
+  longitude: number,
+  startDate: Date,
+  endDate: Date,
+): Promise<Map<string, DailyWeather>> {
+  const cacheKey = `${latitude.toFixed(3)},${longitude.toFixed(3)}`;
+  const cached = weatherCache.get(cacheKey);
+  if (cached) return cached;
+
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const url = `https://archive-api.open-meteo.com/v1/archive` +
+    `?latitude=${latitude}&longitude=${longitude}` +
+    `&start_date=${fmt(startDate)}&end_date=${fmt(endDate)}` +
+    `&daily=precipitation_sum,temperature_2m_max,temperature_2m_min,weather_code` +
+    `&timezone=auto`;
+
+  const result = new Map<string, DailyWeather>();
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`[backfill] weather fetch ${res.status} for ${cacheKey} — falling back to neutral`);
+      weatherCache.set(cacheKey, result);
+      return result;
+    }
+    const j = await res.json() as {
+      daily?: {
+        time: string[];
+        precipitation_sum: (number | null)[];
+        temperature_2m_max: (number | null)[];
+        temperature_2m_min: (number | null)[];
+        weather_code: (number | null)[];
+      };
+    };
+    if (j.daily) {
+      for (let i = 0; i < j.daily.time.length; i++) {
+        result.set(j.daily.time[i], {
+          precipitation: j.daily.precipitation_sum[i] ?? 0,
+          tMax: j.daily.temperature_2m_max[i] ?? 20,
+          tMin: j.daily.temperature_2m_min[i] ?? 10,
+          weatherCode: j.daily.weather_code[i] ?? 0,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn(`[backfill] weather fetch failed for ${cacheKey}:`, err instanceof Error ? err.message : err);
+  }
+  weatherCache.set(cacheKey, result);
+  return result;
+}
+
+// Daily weather → visitor multiplier. Heavy rain hurts most; mild dry days
+// give a small bump. Numbers are deliberately gentle (0.6..1.10) so the
+// long-run trend stays the dominant signal — weather is texture, not noise.
+function weatherMultiplier(w: DailyWeather | undefined): number {
+  if (!w) return 1.0;
+  let m = 1.0;
+  if (w.precipitation > 15) m *= 0.65;       // storm / heavy rain
+  else if (w.precipitation > 5) m *= 0.80;   // moderate rain
+  else if (w.precipitation > 1) m *= 0.92;   // drizzle
+  else m *= 1.04;                            // dry
+  if (w.tMax >= 18 && w.tMax <= 26) m *= 1.05;     // perfect cafe weather
+  else if (w.tMax >= 12 && w.tMax < 18) m *= 0.98;
+  else if (w.tMax > 32) m *= 0.92;                  // hot
+  else if (w.tMax < 5) m *= 0.85;                   // cold
+  else if (w.tMax < 0) m *= 0.75;                   // freezing
+  // WMO codes 95-99 = thunderstorm — extra penalty on top of precipitation
+  if (w.weatherCode >= 95) m *= 0.85;
+  if (w.weatherCode >= 71 && w.weatherCode <= 77) m *= 0.78; // snow
+  return m;
+}
+
+// Hourly traffic congestion (heuristic — no historical TomTom). Heavy rush
+// hour traffic = harder to reach a cafe by car/bus = mild visitor reduction.
+// Cafe peak hours (lunch, dinner) get a slight boost from foot traffic
+// in busy commercial areas.
+function trafficMultiplier(hour: number, isWeekend: boolean): number {
+  if (isWeekend) {
+    // Weekends: leisurely, lunch + evening crowds drive cafe traffic up
+    if (hour >= 12 && hour <= 14) return 1.05;
+    if (hour >= 18 && hour <= 21) return 1.06;
+    if (hour >= 22 || hour < 8) return 0.95;
+    return 1.00;
+  }
+  // Weekdays: rush hour (commute home/from work) makes cafe access slightly harder
+  if (hour >= 7 && hour <= 9) return 0.94;
+  if (hour >= 17 && hour <= 19) return 0.95;
+  if (hour >= 12 && hour <= 13) return 1.04; // lunch break — close-by office foot traffic
+  if (hour >= 22 || hour < 6) return 0.92;
+  return 1.0;
+}
+
+async function backfillOneCamera(
+  cameraId: string,
+  days: number,
+  branchCoords: { latitude: number; longitude: number } | null,
+): Promise<number> {
   let written = 0;
   const today = startOfDay(new Date());
   const nowHour = new Date().getHours();
+
+  // Pull the full window once per branch (Open-Meteo accepts ranges, so this
+  // is one HTTP call per unique location for the whole backfill).
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - days);
+  const weather = branchCoords
+    ? await fetchHistoricalWeather(branchCoords.latitude, branchCoords.longitude, startDate, today)
+    : new Map<string, DailyWeather>();
 
   // Walk from oldest to today (offset 0). Including today gives Trends'
   // "this week" curve a non-empty rightmost slice.
@@ -178,6 +294,9 @@ async function backfillOneCamera(cameraId: string, days: number): Promise<number
     const weekdayMod = WEEKDAY_MOD[day.getDay() === 0 ? 6 : day.getDay() - 1]; // Mon=0 ... Sun=6
     const baseTraffic = randInt(38, 72);
     const seasonalMod = seasonalMultiplier(dayOffset);
+    const dayKey = day.toISOString().slice(0, 10);
+    const weatherMod = weatherMultiplier(weather.get(dayKey));
+    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
     const dailyTotals = { entries: 0, exits: 0, peakOccupancy: 0, avgOccupancySum: 0 };
     const mergedDemographics = {
@@ -190,7 +309,8 @@ async function backfillOneCamera(cameraId: string, days: number): Promise<number
     // the page doesn't show 23:00 traffic at 14:00.
     const lastHour = dayOffset === 0 ? Math.min(23, nowHour) : 23;
     for (let hour = 0; hour <= lastHour; hour++) {
-      const row = generateHourlyRow(baseTraffic, weekdayMod, hour, seasonalMod);
+      const trafficMod = trafficMultiplier(hour, isWeekend);
+      const row = generateHourlyRow(baseTraffic, weekdayMod, hour, seasonalMod * weatherMod * trafficMod);
       await prisma.analyticsSummary.upsert({
         where: { cameraId_date_hour: { cameraId, date: day, hour } },
         create: { cameraId, date: day, hour, ...row },
@@ -246,7 +366,13 @@ async function main() {
   const days = Number(process.env.BACKFILL_DAYS || 90);
   console.log(`\n[backfill] Starting — ${days} days of synthetic AnalyticsSummary (cafe 08:00-23:00)`);
 
-  const cameras = await prisma.camera.findMany({ select: { id: true, name: true } });
+  const cameras = await prisma.camera.findMany({
+    select: {
+      id: true,
+      name: true,
+      branch: { select: { id: true, name: true, latitude: true, longitude: true } },
+    },
+  });
   if (cameras.length === 0) {
     console.log('[backfill] No cameras found — creating one synthetic camera for demo');
     const user = await prisma.user.findFirst();
@@ -264,13 +390,15 @@ async function main() {
       },
       select: { id: true, name: true },
     });
-    cameras.push(camera);
+    cameras.push({ ...camera, branch: null });
   }
 
   let total = 0;
   for (const cam of cameras) {
-    console.log(`[backfill] Camera: ${cam.name} (${cam.id})`);
-    const n = await backfillOneCamera(cam.id, days);
+    const branchLabel = cam.branch ? `${cam.branch.name} (${cam.branch.latitude.toFixed(2)}, ${cam.branch.longitude.toFixed(2)})` : 'no branch — neutral weather';
+    console.log(`[backfill] Camera: ${cam.name} (${cam.id}) — ${branchLabel}`);
+    const coords = cam.branch ? { latitude: cam.branch.latitude, longitude: cam.branch.longitude } : null;
+    const n = await backfillOneCamera(cam.id, days, coords);
     console.log(`           +${n} rows`);
     total += n;
   }

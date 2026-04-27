@@ -23,8 +23,8 @@ export default function CameraAnalyticsPage() {
         </div>
         <div className="space-y-6">
           <VisitorCountWidget />
-          <DemographicsCard />
           <TableFloorMini />
+          <DemographicsCard />
         </div>
       </div>
     </div>

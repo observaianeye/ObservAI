@@ -153,6 +153,17 @@ export async function callOllama(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const ollamaOptions: Record<string, number> = {
+      temperature: opts?.temperature ?? 0.4,
+      num_predict: opts?.maxTokens ?? 1024,
+      num_ctx: parseInt(process.env.OLLAMA_NUM_CTX || '2048', 10),
+    };
+    // Only forward num_gpu when explicitly configured. Ollama auto-offloads to
+    // GPU by default — passing 0 forces pure CPU and tanks throughput on a
+    // 14B model like qwen3.
+    if (process.env.OLLAMA_NUM_GPU !== undefined) {
+      ollamaOptions.num_gpu = parseInt(process.env.OLLAMA_NUM_GPU, 10);
+    }
     const res = await fetch(`${OLLAMA_URL}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -161,12 +172,11 @@ export async function callOllama(
         model,
         prompt,
         stream: false,
-        options: {
-          temperature: opts?.temperature ?? 0.4,
-          num_predict: opts?.maxTokens ?? 1024,
-          num_gpu: parseInt(process.env.OLLAMA_NUM_GPU || '0', 10),
-          num_ctx: parseInt(process.env.OLLAMA_NUM_CTX || '2048', 10),
-        }
+        // Thinking models (qwen3, deepseek-r1, etc.) burn the entire num_predict
+        // budget on hidden reasoning before emitting visible output. Disable so
+        // analytics responses stay under the timeout.
+        think: false,
+        options: ollamaOptions,
       })
     });
 
@@ -218,6 +228,14 @@ export async function callOllamaStream(
   }
 
   try {
+    const ollamaOptions: Record<string, number> = {
+      temperature: opts?.temperature ?? 0.4,
+      num_predict: opts?.maxTokens ?? 1024,
+      num_ctx: parseInt(process.env.OLLAMA_NUM_CTX || '4096', 10),
+    };
+    if (process.env.OLLAMA_NUM_GPU !== undefined) {
+      ollamaOptions.num_gpu = parseInt(process.env.OLLAMA_NUM_GPU, 10);
+    }
     const res = await fetch(`${OLLAMA_URL}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -226,12 +244,8 @@ export async function callOllamaStream(
         model,
         prompt,
         stream: true,
-        options: {
-          temperature: opts?.temperature ?? 0.4,
-          num_predict: opts?.maxTokens ?? 1024,
-          num_gpu: parseInt(process.env.OLLAMA_NUM_GPU || '0', 10),
-          num_ctx: parseInt(process.env.OLLAMA_NUM_CTX || '4096', 10),
-        }
+        think: false,
+        options: ollamaOptions,
       })
     });
 

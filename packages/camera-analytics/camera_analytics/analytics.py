@@ -1791,7 +1791,7 @@ class CameraAnalyticsEngine:
       cap.release()
       print(f"[INFO] Async pipeline stopped. Capture FPS: {self.capture_fps:.1f}, Inference FPS: {self.inference_fps:.1f}")
       if self.display:
-        import cv2; cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
 
   def _run_live_with_threaded_reader(self, cap, source_fps: float) -> None:
     """
