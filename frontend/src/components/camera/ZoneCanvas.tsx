@@ -115,6 +115,16 @@ export default function ZoneCanvas() {
     if (savedBackground) setBackgroundImage(savedBackground);
   }, [loadZones]);
 
+  // Refetch zones when another view activates a different camera. Without
+  // this, the labeling page would stay pinned to the camera that was active
+  // when this component mounted — even if the user picked a new source from
+  // CameraFeed or CameraSelectionPage in another tab/route.
+  useEffect(() => {
+    const onActiveCameraChange = () => { loadZones(); };
+    window.addEventListener('observai:active-camera-changed', onActiveCameraChange);
+    return () => window.removeEventListener('observai:active-camera-changed', onActiveCameraChange);
+  }, [loadZones]);
+
   // ESC to cancel drawing
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -463,15 +473,38 @@ export default function ZoneCanvas() {
         throw new Error(`Persist failed: ${persistRes.status}`);
       }
 
-      // Best-effort push to Python so the live engine sees the new zones
-      // immediately. If Python is offline this is a no-op — DB is the truth.
+      // Re-fetch with the DB-issued UUIDs and reload local state. Without this,
+      // the local IDs we send to Python below don't match the IDs the floor
+      // plan reads from /api/zones/<cameraId>, so table occupancy never lights
+      // up. Push the fresh DB zones to Python so `tables[].id` matches.
+      const freshRes = await fetch(`/api/zones/${activeCameraId}`, { credentials: 'include' });
+      const freshZones: Zone[] = freshRes.ok
+        ? (((await freshRes.json()) as Array<any>) ?? []).map((r) => {
+            const coords: NormPoint[] = Array.isArray(r.coordinates) ? r.coordinates : [];
+            const bb = polygonBounds(coords);
+            return {
+              id: r.id,
+              name: r.name,
+              type: String(r.type || 'CUSTOM').toLowerCase() as Zone['type'],
+              color: r.color || '#3b82f6',
+              shape: 'polygon',
+              points: coords,
+              x: bb.x,
+              y: bb.y,
+              width: bb.width,
+              height: bb.height,
+            };
+          })
+        : normalized;
+      setZones(freshZones);
+
       try {
-        await cameraBackendService.saveZones(normalized);
+        await cameraBackendService.saveZones(freshZones);
       } catch (err) {
         console.warn('[zones] Python push failed (engine offline?):', err);
       }
 
-      showToast('success', `Saved ${zones.length} zone${zones.length !== 1 ? 's' : ''}`);
+      showToast('success', `Saved ${freshZones.length} zone${freshZones.length !== 1 ? 's' : ''}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       showToast('error', `Failed to save: ${msg}`);

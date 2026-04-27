@@ -47,20 +47,21 @@ export default function CameraSelectionPage() {
   const [isUpdating, setIsUpdating] = useState(false);
 
   const fetchCameras = useCallback(async () => {
-    if (!selectedBranch) {
-      setCameras([]);
-      setIsLoading(false);
-      return;
-    }
     setIsLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/cameras?branchId=${encodeURIComponent(selectedBranch.id)}`,
-        { credentials: 'include' },
-      );
+      // When a branch is active we scope to it; otherwise show every camera
+      // the user owns. This matches CameraFeed's behavior and stops the
+      // "Configured Sources" pane from looking empty when the navbar branch
+      // selector hasn't loaded yet.
+      const url = selectedBranch
+        ? `${API_URL}/api/cameras?branchId=${encodeURIComponent(selectedBranch.id)}`
+        : `${API_URL}/api/cameras`;
+      const res = await fetch(url, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setCameras(data);
+      } else {
+        setCameras([]);
       }
     } catch (err) {
       console.error('Failed to fetch cameras:', err);
@@ -183,6 +184,11 @@ export default function CameraSelectionPage() {
       });
       if (res.ok) {
         await fetchCameras();
+        // Notify other mounted views (CameraFeed, ZoneCanvas) to refetch
+        // their zone state against the newly-active camera.
+        window.dispatchEvent(new CustomEvent('observai:active-camera-changed', {
+          detail: { cameraId },
+        }));
         navigate('/dashboard');
       }
     } catch (err) {

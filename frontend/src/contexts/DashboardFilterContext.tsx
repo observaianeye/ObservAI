@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { useAuth } from './AuthContext';
 
 interface Branch {
   id: string;
@@ -46,6 +47,7 @@ function getDateRange(days: number): DateRange {
 export { DEFAULT_DATE_RANGES };
 
 export function DashboardFilterProvider({ children }: { children: ReactNode }) {
+  const { user, isAuthReady } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranchState] = useState<Branch | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>(getDateRange(7));
@@ -71,6 +73,11 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
         } else {
           localStorage.removeItem('selectedBranchId');
         }
+      } else {
+        // 401 or other failure — clear stale state so we don't leak a previous
+        // user's branch into the UI.
+        setBranches([]);
+        setSelectedBranchState(null);
       }
     } catch (error) {
       console.error('Failed to fetch branches:', error);
@@ -79,9 +86,19 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Refetch whenever auth flips. We can't trust a fetch that fires before
+  // checkAuth() resolves — the cookie may exist but the user object hasn't
+  // landed yet, and a logout/login swap on the same tab needs to drop the
+  // previous account's branches before showing the new one.
   useEffect(() => {
+    if (!isAuthReady) return;
+    if (!user) {
+      setBranches([]);
+      setSelectedBranchState(null);
+      return;
+    }
     fetchBranches();
-  }, [fetchBranches]);
+  }, [isAuthReady, user?.id, fetchBranches]);
 
   const setSelectedBranch = (branch: Branch | null) => {
     setSelectedBranchState(branch);

@@ -413,61 +413,99 @@ export default function CameraFeed() {
   // Load zones from the Node DB for the caller's active camera (per branch).
   // The DB is the single source of truth — never read from the Python engine
   // or localStorage, both of which are device-global and leak ghost zones
-  // across cameras / accounts. Re-fetches when the dashboard's branch
-  // selection changes so different camera angles get their own zone set.
+  // across cameras / accounts. Re-fetches when the active camera or branch
+  // selection changes so each saved source keeps its own zone set.
+  const reloadZonesFromDb = useCallback(async (): Promise<string | null> => {
+    try {
+      const branchParam = selectedBranch?.id
+        ? `?branchId=${encodeURIComponent(selectedBranch.id)}`
+        : '';
+      const activeRes = await fetch(`/api/cameras/active${branchParam}`, { credentials: 'include' });
+      if (!activeRes.ok) {
+        setZones([]);
+        return null;
+      }
+      const active = await activeRes.json();
+      if (!active?.id) {
+        setZones([]);
+        return null;
+      }
+      const zonesRes = await fetch(`/api/zones/${active.id}`, { credentials: 'include' });
+      if (!zonesRes.ok) {
+        setZones([]);
+        return active.id;
+      }
+      const rows = await zonesRes.json() as Array<any>;
+      const mapped: Zone[] = rows.map((r) => {
+        const coords: Array<{ x: number; y: number }> =
+          Array.isArray(r.coordinates) ? r.coordinates : [];
+        const xs = coords.map((c) => c.x);
+        const ys = coords.map((c) => c.y);
+        const minX = xs.length ? Math.min(...xs) : 0;
+        const minY = ys.length ? Math.min(...ys) : 0;
+        const maxX = xs.length ? Math.max(...xs) : 0;
+        const maxY = ys.length ? Math.max(...ys) : 0;
+        return {
+          id: r.id,
+          name: r.name,
+          x: minX,
+          y: minY,
+          width: Math.max(0, maxX - minX),
+          height: Math.max(0, maxY - minY),
+          type: String(r.type || 'CUSTOM').toLowerCase() as Zone['type'],
+          color: r.color || '#3b82f6',
+          shape: 'polygon',
+          points: coords,
+        };
+      });
+      setZones(mapped);
+      return active.id;
+    } catch {
+      setZones([]);
+      return null;
+    }
+  }, [selectedBranch?.id]);
+
   useEffect(() => {
     let cancelled = false;
-    const loadFromDb = async () => {
-      try {
-        const branchParam = selectedBranch?.id
-          ? `?branchId=${encodeURIComponent(selectedBranch.id)}`
-          : '';
-        const activeRes = await fetch(`/api/cameras/active${branchParam}`, { credentials: 'include' });
-        if (!activeRes.ok) {
-          if (!cancelled) setZones([]);
-          return;
-        }
-        const active = await activeRes.json();
-        if (!active?.id) {
-          if (!cancelled) setZones([]);
-          return;
-        }
-        const zonesRes = await fetch(`/api/zones/${active.id}`, { credentials: 'include' });
-        if (!zonesRes.ok) {
-          if (!cancelled) setZones([]);
-          return;
-        }
-        const rows = await zonesRes.json() as Array<any>;
-        const mapped: Zone[] = rows.map((r) => {
-          const coords: Array<{ x: number; y: number }> =
-            Array.isArray(r.coordinates) ? r.coordinates : [];
-          const xs = coords.map((c) => c.x);
-          const ys = coords.map((c) => c.y);
-          const minX = xs.length ? Math.min(...xs) : 0;
-          const minY = ys.length ? Math.min(...ys) : 0;
-          const maxX = xs.length ? Math.max(...xs) : 0;
-          const maxY = ys.length ? Math.max(...ys) : 0;
-          return {
-            id: r.id,
-            name: r.name,
-            x: minX,
-            y: minY,
-            width: Math.max(0, maxX - minX),
-            height: Math.max(0, maxY - minY),
-            type: String(r.type || 'CUSTOM').toLowerCase() as Zone['type'],
-            color: r.color || '#3b82f6',
-            shape: 'polygon',
-            points: coords,
-          };
-        });
-        if (!cancelled) setZones(mapped);
-      } catch {
-        if (!cancelled) setZones([]);
+    (async () => {
+      const id = await reloadZonesFromDb();
+      if (cancelled) {
+        // Component unmounted mid-fetch — drop the result so we don't paint
+        // zones from a previous render's branch selection.
+        if (id) setZones([]);
       }
-    };
-    loadFromDb();
+    })();
     return () => { cancelled = true; };
-  }, [selectedBranch?.id]);
+  }, [reloadZonesFromDb]);
+
+  // Cross-component signal: when CameraSelectionPage activates a camera, or
+  // any other view bumps the active camera in the DB, refetch zones here.
+  useEffect(() => {
+    const onActiveCameraChange = () => { void reloadZonesFromDb(); };
+    window.addEventListener('observai:active-camera-changed', onActiveCameraChange);
+    return () => window.removeEventListener('observai:active-camera-changed', onActiveCameraChange);
+  }, [reloadZonesFromDb]);
+
+  // Sync DB-issued zone UUIDs into the Python engine once the Socket.IO
+  // connection is up. Without this, the engine emits `tables[].id` from a
+  // stale zone push (or the local IDs ZoneCanvas had before saving) and the
+  // floor plan can't match them against zones loaded from the DB —
+  // occupied tables stay green.
+  useEffect(() => {
+    if (!backendConnected || zones.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await cameraBackendService.saveZones(zones);
+      } catch {
+        if (!cancelled) {
+          /* engine offline — DB is still source of truth */
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [backendConnected, zones]);
 
   // Update canvas size ONLY from actual MJPEG frame dimensions — never from container.
   // Using container.clientHeight as fallback was causing the layout to stretch to a
@@ -914,8 +952,30 @@ export default function CameraFeed() {
     setIPCameras(ipCameras.filter(cam => cam.id !== cameraId));
   };
 
-  // Map saved camera sourceType to CameraFeed source change
-  const handleSavedCameraSelect = useCallback((camera: SavedCamera) => {
+  // Map saved camera sourceType to CameraFeed source change. Always activates
+  // the picked camera in the Node DB FIRST so `/api/cameras/active` and the
+  // per-camera zone fetch line up with the source the user is now viewing.
+  // Without this, ZoneCanvas + CameraFeed kept loading the previously-active
+  // camera's zones — drawn zones appeared to "vanish" on every source switch.
+  const handleSavedCameraSelect = useCallback(async (camera: SavedCamera) => {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    try {
+      await fetch(`${apiUrl}/api/cameras/activate/${camera.id}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (err) {
+      console.error('[CameraFeed] Failed to activate camera in DB:', err);
+    }
+    // Refresh saved-cameras pane so the LIVE badge tracks the new active row,
+    // and refetch this camera's zones immediately.
+    fetchSavedCameras();
+    void reloadZonesFromDb();
+    // Notify other mounted views (e.g. ZoneCanvas on /zones) so they refetch.
+    window.dispatchEvent(new CustomEvent('observai:active-camera-changed', {
+      detail: { cameraId: camera.id },
+    }));
+
     const value = camera.sourceValue;
     switch (camera.sourceType.toUpperCase()) {
       case 'WEBCAM':
@@ -942,7 +1002,7 @@ export default function CameraFeed() {
       default:
         handleSourceChange('videolink', { url: value });
     }
-  }, [handleSourceChange]);
+  }, [handleSourceChange, fetchSavedCameras, reloadZonesFromDb]);
 
   const getSourceLabel = () => {
     switch (currentSource.type) {
