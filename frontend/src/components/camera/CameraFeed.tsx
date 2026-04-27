@@ -109,6 +109,7 @@ export default function CameraFeed() {
     isActive: boolean;
   }
   const [savedCameras, setSavedCameras] = useState<SavedCamera[]>([]);
+  const [savedCamerasError, setSavedCamerasError] = useState<string>('');
 
   // Backend readiness state machine
   const [, setBackendHealth] = useState<BackendHealth | null>(null);
@@ -135,14 +136,13 @@ export default function CameraFeed() {
   const mjpegImgRef = useRef<HTMLImageElement>(null);
   const canvasSizeInitialized = useRef(false);
 
-  // Stable MJPEG URL — computed once to avoid re-connecting on every re-render.
-  // `mode=smooth` decouples display from the inference thread: raw frames at
-  // ~60 FPS with bbox interpolation between YOLO samples, instead of annotated
-  // frames capped at inference FPS (~20-25). Detections still stream over
-  // Socket.IO so accuracy is unchanged.
+  // MJPEG URL bust by sourceVersion so a source-change forces the browser to
+  // open a fresh stream connection instead of reusing the previous source's
+  // cached frame buffer. Without this, switching from MozartLow→MozartHigh
+  // could leave the <img> stuck on the old source's last keepalive frame.
   const mjpegUrl = useMemo(
-    () => `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg?mode=smooth`,
-    []
+    () => `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'}/mjpeg?mode=smooth&v=${sourceVersion}`,
+    [sourceVersion]
   );
 
   /**
@@ -179,19 +179,38 @@ export default function CameraFeed() {
 
   // Fetch saved cameras from Camera Selection page, scoped to the active branch
   // when one is selected so the picker only shows cameras owned by that branch.
+  // Has a 6s timeout + surfaces error so the panel never stays silently empty
+  // when the Node backend is unreachable (was: stuck "loading..." with no
+  // diagnostic, user thought their cameras were deleted).
   const fetchSavedCameras = useCallback(async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
       const url = selectedBranch
         ? `${apiUrl}/api/cameras?branchId=${encodeURIComponent(selectedBranch.id)}`
         : `${apiUrl}/api/cameras`;
-      const res = await fetch(url, { credentials: 'include' });
+      const res = await fetch(url, { credentials: 'include', signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
-        setSavedCameras(data);
+        setSavedCameras(Array.isArray(data) ? data : []);
+        setSavedCamerasError('');
+      } else if (res.status === 401) {
+        setSavedCameras([]);
+        setSavedCamerasError('Oturum süresi doldu — yeniden giriş yapın.');
+      } else {
+        setSavedCameras([]);
+        setSavedCamerasError(`Sunucu hatası (${res.status}).`);
       }
-    } catch {
-      // Silently handle - API might not be available
+    } catch (err: any) {
+      setSavedCameras([]);
+      if (err?.name === 'AbortError') {
+        setSavedCamerasError('Backend yanıt vermedi (6sn timeout).');
+      } else {
+        setSavedCamerasError('Backend bağlanılamadı.');
+      }
+    } finally {
+      clearTimeout(timeout);
     }
   }, [selectedBranch?.id]);
 
@@ -958,6 +977,13 @@ export default function CameraFeed() {
   // Without this, ZoneCanvas + CameraFeed kept loading the previously-active
   // camera's zones — drawn zones appeared to "vanish" on every source switch.
   const handleSavedCameraSelect = useCallback(async (camera: SavedCamera) => {
+    // Optimistic UI: flip the active marker locally before the round-trip so
+    // the user gets immediate feedback when they click. Reverts implicitly
+    // when fetchSavedCameras() lands with the server's truth.
+    setSavedCameras((prev) =>
+      prev.map((c) => ({ ...c, isActive: c.id === camera.id }))
+    );
+
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
     try {
       await fetch(`${apiUrl}/api/cameras/activate/${camera.id}`, {
@@ -1071,7 +1097,14 @@ export default function CameraFeed() {
             <span>{t('cameraFeed.heatmap')}</span>
           </button>
           <button
-            onClick={() => setShowSourceSelect(!showSourceSelect)}
+            onClick={() => {
+              const opening = !showSourceSelect;
+              setShowSourceSelect(opening);
+              // Refetch on open so the saved-sources list reflects any
+              // additions/deletions made elsewhere (Camera Selection page,
+              // another tab) without forcing a page reload.
+              if (opening) void fetchSavedCameras();
+            }}
             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
             title={t('cameraFeed.changeSource')}
           >
@@ -1079,8 +1112,22 @@ export default function CameraFeed() {
           </button>
           <button
             onClick={() => {
-              stopCamera();
-              initializeCamera();
+              // Restart the actual pipeline with the current source so the
+              // Python engine releases stale state (frozen MJPEG cache after
+              // EOF, stuck capture). initializeCamera alone only flips the
+              // streaming flag — Python still sees the old source.
+              if (currentSource.type === 'webcam') {
+                handleSourceChange('webcam');
+              } else if (currentSource.type === 'iphone') {
+                handleSourceChange('iphone');
+              } else if (currentSource.type === 'videolink' && currentSource.url) {
+                handleSourceChange('videolink', { url: currentSource.url });
+              } else if (currentSource.type === 'ip' && currentSource.ipCameraId) {
+                handleSourceChange('ip', { ipCameraId: currentSource.ipCameraId });
+              } else {
+                stopCamera();
+                initializeCamera();
+              }
             }}
             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
             title={t('cameraFeed.reloadCamera')}
@@ -1115,9 +1162,32 @@ export default function CameraFeed() {
           </div>
 
           {/* Saved Cameras from Camera Selection page */}
-          {savedCameras.length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs text-ink-4 mb-1.5">{t('cameraFeed.savedSources')}</p>
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs text-ink-4">{t('cameraFeed.savedSources')}</p>
+              <button
+                onClick={() => void fetchSavedCameras()}
+                className="text-[10px] text-brand-300 hover:text-brand-200 font-mono uppercase"
+                title="Yenile"
+              >
+                ↻
+              </button>
+            </div>
+            {savedCamerasError ? (
+              <div className="px-3 py-2 text-xs rounded-lg bg-danger-500/10 border border-danger-500/30 text-danger-300">
+                {savedCamerasError}
+                <button
+                  onClick={() => void fetchSavedCameras()}
+                  className="ml-2 underline hover:text-danger-200"
+                >
+                  Tekrar dene
+                </button>
+              </div>
+            ) : savedCameras.length === 0 ? (
+              <p className="px-3 py-2 text-xs italic text-ink-4 bg-surface-2/40 rounded-lg">
+                Bu sube icin kayitli kaynak yok. Camera Selection sayfasindan ekleyin.
+              </p>
+            ) : (
               <div className="space-y-1">
                 {savedCameras.map((cam) => (
                   <button
@@ -1137,8 +1207,8 @@ export default function CameraFeed() {
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Quick Connect */}
           <p className="text-xs text-ink-4 mb-1.5">{t('cameraFeed.quickConnect')}</p>

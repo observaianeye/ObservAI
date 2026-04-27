@@ -138,9 +138,14 @@ class AnalyticsWebSocketServer:
             _last_frame_hash = [0]     # Track frame changes via pixel hash
             _last_jpeg_bytes = [None]  # Cache last encoded JPEG for keepalive resend
             _last_send_time = [0.0]    # Time of last frame send
+            _last_real_frame_t = [0.0] # Wall-time of last real (non-keepalive) frame
             # JPEG quality 82: marginally larger than 75 but noticeably less
             # blocky on live video — still well under bandwidth limits.
             _JPEG_QUALITY = 82
+            # If no real frame for this long, stop serving the cached jpeg —
+            # otherwise the browser shows a frozen image of the previous
+            # source after EOF / source-change / engine restart.
+            _STALE_KEEPALIVE_S = 2.0
 
             def _get_and_encode_inference():
                 """Inference mode: annotated frame + change-detection keepalive."""
@@ -149,7 +154,10 @@ class AnalyticsWebSocketServer:
                     return None, False
                 frame = self.on_get_frame()
                 if frame is None:
-                    return _last_jpeg_bytes[0], False  # Keepalive with last frame
+                    # Drop stale keepalive so frontend sees no data and reconnects
+                    if _time.time() - _last_real_frame_t[0] > _STALE_KEEPALIVE_S:
+                        return None, False
+                    return _last_jpeg_bytes[0], False
                 # Quick change detection: hash a sparse sample of pixels
                 h = hash(frame[::64, ::64, 0].tobytes())
                 if h == _last_frame_hash[0]:
@@ -159,6 +167,7 @@ class AnalyticsWebSocketServer:
                 _last_frame_hash[0] = h
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY])
                 _last_jpeg_bytes[0] = buf.tobytes()
+                _last_real_frame_t[0] = _time.time()
                 return _last_jpeg_bytes[0], True
 
             def _get_and_encode_smooth():
@@ -173,9 +182,14 @@ class AnalyticsWebSocketServer:
                     return None, False
                 frame = cb(_time.time())
                 if frame is None:
-                    return _last_jpeg_bytes[0], False  # keepalive
+                    # Drop stale keepalive so frontend stops showing a frozen
+                    # frame from before the engine restart / source change.
+                    if _time.time() - _last_real_frame_t[0] > _STALE_KEEPALIVE_S:
+                        return None, False
+                    return _last_jpeg_bytes[0], False
                 _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY])
                 _last_jpeg_bytes[0] = buf.tobytes()
+                _last_real_frame_t[0] = _time.time()
                 return _last_jpeg_bytes[0], True
 
             _get_and_encode = _get_and_encode_smooth if mode == "smooth" else _get_and_encode_inference

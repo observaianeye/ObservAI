@@ -140,28 +140,52 @@ export default function NotificationCenter() {
   // ─── Actions ──────────────────────────────────────────────────────────
 
   const markAsRead = async (id: string) => {
+    if (id.startsWith('demo-')) {
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      return;
+    }
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
     setUnreadCount(prev => Math.max(0, prev - 1));
     try {
-      await fetch(`${API_URL}/api/insights/${id}/read`, {
+      const res = await fetch(`${API_URL}/api/insights/${id}/read`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
       });
-    } catch { /* ignore */ }
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      fetchUnreadCount();
+    } catch {
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: false } : n));
+      setUnreadCount(prev => prev + 1);
+    }
   };
 
   const markAllAsRead = async () => {
     const unreadIds = notifications.filter(n => !n.isRead).map(n => n.id);
+    if (unreadIds.length === 0) return;
+    const previous = notifications;
     setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     setUnreadCount(0);
-    for (const id of unreadIds) {
-      try {
-        await fetch(`${API_URL}/api/insights/${id}/read`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-        });
-      } catch { /* continue */ }
+
+    const results = await Promise.allSettled(
+      unreadIds
+        .filter(id => !id.startsWith('demo-'))
+        .map(id =>
+          fetch(`${API_URL}/api/insights/${id}/read`, {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+          }).then(r => {
+            if (!r.ok) throw new Error(`status ${r.status}`);
+          })
+        )
+    );
+
+    if (results.some(r => r.status === 'rejected')) {
+      setNotifications(previous);
     }
+    fetchUnreadCount();
   };
 
   const goToNotificationsPage = () => {

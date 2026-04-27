@@ -5,7 +5,6 @@ import { DashboardFilterProvider } from './contexts/DashboardFilterContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import ProtectedRoute from './components/ProtectedRoute';
-import GlobalAlerts from './components/GlobalAlerts';
 import GlobalChatbot from './components/GlobalChatbot';
 import LoadingScreen from './components/LoadingScreen';
 
@@ -120,7 +119,6 @@ function App() {
             </Routes>
           </Suspense>
 
-          <GlobalAlerts />
           <GlobalChatbot />
           </Router>
         </ToastProvider>

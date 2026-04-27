@@ -45,27 +45,38 @@ export default function CameraSelectionPage() {
   const [editValue, setEditValue] = useState('');
   const [editError, setEditError] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [loadError, setLoadError] = useState<string>('');
 
   const fetchCameras = useCallback(async () => {
     setIsLoading(true);
+    setLoadError('');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
     try {
-      // When a branch is active we scope to it; otherwise show every camera
-      // the user owns. This matches CameraFeed's behavior and stops the
-      // "Configured Sources" pane from looking empty when the navbar branch
-      // selector hasn't loaded yet.
       const url = selectedBranch
         ? `${API_URL}/api/cameras?branchId=${encodeURIComponent(selectedBranch.id)}`
         : `${API_URL}/api/cameras`;
-      const res = await fetch(url, { credentials: 'include' });
+      const res = await fetch(url, { credentials: 'include', signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
-        setCameras(data);
+        setCameras(Array.isArray(data) ? data : []);
+      } else if (res.status === 401) {
+        setCameras([]);
+        setLoadError('Oturum süresi doldu — lütfen tekrar giriş yapın.');
       } else {
         setCameras([]);
+        setLoadError(`Sunucu hatası (${res.status}). Backend çalışıyor mu?`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch cameras:', err);
+      setCameras([]);
+      if (err?.name === 'AbortError') {
+        setLoadError('Sunucu yanıt vermedi (6sn). Backend çalışıyor mu? `start-backend.bat`');
+      } else {
+        setLoadError('Backend bağlanılamadı. ' + (err?.message || ''));
+      }
     } finally {
+      clearTimeout(timeout);
       setIsLoading(false);
     }
   }, [selectedBranch?.id]);
@@ -389,6 +400,25 @@ export default function CameraSelectionPage() {
             <Loader2 className="w-6 h-6 animate-spin text-brand-400 mx-auto" />
             <p className="text-sm text-ink-3 mt-2">{t('cameraSelection.loading')}</p>
           </div>
+        ) : loadError ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="surface-card rounded-2xl p-6 border border-danger-500/30 bg-danger-500/5"
+          >
+            <div className="flex items-start gap-3">
+              <X className="w-5 h-5 text-danger-400 mt-0.5" strokeWidth={1.5} />
+              <div className="flex-1">
+                <p className="text-danger-300 font-medium">{loadError}</p>
+                <button
+                  onClick={fetchCameras}
+                  className="mt-3 px-3 py-1.5 bg-danger-500/15 text-danger-200 border border-danger-500/30 rounded-lg text-sm font-medium hover:bg-danger-500/25 transition-colors"
+                >
+                  Tekrar dene
+                </button>
+              </div>
+            </div>
+          </motion.div>
         ) : cameras.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
