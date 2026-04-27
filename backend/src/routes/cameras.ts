@@ -1,45 +1,38 @@
 /**
- * Camera management API routes
+ * Camera management API routes — tenant-scoped to req.user.id.
  */
 
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
-import { requireManager, requireAdmin } from '../middleware/roleCheck';
+import { requireManager } from '../middleware/roleCheck';
+import { authenticate } from '../middleware/authMiddleware';
+import { requireCameraOwnership, userOwnsCamera } from '../middleware/tenantScope';
 
 const router = Router();
 
-// Validation schemas
 const CreateCameraSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().optional(),
   sourceType: z.enum(['WEBCAM', 'FILE', 'RTSP', 'RTMP', 'HTTP', 'YOUTUBE', 'SCREEN_CAPTURE', 'PHONE']),
   sourceValue: z.string().min(1),
   config: z.record(z.any()).optional(),
-  createdBy: z.string().uuid()
+  branchId: z.string().uuid().optional(),
 });
 
-// GET /api/cameras - List all cameras
-router.get('/', async (req: Request, res: Response) => {
+// GET /api/cameras - List the caller's cameras (optionally scoped to a branch)
+router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
+    const branchId = typeof req.query.branchId === 'string' ? req.query.branchId.trim() : '';
     const cameras = await prisma.camera.findMany({
-      include: {
-        zones: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true
-          }
-        }
+      where: {
+        createdBy: req.user.id,
+        ...(branchId ? { branchId } : {}),
       },
-      orderBy: {
-        createdAt: 'desc'
-      }
+      include: { zones: true },
+      orderBy: { createdAt: 'desc' },
     });
 
-    // Parse JSON strings back to objects
     const parsedCameras = cameras.map(camera => ({
       ...camera,
       config: camera.config ? JSON.parse(camera.config as string) : undefined,
@@ -52,17 +45,17 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/cameras/active - Get the currently active camera
-router.get('/active', async (req: Request, res: Response) => {
+// GET /api/cameras/active - Get the caller's active camera (optionally per branch)
+router.get('/active', authenticate, async (req: Request, res: Response) => {
   try {
+    const branchId = typeof req.query.branchId === 'string' ? req.query.branchId.trim() : '';
     const camera = await prisma.camera.findFirst({
-      where: { isActive: true },
-      include: {
-        zones: true,
-        user: {
-          select: { id: true, email: true, firstName: true, lastName: true }
-        }
-      }
+      where: {
+        createdBy: req.user.id,
+        isActive: true,
+        ...(branchId ? { branchId } : {}),
+      },
+      include: { zones: true },
     });
     res.json(camera);
   } catch (error) {
@@ -71,18 +64,20 @@ router.get('/active', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/cameras/activate/:id - Activate a camera (deactivate all others)
-router.post('/activate/:id', async (req: Request, res: Response) => {
+// POST /api/cameras/activate/:id - Activate one of the caller's cameras
+router.post('/activate/:id', authenticate, requireCameraOwnership('id'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    // Deactivate all cameras
-    await prisma.camera.updateMany({ data: { isActive: false } });
+    // Deactivate only the caller's other cameras
+    await prisma.camera.updateMany({
+      where: { createdBy: req.user.id },
+      data: { isActive: false },
+    });
 
-    // Activate the selected one
     const camera = await prisma.camera.update({
       where: { id },
-      data: { isActive: true }
+      data: { isActive: true },
     });
 
     res.json(camera);
@@ -92,42 +87,39 @@ router.post('/activate/:id', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/cameras/:id - Get single camera
-router.get('/:id', async (req: Request, res: Response) => {
+// GET /api/cameras/:id - Get a single owned camera
+router.get('/:id', authenticate, requireCameraOwnership('id'), async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-
     const camera = await prisma.camera.findUnique({
-      where: { id },
-      include: {
-        zones: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true
-          }
-        }
-      }
+      where: { id: req.params.id },
+      include: { zones: true },
     });
 
-    if (!camera) {
-      return res.status(404).json({ error: 'Camera not found' });
-    }
+    if (!camera) return res.status(404).json({ error: 'Camera not found' });
 
-    res.json(camera);
+    res.json({
+      ...camera,
+      config: camera.config ? JSON.parse(camera.config as string) : undefined,
+    });
   } catch (error) {
     console.error('Error fetching camera:', error);
     res.status(500).json({ error: 'Failed to fetch camera' });
   }
 });
 
-// POST /api/cameras - Create new camera
-// Requires MANAGER role or higher
+// POST /api/cameras - Create new camera owned by the caller
 router.post('/', requireManager, async (req: Request, res: Response) => {
   try {
     const data = CreateCameraSchema.parse(req.body);
+
+    // If branch is supplied it must belong to the caller
+    if (data.branchId) {
+      const branch = await prisma.branch.findFirst({
+        where: { id: data.branchId, userId: req.user.id },
+        select: { id: true },
+      });
+      if (!branch) return res.status(404).json({ error: 'Branch not found' });
+    }
 
     const camera = await prisma.camera.create({
       data: {
@@ -136,18 +128,9 @@ router.post('/', requireManager, async (req: Request, res: Response) => {
         sourceType: data.sourceType,
         sourceValue: data.sourceValue,
         config: data.config ? JSON.stringify(data.config) : undefined,
-        createdBy: data.createdBy
+        createdBy: req.user.id,
+        branchId: data.branchId,
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true
-          }
-        }
-      }
     });
 
     res.status(201).json(camera);
@@ -160,24 +143,20 @@ router.post('/', requireManager, async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/cameras/:id - Update camera
-// Requires MANAGER role or higher
-router.put('/:id', requireManager, async (req: Request, res: Response) => {
+// PUT /api/cameras/:id - Update an owned camera
+router.put('/:id', requireManager, requireCameraOwnership('id'), async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
     const data = req.body;
-
     const camera = await prisma.camera.update({
-      where: { id },
+      where: { id: req.params.id },
       data: {
         name: data.name,
         description: data.description,
         sourceValue: data.sourceValue,
         isActive: data.isActive,
-        config: data.config
-      }
+        config: data.config,
+      },
     });
-
     res.json(camera);
   } catch (error) {
     console.error('Error updating camera:', error);
@@ -185,16 +164,10 @@ router.put('/:id', requireManager, async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/cameras/:id - Delete camera
-// Requires ADMIN role only
-router.delete('/:id', requireAdmin, async (req: Request, res: Response) => {
+// DELETE /api/cameras/:id - Delete an owned camera (Manager+ on own data)
+router.delete('/:id', requireManager, requireCameraOwnership('id'), async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-
-    await prisma.camera.delete({
-      where: { id }
-    });
-
+    await prisma.camera.delete({ where: { id: req.params.id } });
     res.status(204).send();
   } catch (error) {
     console.error('Error deleting camera:', error);

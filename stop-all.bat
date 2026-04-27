@@ -24,6 +24,17 @@ echo %NC%
 REM Find and kill all ObservAI related processes
 echo %YELLOW%🔍 Searching for running services...%NC%
 
+REM Kill by EXACT window title first (catches cmd wrappers that hold child processes).
+REM Titles match start-all.bat: "ObservAI Frontend", "ObservAI Backend API", etc.
+REM Exact match prevents killing user IDE/browser windows that contain "ObservAI" in title.
+echo %GREEN%🪟 Killing ObservAI cmd wrappers by exact window title...%NC%
+taskkill /F /FI "WINDOWTITLE eq ObservAI Frontend" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq ObservAI Backend API" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq ObservAI Camera AI" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq ObservAI Prisma Studio" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq ObservAI Ollama" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq ObservAI Warmup" >nul 2>&1
+
 REM Kill Camera Analytics (Port 5001)
 for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":5001" 2^>nul') do (
     set "PID=%%P"

@@ -11,34 +11,28 @@ interface HelpArticle {
 
 const helpArticles: HelpArticle[] = [
   {
-    id: '1',
-    category: 'Getting Started',
-    title: 'Switching between Demo and Live Mode',
-    content: 'ObservAI has two modes: Demo mode uses simulated data for testing, while Live mode connects to your camera for real-time analytics. Toggle between modes using the switch in the top-right corner of the dashboard.'
-  },
-  {
     id: '2',
     category: 'Getting Started',
     title: 'Understanding your dashboard',
-    content: 'The Analytics Dashboard shows real-time visitor metrics, demographics, and traffic patterns. Key metrics include current occupancy, entry/exit counts, age and gender distribution, and movement heatmaps. All data updates in real-time when using Live mode.'
+    content: 'The Analytics Dashboard shows real-time visitor metrics, demographics, and traffic patterns. Key metrics include current occupancy, entry/exit counts, age and gender distribution, and movement heatmaps. All data updates in real-time as the camera streams.'
   },
   {
     id: '3',
-    category: 'Live Mode',
+    category: 'Camera',
     title: 'Connecting your camera',
-    content: 'In Live mode, select your camera source: built-in webcam (Camera), phone camera (Phone Cam), or IP camera. On Windows, to use your iPhone as a camera, install EpocCam or iVCam on both your iPhone and Windows PC — this creates a virtual webcam that appears as "Phone Cam". The system uses YOLO object detection and InsightFace for demographics. Ensure camera permissions are granted in your browser.'
+    content: 'Select your camera source from Camera Selection: built-in webcam, phone camera (Phone Cam via iVCam/EpocCam virtual driver), IP camera (RTSP/HTTP), or video link. The system uses YOLO object detection and InsightFace for demographics. Ensure camera permissions are granted in your browser.'
   },
   {
     id: '4',
-    category: 'Live Mode',
+    category: 'Camera',
     title: 'Starting the Python backend',
-    content: 'The Python analytics backend runs on port 5001. When you switch to Live mode and select a camera, the system automatically starts the backend. Check Diagnostics if connection fails.'
+    content: 'The Python analytics backend runs on port 5001. When you select a camera source, the backend starts automatically. If connection fails, check that the camera is reachable and refresh the page.'
   },
   {
     id: '5',
     category: 'Camera Analytics',
     title: 'Understanding detection overlays',
-    content: 'In Live mode, bounding boxes show detected people with color coding: green for entering, red for exiting, blue for present. Labels display gender (M/F/?), age range (e.g., 18-24), and dwell time in seconds.'
+    content: 'Bounding boxes show detected people with color coding: green for entering, red for exiting, blue for present. Labels display gender (M/F/?), age range (e.g., 18-24), and dwell time in seconds.'
   },
   {
     id: '6',
@@ -78,10 +72,6 @@ const faqs = [
     answer: 'All video processing happens locally on your device. ObservAI detects patterns and counts without storing individual faces or identifiable information. Demographics are aggregated and anonymized. You can enable privacy mode to blur faces.'
   },
   {
-    question: 'What is the difference between Demo and Live mode?',
-    answer: 'Demo mode uses simulated, realistic data for testing and demonstrations. Live mode connects to your camera for real-time analytics. Toggle between modes anytime using the switch in the top-right corner.'
-  },
-  {
     question: 'How accurate is the AI analytics?',
     answer: 'ObservAI uses YOLO11L for person detection (95%+ accuracy) and InsightFace for demographics (92% accuracy). Performance depends on camera quality, lighting, and viewing angle. 1080p resolution is recommended.'
   },
@@ -91,7 +81,7 @@ const faqs = [
   },
   {
     question: 'How do I troubleshoot connection issues?',
-    answer: 'If Live mode fails to connect: 1) Check that Python backend is running on port 5001, 2) Verify camera permissions in browser settings, 3) Check Diagnostics for detailed status, 4) Try refreshing the page. See Diagnostics for more help.'
+    answer: 'If the camera fails to connect: 1) Check that the Python backend is running on port 5001, 2) Verify camera permissions in browser settings, 3) Restart the camera source from Camera Selection, 4) Try refreshing the page.'
   }
 ];
 

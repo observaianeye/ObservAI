@@ -2,7 +2,6 @@ import { Users, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { useEffect, useRef, useState, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { analyticsDataService, VisitorMetrics } from '../../services/analyticsDataService';
-import { useDataMode } from '../../contexts/DataModeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { GlassCard } from '../ui/GlassCard';
 
@@ -14,7 +13,6 @@ interface TrendSample {
 const TREND_WINDOW_MS = 5 * 60 * 1000; // 5 min
 
 const VisitorCountWidget = memo(function VisitorCountWidget() {
-  const { dataMode } = useDataMode();
   const { t } = useLanguage();
   const [metrics, setMetrics] = useState<VisitorMetrics>({
     current: 0, entryCount: 0, exitCount: 0, totalToday: 0,
@@ -24,8 +22,6 @@ const VisitorCountWidget = memo(function VisitorCountWidget() {
   const [trend, setTrend] = useState<{ pct: number; label: 'up' | 'down' | 'flat' } | null>(null);
 
   useEffect(() => {
-    analyticsDataService.setMode(dataMode);
-
     const handleNewData = (data: { visitors: VisitorMetrics }) => {
       setMetrics(data.visitors);
 
@@ -57,7 +53,7 @@ const VisitorCountWidget = memo(function VisitorCountWidget() {
 
     const unsubscribe = analyticsDataService.startRealtimeUpdates(handleNewData);
     return () => unsubscribe();
-  }, [dataMode]);
+  }, []);
 
   return (
     <GlassCard variant="neon" className="p-6 text-ink-0">

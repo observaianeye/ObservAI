@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authMiddleware';
+import { requireBranchOwnership, userOwnsBranch } from '../middleware/tenantScope';
 
 const router = Router();
 
@@ -34,7 +35,7 @@ async function resolveBranchId(userId: string, raw: string | undefined): Promise
 }
 
 // POST /api/staffing - Save staff shifts (bulk)
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', authenticate, async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       branchId: z.string().min(1),
@@ -43,13 +44,16 @@ router.post('/', async (req: Request, res: Response) => {
         hour: z.number().int().min(0).max(23),
         staffCount: z.number().int().min(0),
       })),
-      createdBy: z.string().min(1),
     });
     const data = schema.parse(req.body);
+
+    if (!(await userOwnsBranch(req.user.id, data.branchId))) {
+      return res.status(404).json({ error: 'Branch not found' });
+    }
+
     const dateObj = new Date(data.date);
     dateObj.setHours(0, 0, 0, 0);
 
-    // Upsert each hour
     const results = await Promise.all(
       data.shifts.map(shift =>
         prisma.staffShift.upsert({
@@ -66,7 +70,7 @@ router.post('/', async (req: Request, res: Response) => {
             date: dateObj,
             hour: shift.hour,
             staffCount: shift.staffCount,
-            createdBy: data.createdBy,
+            createdBy: req.user.id,
           },
         })
       )
@@ -83,7 +87,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // GET /api/staffing/:branchId/current - Today's shifts
-router.get('/:branchId/current', async (req: Request, res: Response) => {
+router.get('/:branchId/current', authenticate, requireBranchOwnership('branchId'), async (req: Request, res: Response) => {
   try {
     const { branchId } = req.params;
     const today = new Date();
@@ -108,7 +112,7 @@ router.get('/:branchId/current', async (req: Request, res: Response) => {
 });
 
 // GET /api/staffing/:branchId/history - Last 30 days
-router.get('/:branchId/history', async (req: Request, res: Response) => {
+router.get('/:branchId/history', authenticate, requireBranchOwnership('branchId'), async (req: Request, res: Response) => {
   try {
     const { branchId } = req.params;
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);

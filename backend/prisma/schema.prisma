@@ -19,7 +19,7 @@ model User {
   firstName     String?
   lastName      String?
   role          String  @default("MANAGER")
-  accountType   String  @default("TRIAL") // TRIAL | PAID | DEMO
+  accountType   String  @default("TRIAL") // TRIAL | PAID
   trialExpiresAt DateTime?
   companyName   String?
   isActive      Boolean   @default(true)

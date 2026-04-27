@@ -7,6 +7,8 @@ import { prisma } from '../lib/db';
 import { z } from 'zod';
 import { validateAnalyticsPayload } from '../lib/analyticsValidator';
 import { sendAlertEmail } from '../services/emailService';
+import { authenticate } from '../middleware/authMiddleware';
+import { requireCameraOwnership, requireZoneOwnership, userOwnsCamera } from '../middleware/tenantScope';
 
 const router = Router();
 
@@ -139,7 +141,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // GET /api/analytics/compare - Compare analytics data across time periods
-router.get('/compare', async (req: Request, res: Response) => {
+router.get('/compare', authenticate, async (req: Request, res: Response) => {
   try {
     const {
       cameraId,
@@ -158,9 +160,20 @@ router.get('/compare', async (req: Request, res: Response) => {
       });
     }
 
+    // Restrict to caller's cameras: either the requested one (if owned) or all of theirs.
+    const ownedCams = await prisma.camera.findMany({
+      where: { createdBy: req.user.id },
+      select: { id: true },
+    });
+    const ownedIds = ownedCams.map((c) => c.id);
     const where: any = {};
     if (cameraId) {
+      if (!ownedIds.includes(cameraId as string)) {
+        return res.status(404).json({ error: 'Camera not found' });
+      }
       where.cameraId = cameraId as string;
+    } else {
+      where.cameraId = { in: ownedIds };
     }
 
     // Helper function to get aggregated stats for a period
@@ -271,7 +284,7 @@ router.get('/compare', async (req: Request, res: Response) => {
 });
 
 // GET /api/analytics/:cameraId - Get analytics for a camera
-router.get('/:cameraId', async (req: Request, res: Response) => {
+router.get('/:cameraId', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
     const { startDate, endDate, limit = '100' } = req.query;
@@ -321,7 +334,7 @@ router.get('/:cameraId', async (req: Request, res: Response) => {
 //   ?date=YYYY-MM-DD           → single day (original behavior)
 //   ?startDate=&endDate=        → range (inclusive)
 //   ?granularity=daily|hourly   → filter by aggregation level (default: both)
-router.get('/:cameraId/summary', async (req: Request, res: Response) => {
+router.get('/:cameraId/summary', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
     const { date, startDate, endDate, granularity } = req.query as {
@@ -362,13 +375,19 @@ router.get('/:cameraId/summary', async (req: Request, res: Response) => {
 });
 
 // POST /api/analytics/insights - Log zone insight
-router.post('/insights', async (req: Request, res: Response) => {
+router.post('/insights', authenticate, async (req: Request, res: Response) => {
   try {
     const { zoneId, personId, duration, gender, age, message } = req.body;
 
     if (!zoneId || !personId || !duration || !message) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    const owned = await prisma.zone.findFirst({
+      where: { id: zoneId, camera: { createdBy: req.user.id } },
+      select: { id: true },
+    });
+    if (!owned) return res.status(404).json({ error: 'Zone not found' });
 
     const insight = await prisma.zoneInsight.create({
       data: {
@@ -398,7 +417,7 @@ router.post('/insights', async (req: Request, res: Response) => {
 });
 
 // GET /api/analytics/insights/:zoneId - Get insights for a zone
-router.get('/insights/:zoneId', async (req: Request, res: Response) => {
+router.get('/insights/:zoneId', authenticate, requireZoneOwnership('zoneId'), async (req: Request, res: Response) => {
   try {
     const { zoneId } = req.params;
     const { limit = '50' } = req.query;
@@ -475,15 +494,25 @@ function generateDemoComparisonStats(startDate: Date, endDate: Date): any {
 //   - Peak windows 12–14 and 18–20.
 //   - Day-of-week factor: Fri/Sat 1.4x, Sun 1.1x, Tue/Wed 0.8x.
 //   - Gender split ~55/45 with Gaussian noise; age buckets sum to ~100%.
-router.post('/seed-demo', async (req: Request, res: Response) => {
+router.post('/seed-demo', authenticate, async (req: Request, res: Response) => {
   try {
     const cameraId = (req.body?.cameraId as string) || 'sample-camera-1';
     const rawDays = Number(req.body?.days ?? 90);
     const days = Math.max(1, Math.min(180, Number.isFinite(rawDays) ? rawDays : 90));
     const clear = req.body?.clear !== false;
 
+    // Sample camera convention: 'sample-camera-1' is reserved for the caller's
+    // private demo data — namespace it per-user so two accounts don't share.
+    // Real (UUID) camera ids must belong to the caller.
+    let resolvedCameraId = cameraId;
+    if (cameraId === 'sample-camera-1') {
+      resolvedCameraId = `sample-${req.user.id}`;
+    } else if (!(await userOwnsCamera(req.user.id, cameraId))) {
+      return res.status(404).json({ error: 'Camera not found' });
+    }
+
     if (clear) {
-      await prisma.$executeRawUnsafe(`DELETE FROM analytics_logs WHERE cameraId = ?`, cameraId);
+      await prisma.$executeRawUnsafe(`DELETE FROM analytics_logs WHERE cameraId = ?`, resolvedCameraId);
     }
 
     // Hour-of-day multiplier: closed 00–06 and 23, peaks at lunch + dinner.
@@ -524,7 +553,7 @@ router.post('/seed-demo', async (req: Request, res: Response) => {
     startDate.setDate(startDate.getDate() - days);
 
     const entries: Array<{
-      id: string; cameraId: string; timestamp: string;
+      id: string; cameraId: string; timestamp: Date;
       peopleIn: number; peopleOut: number; currentCount: number;
       demographics: string; queueCount: number | null; avgWaitTime: number | null; fps: number;
     }> = [];
@@ -567,8 +596,8 @@ router.post('/seed-demo', async (req: Request, res: Response) => {
 
       entries.push({
         id: crypto.randomUUID(),
-        cameraId,
-        timestamp: currentTime.toISOString(),
+        cameraId: resolvedCameraId,
+        timestamp: new Date(currentTime),
         peopleIn,
         peopleOut,
         currentCount: occupancy,
@@ -581,20 +610,14 @@ router.post('/seed-demo', async (req: Request, res: Response) => {
       currentTime = new Date(currentTime.getTime() + 5 * 60 * 1000); // +5 min
     }
 
-    // Batch insert using raw SQL
+    // Batch insert via Prisma so DateTime is encoded as Prisma's native int-epoch
+    // (raw SQL bound the timestamp as a string, which made later range queries miss).
     let inserted = 0;
-    const BATCH = 200;
+    const BATCH = 500;
     for (let i = 0; i < entries.length; i += BATCH) {
       const batch = entries.slice(i, i + BATCH);
-      for (const e of batch) {
-        await prisma.$executeRawUnsafe(
-          `INSERT INTO analytics_logs (id, cameraId, timestamp, peopleIn, peopleOut, currentCount, demographics, queueCount, avgWaitTime, fps)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          e.id, e.cameraId, e.timestamp, e.peopleIn, e.peopleOut, e.currentCount,
-          e.demographics, e.queueCount ?? null, e.avgWaitTime ?? null, e.fps,
-        );
-      }
-      inserted += batch.length;
+      const result = await prisma.analyticsLog.createMany({ data: batch });
+      inserted += result.count;
     }
 
     // Fold raw logs into daily + hourly AnalyticsSummary rows so Historical and
@@ -618,7 +641,8 @@ router.post('/seed-demo', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: `Seeded ${inserted} data points (${days} days) for camera ${cameraId}`,
+      message: `Seeded ${inserted} data points (${days} days) for camera ${resolvedCameraId}`,
+      cameraId: resolvedCameraId,
       totalEntries: inserted,
       days,
     });
@@ -698,7 +722,7 @@ router.post('/table-events', async (req: Request, res: Response) => {
 });
 
 // GET /api/analytics/:cameraId/tables - Get table events for last 24h
-router.get('/:cameraId/tables', async (req: Request, res: Response) => {
+router.get('/:cameraId/tables', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -746,7 +770,7 @@ router.get('/:cameraId/tables', async (req: Request, res: Response) => {
 // ============================================================
 
 // GET /api/analytics/:cameraId/trends/weekly - Weekly comparison
-router.get('/:cameraId/trends/weekly', async (req: Request, res: Response) => {
+router.get('/:cameraId/trends/weekly', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
     const now = new Date();
@@ -809,7 +833,7 @@ router.get('/:cameraId/trends/weekly', async (req: Request, res: Response) => {
 });
 
 // GET /api/analytics/:cameraId/peak-hours - Peak and quiet hours
-router.get('/:cameraId/peak-hours', async (req: Request, res: Response) => {
+router.get('/:cameraId/peak-hours', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -853,7 +877,7 @@ router.get('/:cameraId/peak-hours', async (req: Request, res: Response) => {
 });
 
 // GET /api/analytics/:cameraId/prediction - Traffic prediction for tomorrow
-router.get('/:cameraId/prediction', async (req: Request, res: Response) => {
+router.get('/:cameraId/prediction', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
     const now = new Date();

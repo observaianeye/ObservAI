@@ -222,7 +222,7 @@ export default function CoreFeaturesSection() {
                 <button className="group relative">
                   <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-500 via-accent-500 to-violet-500 rounded-xl blur opacity-75 group-hover:opacity-100 transition duration-300 animate-pulse" />
                   <div className="relative px-8 py-4 bg-gradient-to-r from-brand-500 to-accent-500 rounded-xl leading-none flex items-center justify-center space-x-3 shadow-glow-brand">
-                    <span className="text-white font-semibold text-lg">Get Demo</span>
+                    <span className="text-white font-semibold text-lg">Get Started</span>
                   </div>
                 </button>
 

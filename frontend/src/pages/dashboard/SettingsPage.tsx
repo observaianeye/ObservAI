@@ -5,7 +5,6 @@ import {
   CheckCircle, ChevronDown, ChevronUp, Sun, Moon,
   Send, Mail, Building2
 } from 'lucide-react';
-import { useDataMode } from '../../contexts/DataModeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -293,7 +292,6 @@ function Select({
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { dataMode, setDataMode } = useDataMode();
   const { user } = useAuth();
   const { showToast } = useToast();
   const { lang, setLang, t } = useLanguage();
@@ -484,95 +482,37 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* System Status Banner */}
-      <div className={`rounded-xl p-4 flex items-center space-x-3 border ${
+      {/* System Status Banner — compact */}
+      <div className={`rounded-xl px-4 py-2.5 flex items-center justify-between border ${
         backendHealth?.status === 'ready'
-          ? 'bg-success-500/10 border-success-500/20'
+          ? 'bg-success-500/8 border-success-500/20'
           : backendHealth?.status === 'loading'
-          ? 'bg-warning-500/10 border-warning-500/20'
-          : 'bg-danger-500/10 border-danger-500/20'
+          ? 'bg-warning-500/8 border-warning-500/20'
+          : 'bg-danger-500/8 border-danger-500/20'
       }`}>
-        {backendHealth?.status === 'ready' ? (
-          <>
-            <CheckCircle className="w-5 h-5 text-success-400 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-success-300">{t('settings.system.online')}</p>
-              <p className="text-xs text-success-400">
-                {t('settings.system.online.detail', { fps: backendHealth.fps.toFixed(1) })}
-              </p>
-            </div>
-          </>
-        ) : backendHealth?.status === 'loading' ? (
-          <>
-            <div className="w-5 h-5 border-2 border-warning-500/30 border-t-warning-500 rounded-full animate-spin flex-shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-warning-300">{t('settings.system.loading')}</p>
-              <p className="text-xs text-warning-400">{t('settings.system.loading.phase', { phase: backendHealth.phase })}</p>
-            </div>
-          </>
-        ) : (
-          <>
-            <AlertTriangle className="w-5 h-5 text-danger-400 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-danger-300">{t('settings.system.offline')}</p>
-              <p className="text-xs text-danger-400">
-                {backendHealth?.error || t('settings.system.offline.detail')}
-              </p>
-            </div>
-          </>
-        )}
-        <div className="ml-auto flex items-center space-x-2">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase tracking-[0.18em] ${
-            dataMode === 'live'
-              ? 'bg-success-500/10 text-success-300'
-              : 'bg-violet-500/10 text-violet-200'
+        <div className="flex items-center gap-3 min-w-0">
+          {backendHealth?.status === 'ready' ? (
+            <CheckCircle className="w-4 h-4 text-success-400 flex-shrink-0" />
+          ) : backendHealth?.status === 'loading' ? (
+            <div className="w-4 h-4 border-2 border-warning-500/30 border-t-warning-500 rounded-full animate-spin flex-shrink-0" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-danger-400 flex-shrink-0" />
+          )}
+          <p className={`text-xs font-medium truncate ${
+            backendHealth?.status === 'ready' ? 'text-success-300'
+              : backendHealth?.status === 'loading' ? 'text-warning-300'
+              : 'text-danger-300'
           }`}>
-            {dataMode === 'live' ? (
-              <><Wifi className="w-3 h-3 mr-1" /> {t('common.live')}</>
-            ) : (
-              <><Monitor className="w-3 h-3 mr-1" /> {t('common.demo')}</>
-            )}
-          </span>
+            {backendHealth?.status === 'ready'
+              ? t('settings.system.online.detail', { fps: backendHealth.fps.toFixed(1) })
+              : backendHealth?.status === 'loading'
+              ? t('settings.system.loading.phase', { phase: backendHealth.phase })
+              : (backendHealth?.error || t('settings.system.offline.detail'))}
+          </p>
         </div>
-      </div>
-
-      {/* Data Mode Switch */}
-      <div className="surface-card p-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-brand-500/10 rounded-lg flex items-center justify-center">
-              <Monitor className="w-5 h-5 text-brand-300" />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-ink-0">{t('settings.dataMode.title')}</h3>
-              <p className="text-xs text-ink-3">
-                {t('settings.dataMode.subtitle')}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center bg-surface-2/60 border border-white/[0.08] rounded-lg p-1 gap-0.5">
-            <button
-              onClick={() => setDataMode('demo')}
-              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
-                dataMode === 'demo'
-                  ? 'bg-violet-500/20 text-violet-200 border border-violet-500/30'
-                  : 'text-ink-3 hover:text-ink-0 border border-transparent'
-              }`}
-            >
-              {t('common.demo')}
-            </button>
-            <button
-              onClick={() => setDataMode('live')}
-              className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
-                dataMode === 'live'
-                  ? 'bg-success-500/20 text-success-300 border border-success-500/30'
-                  : 'text-ink-3 hover:text-ink-0 border border-transparent'
-              }`}
-            >
-              {t('common.live')}
-            </button>
-          </div>
-        </div>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase tracking-[0.18em] bg-success-500/10 text-success-300 flex-shrink-0">
+          <Wifi className="w-3 h-3 mr-1" /> {t('common.live')}
+        </span>
       </div>
 
       {/* Branches */}

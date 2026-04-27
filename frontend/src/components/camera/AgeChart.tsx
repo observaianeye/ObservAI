@@ -1,19 +1,15 @@
 import { useState, useEffect, memo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, AnalyticsData } from '../../services/analyticsDataService';
-import { useDataMode } from '../../contexts/DataModeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { GlassCard } from '../ui/GlassCard';
 
 const AgeChart = memo(function AgeChart() {
-  const { dataMode } = useDataMode();
   const { t } = useLanguage();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    analyticsDataService.setMode(dataMode);
-
     const loadData = async () => {
       setLoading(true);
       const data = await analyticsDataService.getData();
@@ -30,7 +26,7 @@ const AgeChart = memo(function AgeChart() {
     return () => {
       unsubscribe();
     };
-  }, [dataMode]);
+  }, []);
 
   const ageBuckets = ['0-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+'];
 
@@ -49,7 +45,7 @@ const AgeChart = memo(function AgeChart() {
   const unknownLabel = t('charts.gender.unknown');
 
   const option = {
-    animation: dataMode === 'demo',
+    animation: false,
     title: {
       text: t('charts.ageGender.title'),
       left: 'center',
@@ -151,9 +147,7 @@ const AgeChart = memo(function AgeChart() {
       ) : totalVisitors === 0 ? (
         <div className="h-[300px] flex flex-col items-center justify-center text-ink-3">
           <p className="text-sm font-medium">{t('charts.empty.title')}</p>
-          <p className="text-xs mt-1 text-ink-4">
-            {dataMode === 'live' ? t('charts.empty.live') : t('charts.empty.demo')}
-          </p>
+          <p className="text-xs mt-1 text-ink-4">{t('charts.empty.live')}</p>
         </div>
       ) : (
         <ReactECharts option={option} style={{ height: '300px' }} />

@@ -290,6 +290,69 @@ export async function sendStaffShiftEmail(
 }
 
 /**
+ * Send a password reset email.
+ *
+ * The link is good for 1 hour and single-use; the auth route is responsible
+ * for token bookkeeping.
+ */
+export async function sendPasswordResetEmail(
+  to: string,
+  resetUrl: string,
+  userName?: string,
+): Promise<EmailSendResult> {
+  const transporter = createTransporter();
+  if (!transporter) {
+    return { success: false, error: 'SMTP not configured (SMTP_HOST, SMTP_USER, SMTP_PASS)' };
+  }
+
+  const from = process.env.EMAIL_FROM || process.env.SMTP_USER || 'noreply@observai.com';
+  const greeting = userName ? `Merhaba <strong>${userName}</strong>,` : 'Merhaba,';
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#0f0f14;font-family:Arial,sans-serif;">
+  <div style="max-width:560px;margin:24px auto;background:#1a1a24;border-radius:12px;overflow:hidden;border:1px solid #2a2a3a;">
+    <div style="background:linear-gradient(135deg,#7c3aed,#2563eb);padding:20px 24px;">
+      <h2 style="margin:0;color:#fff;font-size:18px;">&#x1F511; Sifre Sifirlama</h2>
+    </div>
+    <div style="padding:24px;">
+      <p style="margin:0 0 16px;color:#e5e5e5;font-size:14px;">${greeting}</p>
+      <p style="margin:0 0 16px;color:#a0a0b0;font-size:14px;line-height:1.5;">
+        ObservAI hesabiniz icin sifre sifirlama talebi aldik. Yeni bir sifre belirlemek icin asagidaki butona tiklayin:
+      </p>
+      <div style="text-align:center;margin:24px 0;">
+        <a href="${resetUrl}" style="display:inline-block;padding:12px 28px;background:#7c3aed;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Sifreyi Sifirla</a>
+      </div>
+      <p style="margin:0 0 8px;color:#888;font-size:13px;">Buton calismazsa bu baglantiyi tarayicinizda acin:</p>
+      <p style="margin:0 0 16px;word-break:break-all;color:#7c3aed;font-size:12px;">${resetUrl}</p>
+      <p style="margin:0;color:#888;font-size:12px;">Bu baglanti 1 saat sonra gecerliligini yitirir. Eger bu istegi siz yapmadiysaniz e-postayi gormezden gelin; sifreniz degismeyecek.</p>
+    </div>
+    <div style="padding:12px 24px;border-top:1px solid #2a2a3a;text-align:center;">
+      <span style="color:#555;font-size:11px;">ObservAI &mdash; Real-time Cafe Analytics</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    await transporter.sendMail({
+      from,
+      to,
+      subject: '\u{1F511} [ObservAI] Sifre Sifirlama Talebi',
+      html,
+    });
+    console.log(`[Email] Password reset sent to ${to}`);
+    return { success: true };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[Email] Password reset send failed: ${errMsg}`);
+    return { success: false, error: errMsg };
+  }
+}
+
+/**
  * Verify SMTP connection is working.
  */
 export async function verifySmtp(): Promise<{ configured: boolean; connected: boolean; error?: string }> {

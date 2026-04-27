@@ -3,6 +3,7 @@ import { Bell, AlertTriangle, AlertCircle, Info, CheckCircle, X, CheckCheck, Ext
 import { useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useDashboardFilter } from '../contexts/DashboardFilterContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -56,14 +57,17 @@ export default function NotificationCenter() {
   const socketRef = useRef<Socket | null>(null);
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { selectedBranch } = useDashboardFilter();
   const timeAgo = makeTimeAgo(t);
 
   // ─── Fetch Notifications ──────────────────────────────────────────────
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/insights?limit=10`, {
+      const branchQs = selectedBranch ? `&branchId=${encodeURIComponent(selectedBranch.id)}` : '';
+      const res = await fetch(`${API_URL}/api/insights?limit=10${branchQs}`, {
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
       });
       if (res.ok) {
         const data = await res.json();
@@ -73,12 +77,14 @@ export default function NotificationCenter() {
       // Use demo data on error
       setNotifications(getDemoNotifications(t));
     }
-  }, [t]);
+  }, [t, selectedBranch?.id]);
 
   const fetchUnreadCount = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/insights/unread-count`, {
+      const branchQs = selectedBranch ? `?branchId=${encodeURIComponent(selectedBranch.id)}` : '';
+      const res = await fetch(`${API_URL}/api/insights/unread-count${branchQs}`, {
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
       });
       if (res.ok) {
         const data = await res.json();
@@ -87,7 +93,7 @@ export default function NotificationCenter() {
     } catch {
       setUnreadCount(getDemoNotifications(t).filter(n => !n.isRead).length);
     }
-  }, [t]);
+  }, [t, selectedBranch?.id]);
 
   // ─── Initialize ────────────────────────────────────────────────────────
 

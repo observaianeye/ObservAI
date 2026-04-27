@@ -2,12 +2,10 @@ import { Clock } from 'lucide-react';
 import { useEffect, useState, memo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, DwellTimeMetrics } from '../../services/analyticsDataService';
-import { useDataMode } from '../../contexts/DataModeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { GlassCard } from '../ui/GlassCard';
 
 const DwellTimeWidget = memo(function DwellTimeWidget() {
-  const { dataMode } = useDataMode();
   const { t } = useLanguage();
   const [dwellTime, setDwellTime] = useState<DwellTimeMetrics>({
     average: 0,
@@ -17,8 +15,6 @@ const DwellTimeWidget = memo(function DwellTimeWidget() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    analyticsDataService.setMode(dataMode);
-
     const loadData = async () => {
       setLoading(true);
       const data = await analyticsDataService.getData();
@@ -36,12 +32,11 @@ const DwellTimeWidget = memo(function DwellTimeWidget() {
     return () => {
       unsubscribe();
     };
-  }, [dataMode]);
+  }, []);
 
   // Format seconds to minutes
   const avgMinutes = (dwellTime.average / 60).toFixed(1);
 
-  // Sample weekly trend data (in demo mode, show realistic pattern)
   const weeklyData = [
     (dwellTime.average * 0.85) / 60,
     (dwellTime.average * 0.78) / 60,
@@ -53,8 +48,7 @@ const DwellTimeWidget = memo(function DwellTimeWidget() {
   ].map(v => Number(v.toFixed(1)));
 
   const option = {
-    // Disable animation in Live mode for smoother updates
-    animation: dataMode === 'demo',
+    animation: false,
     tooltip: {
       trigger: 'axis',
       axisPointer: {
@@ -140,7 +134,7 @@ const DwellTimeWidget = memo(function DwellTimeWidget() {
             </>
           ) : (
             <div className="h-24 flex items-center justify-center text-ink-4 text-xs">
-              {dataMode === 'live' ? t('widgets.dwell.noData') : t('widgets.dwell.switchToDemo')}
+              {t('widgets.dwell.noData')}
             </div>
           )}
         </>

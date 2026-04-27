@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, Plus, Pencil, Trash2, Star, MapPin, Loader2, X, Search, ExternalLink } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
+import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -18,6 +19,7 @@ interface Branch {
 
 export function BranchSection() {
   const { showToast } = useToast();
+  const { fetchBranches: refreshGlobalBranches } = useDashboardFilter();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -37,12 +39,17 @@ export function BranchSection() {
 
   useEffect(() => { load(); }, [load]);
 
+  const reloadAll = useCallback(async () => {
+    await load();
+    await refreshGlobalBranches();
+  }, [load, refreshGlobalBranches]);
+
   const handleDelete = async (id: string) => {
     if (!confirm('Bu subeyi silmek istediginizden emin misiniz?')) return;
     const res = await fetch(`${API_URL}/api/branches/${id}`, { method: 'DELETE', credentials: 'include' });
     if (res.ok) {
       showToast('success', 'Sube silindi');
-      load();
+      reloadAll();
     }
   };
 
@@ -52,7 +59,7 @@ export function BranchSection() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isDefault: true }),
     });
-    if (res.ok) { showToast('success', 'Varsayilan sube guncellendi'); load(); }
+    if (res.ok) { showToast('success', 'Varsayilan sube guncellendi'); reloadAll(); }
   };
 
   const handleSubmit = async (data: Partial<Branch>) => {
@@ -74,7 +81,7 @@ export function BranchSection() {
     }
     showToast('success', editing ? 'Sube guncellendi' : 'Sube eklendi');
     setFormOpen(false); setEditing(null);
-    load();
+    reloadAll();
   };
 
   return (
@@ -168,6 +175,15 @@ export function BranchSection() {
   );
 }
 
+interface NominatimSuggestion {
+  place_id: number;
+  display_name: string;
+  lat: string;
+  lon: string;
+  type?: string;
+  class?: string;
+}
+
 function BranchForm({
   open, initial, onClose, onSubmit,
 }: {
@@ -185,6 +201,14 @@ function BranchForm({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [geocoding, setGeocoding] = useState(false);
+  const [suggestions, setSuggestions] = useState<NominatimSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastQueryRef = useRef<string>('');
+  // Track when user picked a suggestion or coords were set programmatically,
+  // so we don't immediately re-query Nominatim from the resulting `city` write.
+  const skipNextSearchRef = useRef(false);
 
   useEffect(() => {
     if (open) {
@@ -195,8 +219,67 @@ function BranchForm({
       setTimezone(initial?.timezone ?? 'Europe/Istanbul');
       setIsDefault(initial?.isDefault ?? false);
       setErr(null);
+      setSuggestions([]);
+      setShowSuggestions(false);
+      skipNextSearchRef.current = true;
+      lastQueryRef.current = initial?.city ?? '';
     }
   }, [open, initial]);
+
+  // Debounced address autocomplete via OSM Nominatim. Triggers when the user
+  // types in the city/address field; skips the network call when the field
+  // was just populated by selecting a suggestion or by the "Bul" button.
+  useEffect(() => {
+    if (!open) return;
+    if (skipNextSearchRef.current) {
+      skipNextSearchRef.current = false;
+      return;
+    }
+    const q = city.trim();
+    if (q.length < 3 || q === lastQueryRef.current) {
+      setSuggestions([]);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSuggestLoading(true);
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(q)}`,
+          { headers: { 'Accept-Language': 'tr' } },
+        );
+        if (res.ok) {
+          const data = (await res.json()) as NominatimSuggestion[];
+          lastQueryRef.current = q;
+          setSuggestions(data);
+          setShowSuggestions(true);
+        }
+      } catch {
+        /* network blip — silent */
+      } finally {
+        setSuggestLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [city, open]);
+
+  const pickSuggestion = (s: NominatimSuggestion) => {
+    skipNextSearchRef.current = true;
+    setCity(s.display_name);
+    setLat(parseFloat(s.lat).toFixed(6));
+    setLon(parseFloat(s.lon).toFixed(6));
+    if (!name.trim()) {
+      // Default branch name to the first label segment if user hasn't set one.
+      const head = s.display_name.split(',')[0]?.trim();
+      if (head) setName(head);
+    }
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setErr(null);
+  };
 
   if (!open) return null;
 
@@ -223,8 +306,10 @@ function BranchForm({
     setGeocoding(true); setErr(null);
     try {
       const { lat: la, lon: lo } = await geocodeCity(city.trim());
+      skipNextSearchRef.current = true;
       setLat(la.toFixed(6));
       setLon(lo.toFixed(6));
+      setShowSuggestions(false);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Geocoding hatasi');
     } finally {
@@ -278,11 +363,11 @@ function BranchForm({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto" onClick={onClose}>
       <motion.div
         initial={{ scale: 0.95, y: 12 }}
         animate={{ scale: 1, y: 0 }}
-        className="surface-card rounded-2xl p-6 w-full max-w-lg"
+        className="surface-card rounded-2xl p-6 w-full max-w-lg my-auto max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between mb-4">
@@ -302,14 +387,48 @@ function BranchForm({
 
           <div>
             <label className="block text-xs font-medium text-ink-2 mb-1">Sehir / adres</label>
-            <div className="flex gap-2">
-              <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Istanbul, Besiktas"
-                className="flex-1 px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
-              <button onClick={geocode} disabled={geocoding || !city} title="Koordinat otomatik bul"
-                className="px-3 py-2 bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-lg flex items-center gap-1 hover:bg-brand-500/25 disabled:opacity-50">
-                {geocoding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                <span className="text-xs">Bul</span>
-              </button>
+            <div className="relative">
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={city}
+                    onChange={(e) => { setCity(e.target.value); setShowSuggestions(true); }}
+                    onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                    placeholder="Istanbul Besiktas Barbaros Bulvari..."
+                    autoComplete="off"
+                    className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  />
+                  {suggestLoading && (
+                    <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-brand-300" />
+                  )}
+                </div>
+                <button
+                  onClick={geocode}
+                  disabled={geocoding || !city}
+                  title="Koordinat otomatik bul"
+                  className="px-3 py-2 bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-lg flex items-center gap-1 hover:bg-brand-500/25 disabled:opacity-50"
+                >
+                  {geocoding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  <span className="text-xs">Bul</span>
+                </button>
+              </div>
+              {showSuggestions && suggestions.length > 0 && (
+                <ul className="absolute z-50 left-0 right-0 mt-1 bg-surface-2 border border-white/[0.12] rounded-lg shadow-2xl max-h-64 overflow-auto custom-scrollbar">
+                  {suggestions.map((s) => (
+                    <li
+                      key={s.place_id}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pickSuggestion(s)}
+                      className="px-3 py-2 text-sm text-ink-1 cursor-pointer hover:bg-brand-500/10 border-b border-white/[0.04] last:border-0 flex items-start gap-2"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-brand-300 mt-0.5 flex-shrink-0" />
+                      <span className="leading-snug">{s.display_name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
 
@@ -327,8 +446,8 @@ function BranchForm({
           </div>
 
           <p className="text-[10px] text-ink-4 leading-relaxed">
-            Koordinatlari Google Maps'te sag tiklayip &ldquo;ne var burada?&rdquo; ile de alabilirsiniz.
-            &quot;Bul&quot; butonu OpenStreetMap Nominatim servisini kullanir.
+            Yazdikca OpenStreetMap onerisi cikar; secince enlem/boylam otomatik dolar. Manuel
+            koordinat icin Google Maps&apos;te sag tiklayip &ldquo;ne var burada?&rdquo; kullanabilirsiniz.
           </p>
 
           <div>
@@ -349,15 +468,15 @@ function BranchForm({
           </label>
 
           {err && <div className="text-sm text-danger-300 bg-danger-500/10 border border-danger-500/30 rounded-lg px-3 py-2">{err}</div>}
+        </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button onClick={onClose} className="px-4 py-2 text-ink-2 hover:text-ink-0 rounded-lg">Iptal</button>
-            <motion.button whileTap={{ scale: 0.97 }} onClick={submit} disabled={saving}
-              className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-lg font-semibold flex items-center gap-2 disabled:opacity-60">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              {saving ? 'Kaydediliyor...' : (initial ? 'Guncelle' : 'Olustur')}
-            </motion.button>
-          </div>
+        <div className="sticky bottom-0 -mx-6 -mb-6 mt-4 px-6 py-3 bg-surface-1/95 backdrop-blur border-t border-white/[0.06] rounded-b-2xl flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-ink-2 hover:text-ink-0 rounded-lg">Iptal</button>
+          <motion.button whileTap={{ scale: 0.97 }} onClick={submit} disabled={saving}
+            className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-lg font-semibold flex items-center gap-2 disabled:opacity-60">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {saving ? 'Kaydediliyor...' : (initial ? 'Guncelle' : 'Olustur')}
+          </motion.button>
         </div>
       </motion.div>
     </div>

@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { callOllama } from './ai';
 import { prisma } from '../lib/db';
 import { authenticate } from '../middleware/authMiddleware';
+import { requireCameraOwnership, userOwnsCamera } from '../middleware/tenantScope';
 
 const router = Router();
 
@@ -152,7 +153,7 @@ function buildPrompt(body: z.infer<typeof AISummaryBody>): string {
  * payload (Python side owns state machine); we enrich with zone metadata from
  * the DB.
  */
-router.get('/:cameraId', authenticate, async (req: Request, res: Response) => {
+router.get('/:cameraId', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   const { cameraId } = req.params;
 
   const zones = await prisma.zone.findMany({
@@ -237,6 +238,10 @@ router.patch('/:zoneId/status', authenticate, async (req: Request, res: Response
   }
   const { cameraId } = parsed.data;
 
+  if (!(await userOwnsCamera(req.user.id, cameraId))) {
+    return res.status(404).json({ error: 'Camera not found' });
+  }
+
   const zone = await prisma.zone.findFirst({
     where: { id: zoneId, cameraId, type: 'table', isActive: true },
   });
@@ -270,13 +275,18 @@ router.patch('/:zoneId/status', authenticate, async (req: Request, res: Response
   });
 });
 
-router.post('/ai-summary', async (req: Request, res: Response) => {
+router.post('/ai-summary', authenticate, async (req: Request, res: Response) => {
   const parsed = AISummaryBody.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', issues: parsed.error.issues });
   }
 
   const { cameraId } = parsed.data;
+
+  if (!(await userOwnsCamera(req.user.id, cameraId))) {
+    return res.status(404).json({ error: 'Camera not found' });
+  }
+
   const now = Date.now();
 
   const cached = summaryCache.get(cameraId);

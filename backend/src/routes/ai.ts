@@ -8,6 +8,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
 import { GEMINI_MODEL_CANDIDATES, OLLAMA_MODEL_PRIORITY, isGeminiFallbackError } from '../lib/aiConfig';
+import { authenticate } from '../middleware/authMiddleware';
+import { userOwnsCamera } from '../middleware/tenantScope';
 
 const router = Router();
 
@@ -351,9 +353,13 @@ export async function checkOllamaHealth(): Promise<{
   }
 }
 
-router.post('/chat', async (req: Request, res: Response) => {
+router.post('/chat', authenticate, async (req: Request, res: Response) => {
   try {
     const { message, cameraId, lang, conversationId } = ChatRequestSchema.parse(req.body);
+
+    if (cameraId && !(await userOwnsCamera(req.user.id, cameraId))) {
+      return res.status(404).json({ error: 'Camera not found' });
+    }
 
     // Get recent analytics data for context
     const recentAnalytics = await getRecentAnalyticsContext(cameraId);
@@ -487,7 +493,7 @@ router.post('/chat', async (req: Request, res: Response) => {
  * ENABLE_AI_STREAMING — returns 404 when the flag is off so the frontend can
  * fall back to /chat without feature detection.
  */
-router.post('/chat/stream', async (req: Request, res: Response) => {
+router.post('/chat/stream', authenticate, async (req: Request, res: Response) => {
   if (!STREAMING_ENABLED) {
     return res.status(404).json({ error: 'Streaming disabled. Set ENABLE_AI_STREAMING=true.' });
   }
@@ -503,6 +509,10 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
     throw err;
   }
   const { message, cameraId, lang, conversationId } = parsed;
+
+  if (cameraId && !(await userOwnsCamera(req.user.id, cameraId))) {
+    return res.status(404).json({ error: 'Camera not found' });
+  }
 
   // SSE headers — once set we must keep writing events, not switch to JSON.
   res.setHeader('Content-Type', 'text/event-stream');

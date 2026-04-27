@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, CalendarDays, Sparkles, Plus, Send, TrendingUp, TrendingDown, Circle } from 'lucide-react';
+import { Users, CalendarDays, Sparkles, Plus, Send, TrendingUp, TrendingDown, Circle, Building2 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useToast } from '../../contexts/ToastContext';
+import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 import { StaffForm, type StaffRecord } from '../../components/staffing/StaffForm';
 import { StaffList } from '../../components/staffing/StaffList';
 import { ShiftCalendar, type Assignment } from '../../components/staffing/ShiftCalendar';
@@ -31,6 +32,8 @@ function startOfWeek(d: Date): Date {
 export default function StaffingPage() {
   const { t, lang } = useLanguage();
   const { showToast } = useToast();
+  const { selectedBranch } = useDashboardFilter();
+  const branchId = selectedBranch?.id || '';
   const [tab, setTab] = useState<Tab>('staff');
 
   const [staff, setStaff] = useState<StaffRecord[]>([]);
@@ -48,19 +51,23 @@ export default function StaffingPage() {
   const [recMeta, setRecMeta] = useState<{ needsMoreData: boolean; daysCollected?: number; daysRemaining?: number; reason?: string }>({ needsMoreData: false });
   const [notifSummary, setNotifSummary] = useState<{ emailSent: number; attempted: number }>({ emailSent: 0, attempted: 0 });
 
-  const [branchId, setBranchId] = useState<string>('');
-  const [cameraId, setCameraId] = useState<string>('');
-
-  useEffect(() => {
-    setBranchId(localStorage.getItem('selectedBranchId') || 'default');
-    setCameraId(localStorage.getItem('selectedCameraId') || 'default');
-  }, []);
+  const cameraId = selectedBranch?.cameras?.find((c) => c.isActive)?.id
+    || selectedBranch?.cameras?.[0]?.id
+    || '';
 
   // ── Staff CRUD ─────────────────────────────────────────────────────────
   const loadStaff = useCallback(async () => {
+    if (!branchId) {
+      setStaff([]);
+      setStaffLoading(false);
+      return;
+    }
     setStaffLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/staff`, { credentials: 'include' });
+      const res = await fetch(
+        `${API_URL}/api/staff?branchId=${encodeURIComponent(branchId)}`,
+        { credentials: 'include' },
+      );
       if (res.ok) {
         const data = await res.json();
         setStaff(data.staff || []);
@@ -70,18 +77,22 @@ export default function StaffingPage() {
     } finally {
       setStaffLoading(false);
     }
-  }, []);
+  }, [branchId]);
 
   useEffect(() => { loadStaff(); }, [loadStaff]);
 
   const handleSaveStaff = async (payload: Partial<StaffRecord>) => {
+    if (!editing && !branchId) {
+      throw new Error('Once bir sube secin');
+    }
     const method = editing ? 'PATCH' : 'POST';
     const url = editing ? `${API_URL}/api/staff/${editing.id}` : `${API_URL}/api/staff`;
+    const body = editing ? payload : { ...payload, branchId };
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -214,7 +225,7 @@ export default function StaffingPage() {
     if (!branchId) return;
     setRecLoading(true);
     try {
-      const qs = cameraId && cameraId !== 'default' ? `?cameraId=${cameraId}` : '';
+      const qs = cameraId ? `?cameraId=${encodeURIComponent(cameraId)}` : '';
       const res = await fetch(`${API_URL}/api/staffing/${branchId}/recommendations${qs}`, {
         credentials: 'include',
       });
@@ -283,7 +294,7 @@ export default function StaffingPage() {
             {lang === 'tr' ? 'Ekibinizi yonetin, vardiya planlayin, e-posta ile anlik bildirim gonderin' : 'Manage your team, plan shifts, notify via email instantly'}
           </p>
         </div>
-        {tab === 'staff' && (
+        {tab === 'staff' && branchId && (
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={() => { setEditing(null); setFormOpen(true); }}
@@ -294,6 +305,26 @@ export default function StaffingPage() {
           </motion.button>
         )}
       </div>
+
+      {selectedBranch ? (
+        <div className="surface-card rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-ink-2">
+          <Building2 className="w-4 h-4 text-brand-300" strokeWidth={1.5} />
+          <span>
+            <span className="text-ink-3">{lang === 'tr' ? 'Aktif sube' : 'Active branch'}:</span>{' '}
+            <span className="font-semibold text-ink-0">{selectedBranch.name}</span>
+            <span className="text-ink-4"> &middot; {selectedBranch.city}</span>
+          </span>
+        </div>
+      ) : (
+        <div className="surface-card rounded-xl px-4 py-3 flex items-center gap-3 text-sm border border-warning-500/30 bg-warning-500/5">
+          <Building2 className="w-4 h-4 text-warning-300" strokeWidth={1.5} />
+          <span className="text-warning-200">
+            {lang === 'tr'
+              ? 'Once ust menuden bir sube secin — personel ve vardiyalar subeye baglidir.'
+              : 'Select a branch from the top bar — staff and shifts are scoped per branch.'}
+          </span>
+        </div>
+      )}
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

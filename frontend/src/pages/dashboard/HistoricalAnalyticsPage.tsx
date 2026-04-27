@@ -15,8 +15,8 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useDataMode } from '../../contexts/DataModeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -367,8 +367,8 @@ function StatCard({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function HistoricalAnalyticsPage() {
-  const { dataMode } = useDataMode();
   const { t, lang } = useLanguage();
+  const { selectedBranch } = useDashboardFilter();
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const locale = lang === 'tr' ? 'tr-TR' : 'en-US';
 
@@ -379,10 +379,31 @@ export default function HistoricalAnalyticsPage() {
   const [startDate, setStartDate] = useState(weekAgo);
   const [endDate, setEndDate] = useState(today);
   const [selectedCamera, setSelectedCamera] = useState('all');
+  const [branchCameras, setBranchCameras] = useState<{ id: string; name: string; isActive: boolean }[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportDropdown, setExportDropdown] = useState(false);
+
+  // Refresh the camera dropdown whenever the active branch changes. Uses the
+  // server-side branchId filter so we never display cameras from another branch.
+  useEffect(() => {
+    if (!selectedBranch) { setBranchCameras([]); setSelectedCamera('all'); return; }
+    let cancelled = false;
+    fetch(`${API_URL}/api/cameras?branchId=${encodeURIComponent(selectedBranch.id)}`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => {
+        if (cancelled) return;
+        const cams = Array.isArray(list)
+          ? list.map((c: { id: string; name: string; isActive: boolean }) => ({ id: c.id, name: c.name, isActive: c.isActive }))
+          : [];
+        setBranchCameras(cams);
+        // If previously-picked camera no longer belongs to the new branch, reset
+        setSelectedCamera((prev) => (prev !== 'all' && !cams.some((c) => c.id === prev) ? 'all' : prev));
+      })
+      .catch(() => { if (!cancelled) setBranchCameras([]); });
+    return () => { cancelled = true; };
+  }, [selectedBranch?.id, API_URL]);
 
   const [dailyData, setDailyData] = useState<DailyDataPoint[]>([]);
   const [hourlyData, setHourlyData] = useState<HourlyDataPoint[]>([]);
@@ -393,23 +414,14 @@ export default function HistoricalAnalyticsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      if (dataMode === 'demo') {
-        await new Promise(r => setTimeout(r, 400));
-        setDailyData(generateDemoDailyData(startDate, endDate, locale));
-        setHourlyData(generateDemoHourlyData(today));
-        setDemographics(generateDemoDemographics());
-        setComparisonData(generateDemoComparison(startDate, endDate));
-      } else {
-        // Resolve camera: selectedCamera 'all' → use first camera in DB so backend can filter
+      {
+        // Resolve camera: selectedCamera 'all' → first camera of the active
+        // branch (analytics endpoints require a single cameraId). When no
+        // branch is selected, branchCameras is empty and we fall through to
+        // demo data — never read from another branch's cameras.
         let targetCam = selectedCamera;
         if (targetCam === 'all') {
-          try {
-            const camRes = await fetch(`${API_URL}/api/cameras`, { credentials: 'include' });
-            if (camRes.ok) {
-              const list = await camRes.json();
-              if (Array.isArray(list) && list.length > 0) targetCam = list[0].id;
-            }
-          } catch { /* fall through */ }
+          if (branchCameras.length > 0) targetCam = branchCameras[0].id;
         }
 
         let dailyFromApi: DailyDataPoint[] = [];
@@ -514,7 +526,8 @@ export default function HistoricalAnalyticsPage() {
                 period2Start: twoWeeksAgo,
                 period2End: startDate,
                 ...(selectedCamera !== 'all' ? { cameraId: selectedCamera } : {}),
-              })
+              }),
+            { credentials: 'include' },
           );
           if (compareRes.ok) setComparisonData(await compareRes.json());
         } catch {
@@ -529,7 +542,7 @@ export default function HistoricalAnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [dataMode, startDate, endDate, selectedCamera, API_URL, today, locale]);
+  }, [startDate, endDate, selectedCamera, branchCameras, API_URL, today, locale]);
 
   useEffect(() => {
     loadData();
@@ -547,7 +560,7 @@ export default function HistoricalAnalyticsPage() {
       });
 
       const url = `${API_URL}/api/export/${format}?${params}`;
-      const response = await fetch(url);
+      const response = await fetch(url, { credentials: 'include' });
 
       if (!response.ok) {
         throw new Error(`Export failed: ${response.statusText}`);
@@ -723,7 +736,7 @@ export default function HistoricalAnalyticsPage() {
             />
           </div>
 
-          {/* Camera Filter */}
+          {/* Camera Filter — restricted to the active branch's cameras */}
           <div>
             <div className="flex items-center gap-1.5 mb-1.5">
               <Filter strokeWidth={1.5} className="w-3.5 h-3.5 text-ink-3" />
@@ -732,12 +745,13 @@ export default function HistoricalAnalyticsPage() {
             <select
               value={selectedCamera}
               onChange={e => setSelectedCamera(e.target.value)}
-              className="px-3 py-1.5 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 outline-none"
+              disabled={!selectedBranch}
+              className="px-3 py-1.5 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 outline-none disabled:opacity-50"
             >
               <option value="all">{t('historical.page.cameraAll')}</option>
-              <option value="cam-1">{t('historical.page.cameraMain')}</option>
-              <option value="cam-2">{t('historical.page.cameraCheckout')}</option>
-              <option value="cam-3">{t('historical.page.cameraDisplay')}</option>
+              {branchCameras.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </select>
           </div>
 
@@ -985,8 +999,8 @@ export default function HistoricalAnalyticsPage() {
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-ink-3">{t('historical.info.mode')}</span>
-                  <span className={`font-medium font-mono ${dataMode === 'live' ? 'text-success-400' : 'text-warning-400'}`}>
-                    {dataMode === 'live' ? t('historical.info.liveData') : t('historical.info.demoData')}
+                  <span className="font-medium font-mono text-success-400">
+                    {t('historical.info.liveData')}
                   </span>
                 </div>
                 <div className="flex justify-between">

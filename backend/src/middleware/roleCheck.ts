@@ -4,6 +4,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { authenticate } from './authMiddleware';
 // import { UserRole } from '@prisma/client'; // Removed due to SQLite limitation
 
 type UserRole = 'ADMIN' | 'MANAGER' | 'ANALYST' | 'VIEWER';
@@ -54,24 +55,22 @@ export function hasRole(userRole: string, requiredRole: string): boolean {
  * @param minRole Minimum required role
  */
 export function requireRole(minRole: UserRole) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    // For now, we'll allow all requests if no user is attached
-    // In production, you'd reject unauthenticated requests
-    if (!req.user) {
-      console.warn('⚠️  No user attached to request - skipping role check (dev mode)');
-      return next();
+  return [
+    authenticate,
+    (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Unauthorized: authentication required' });
+      }
+      if (!hasRole(req.user.role, minRole)) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: `This action requires ${minRole} role or higher`,
+          yourRole: req.user.role
+        });
+      }
+      next();
     }
-
-    if (!hasRole(req.user.role, minRole)) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: `This action requires ${minRole} role or higher`,
-        yourRole: req.user.role
-      });
-    }
-
-    next();
-  };
+  ];
 }
 
 /**

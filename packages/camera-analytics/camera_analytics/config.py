@@ -76,8 +76,10 @@ class AnalyticsConfig:
   # Zone entry/exit debounce (frame count) — Stage 4 tuned
   zone_enter_debounce_frames: int = 5
   zone_exit_debounce_frames: int = 10
-  # Stage 4: occlusion grace for zone members (seconds)
-  zone_grace_period_s: float = 3.0
+  # Occlusion grace for zone members (seconds). Tolerates YOLO misses while
+  # someone is sitting motionless or partially occluded — without this a 3 s gap
+  # would evict them from the zone and flap the table state machine.
+  zone_grace_period_s: float = 8.0
   # Stage 4: enable occlusion-grace reconciler. OFF by default — flip on after
   # zone count accuracy validated against ground truth fixtures.
   zone_occlusion_grace_enabled: bool = True
@@ -100,7 +102,10 @@ class AnalyticsConfig:
   table_min_occupied_duration: float = 60.0    # Min seconds table must be occupied before cleaning is triggered (transient passers-by don't count)
   table_cleaning_empty_threshold: float = 120.0  # Seconds of empty after occupancy → mark needs_cleaning (user's "2 min" rule)
   table_auto_empty_timeout: float = 900.0      # Auto-transition needs_cleaning → empty after 15 min (staff forgot)
-  table_transit_grace: float = 10.0            # <N seconds empty during occupancy = ignore (chair shuffle, bathroom trip)
+  # Time the table can appear empty during an active occupancy without resetting state.
+  # Seated people get partially occluded (waiter walks past, head down at phone, bag covers
+  # bbox) — keep the table "occupied" through these gaps. 30 s covers normal seated motion.
+  table_transit_grace: float = 30.0
   # Stage 6: seconds of sustained occupants required before flipping empty→occupied.
   # Prevents a person walking past / briefly leaning over a table from being
   # instantly counted as seated. User requested explicit debounce on the status
@@ -116,8 +121,9 @@ class AnalyticsConfig:
   demo_age_lock_min_samples: int = 20     # Minimum samples before age can lock
   demo_pose_max_yaw: float = 70.0         # Max face yaw (deg) for gender decision (was 55, relaxed for more coverage)
 
-  # Track persistence
-  track_stale_ttl: float = 4.0  # Seconds before dropping unseen tracks
+  # Track persistence — must exceed BoT-SORT track_buffer/fps so the tracker
+  # can re-link IDs after brief occlusion. 12 s with track_buffer=300 @ 30 fps.
+  track_stale_ttl: float = 12.0
 
 
 def _load_normalized_point(raw: Sequence[float]) -> NormalizedPoint:
@@ -207,7 +213,7 @@ def load_config(path: Path) -> AnalyticsConfig:
     # Zone entry/exit debounce — Stage 4 tuned
     zone_enter_debounce_frames=int(data.get("zone_enter_debounce_frames", 5)),
     zone_exit_debounce_frames=int(data.get("zone_exit_debounce_frames", 10)),
-    zone_grace_period_s=float(data.get("zone_grace_period_s", 3.0)),
+    zone_grace_period_s=float(data.get("zone_grace_period_s", 8.0)),
     zone_occlusion_grace_enabled=bool(data.get("zone_occlusion_grace_enabled", True)),
     table_max_capacity=int(data.get("table_max_capacity", 6)),
     table_capacity_clamp_enabled=bool(data.get("table_capacity_clamp_enabled", True)),
@@ -221,7 +227,7 @@ def load_config(path: Path) -> AnalyticsConfig:
     table_min_occupied_duration=float(data.get("table_min_occupied_duration", 60.0)),
     table_cleaning_empty_threshold=float(data.get("table_cleaning_empty_threshold", 120.0)),
     table_auto_empty_timeout=float(data.get("table_auto_empty_timeout", 900.0)),
-    table_transit_grace=float(data.get("table_transit_grace", 10.0)),
+    table_transit_grace=float(data.get("table_transit_grace", 30.0)),
     # Post-NMS overlap filtering
     post_nms_containment_thresh=float(data.get("post_nms_containment_thresh", 0.70)),
     post_nms_iou_merge_thresh=float(data.get("post_nms_iou_merge_thresh", 0.60)),

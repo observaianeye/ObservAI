@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { Activity, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthBrandPanel from '../components/auth/AuthBrandPanel';
@@ -22,7 +22,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
-  const { login, demoLogin } = useAuth();
+  const { login } = useAuth();
   const { t } = useLanguage();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -42,17 +42,6 @@ export default function LoginPage() {
       navigate('/dashboard');
     } else {
       setError(t('auth.login.error.invalid'));
-      setIsLoading(false);
-    }
-  };
-
-  const handleDemoLogin = async () => {
-    setIsLoading(true);
-    setError('');
-    const success = await demoLogin();
-    if (success) navigate('/dashboard');
-    else {
-      setError(t('auth.login.error.demo'));
       setIsLoading(false);
     }
   };
@@ -180,22 +169,6 @@ export default function LoginPage() {
                 <p className="text-sm text-danger-400 text-center">{error}</p>
               </div>
             )}
-
-            <div className="relative my-6 flex items-center">
-              <div className="flex-1 h-px bg-white/[0.06]" />
-              <span className="px-3 text-[10px] uppercase tracking-[0.18em] text-ink-3 font-mono">{t('auth.login.or')}</span>
-              <div className="flex-1 h-px bg-white/[0.06]" />
-            </div>
-
-            <button
-              onClick={handleDemoLogin}
-              type="button"
-              disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-violet-500/10 border border-violet-500/30 text-violet-300 hover:bg-violet-500/15 hover:border-violet-500/50 transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-70 disabled:cursor-not-allowed"
-            >
-              <Activity className="w-4 h-4" />
-              {t('auth.login.demo')}
-            </button>
 
             <p className="mt-6 text-center text-sm text-ink-3">
               {t('auth.login.noAccount')}{' '}

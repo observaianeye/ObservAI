@@ -51,17 +51,25 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
   const [dateRange, setDateRange] = useState<DateRange>(getDateRange(7));
   const [isLoading, setIsLoading] = useState(false);
 
+  // Re-resolves branches from server. Picks the previously-saved branch when
+  // it still exists, falling back to default → first → none. Always reads
+  // from the fresh server response so a deleted branch can't linger as
+  // selected, and so a newly-added branch shows up immediately.
   const fetchBranches = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/branches');
+      const res = await fetch('/api/branches', { credentials: 'include' });
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as Branch[];
         setBranches(data);
-        // Auto-select default branch or first branch
-        if (data.length > 0 && !selectedBranch) {
-          const defaultBranch = data.find((b: Branch) => b.isDefault) || data[0];
-          setSelectedBranchState(defaultBranch);
+        const savedId = localStorage.getItem('selectedBranchId');
+        const persisted = savedId ? data.find((b) => b.id === savedId) : null;
+        const next = persisted || data.find((b) => b.isDefault) || data[0] || null;
+        setSelectedBranchState(next);
+        if (next) {
+          localStorage.setItem('selectedBranchId', next.id);
+        } else {
+          localStorage.removeItem('selectedBranchId');
         }
       }
     } catch (error) {
@@ -69,16 +77,18 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedBranch]);
+  }, []);
 
   useEffect(() => {
     fetchBranches();
-  }, []);
+  }, [fetchBranches]);
 
   const setSelectedBranch = (branch: Branch | null) => {
     setSelectedBranchState(branch);
     if (branch) {
       localStorage.setItem('selectedBranchId', branch.id);
+    } else {
+      localStorage.removeItem('selectedBranchId');
     }
   };
 

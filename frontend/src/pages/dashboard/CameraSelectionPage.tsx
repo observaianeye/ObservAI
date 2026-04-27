@@ -1,9 +1,10 @@
-import { Camera, Circle, Monitor, Wifi, Upload, Trash2, Loader2, Smartphone, Play, Youtube, Plus, Check } from 'lucide-react';
+import { Camera, Circle, Monitor, Wifi, Upload, Trash2, Loader2, Smartphone, Play, Youtube, Plus, Check, Pencil, X, Building2 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 
 type SourceType = 'webcam' | 'file' | 'rtsp' | 'screen' | 'youtube' | 'phone';
 
@@ -31,6 +32,7 @@ export default function CameraSelectionPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { selectedBranch } = useDashboardFilter();
   const [sourceType, setSourceType] = useState<SourceType>('webcam');
   const [sourceValue, setSourceValue] = useState<string>('0');
   const [sourceName, setSourceName] = useState<string>('');
@@ -38,10 +40,24 @@ export default function CameraSelectionPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editValue, setEditValue] = useState('');
+  const [editError, setEditError] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const fetchCameras = useCallback(async () => {
+    if (!selectedBranch) {
+      setCameras([]);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/cameras`, { credentials: 'include' });
+      const res = await fetch(
+        `${API_URL}/api/cameras?branchId=${encodeURIComponent(selectedBranch.id)}`,
+        { credentials: 'include' },
+      );
       if (res.ok) {
         const data = await res.json();
         setCameras(data);
@@ -51,7 +67,7 @@ export default function CameraSelectionPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [selectedBranch?.id]);
 
   useEffect(() => { fetchCameras(); }, [fetchCameras]);
 
@@ -69,6 +85,10 @@ export default function CameraSelectionPage() {
       setError(t('cameraSelection.errorMissing'));
       return;
     }
+    if (!selectedBranch) {
+      setError('Once bir sube secin (ust menuden) — kameralar subeye baglidir.');
+      return;
+    }
     setIsSaving(true);
     setError('');
     try {
@@ -81,6 +101,7 @@ export default function CameraSelectionPage() {
           sourceType: sourceType.toUpperCase(),
           sourceValue: sourceValue,
           createdBy: user?.id,
+          branchId: selectedBranch.id,
         }),
       });
       if (res.ok) {
@@ -109,6 +130,48 @@ export default function CameraSelectionPage() {
       }
     } catch (err) {
       console.error('Failed to delete camera:', err);
+    }
+  };
+
+  const startEdit = (cam: SavedCamera) => {
+    setEditingId(cam.id);
+    setEditName(cam.name);
+    setEditValue(cam.sourceValue);
+    setEditError('');
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditName('');
+    setEditValue('');
+    setEditError('');
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editName.trim() || !editValue.trim()) {
+      setEditError(t('cameraSelection.errorMissing'));
+      return;
+    }
+    setIsUpdating(true);
+    setEditError('');
+    try {
+      const res = await fetch(`${API_URL}/api/cameras/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: editName, sourceValue: editValue }),
+      });
+      if (res.ok) {
+        await fetchCameras();
+        cancelEdit();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setEditError(data.error || t('cameraSelection.errorSave'));
+      }
+    } catch (err) {
+      setEditError(t('cameraSelection.errorBackend'));
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -152,6 +215,25 @@ export default function CameraSelectionPage() {
         <h1 className="font-display text-2xl font-semibold text-gradient-brand tracking-tight">{t('cameraSelection.page.title')}</h1>
         <p className="text-sm text-ink-3 mt-1">{t('cameraSelection.page.subtitle')}</p>
       </div>
+
+      {selectedBranch ? (
+        <div className="surface-card rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-ink-2">
+          <Building2 className="w-4 h-4 text-brand-300" strokeWidth={1.5} />
+          <span>
+            <span className="text-ink-3">Aktif sube:</span>{' '}
+            <span className="font-semibold text-ink-0">{selectedBranch.name}</span>
+            <span className="text-ink-4"> &middot; {selectedBranch.city}</span>
+          </span>
+          <span className="ml-auto text-[11px] text-ink-4">Eklenen kameralar bu subeye baglanir.</span>
+        </div>
+      ) : (
+        <div className="surface-card rounded-xl px-4 py-3 flex items-center gap-3 text-sm border border-warning-500/30 bg-warning-500/5">
+          <Building2 className="w-4 h-4 text-warning-300" strokeWidth={1.5} />
+          <span className="text-warning-200">
+            Once bir sube secin (ust menuden &ldquo;Sube ekle&rdquo;) — kameralar subeye bagli yonetilir.
+          </span>
+        </div>
+      )}
 
       {/* Add New Source */}
       <motion.div
@@ -240,6 +322,7 @@ export default function CameraSelectionPage() {
           <div>
             <label className="block text-sm font-medium text-ink-2 mb-2">{t('cameraSelection.sourceName')}</label>
             <input
+              data-testid="new-camera-name"
               type="text"
               value={sourceName}
               onChange={(e) => setSourceName(e.target.value)}
@@ -251,6 +334,7 @@ export default function CameraSelectionPage() {
           <div>
             <label className="block text-sm font-medium text-ink-2 mb-2">{t('cameraSelection.sourceValue')}</label>
             <input
+              data-testid="new-camera-value"
               type="text"
               value={sourceValue}
               onChange={(e) => setSourceValue(e.target.value)}
@@ -275,6 +359,7 @@ export default function CameraSelectionPage() {
 
           <motion.button
             whileTap={{ scale: 0.98 }}
+            data-testid="new-camera-submit"
             onClick={handleAddSource}
             disabled={isSaving}
             className="w-full px-4 py-3 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-semibold hover:shadow-glow-brand transition-all disabled:opacity-50 flex items-center justify-center gap-2"
@@ -319,6 +404,9 @@ export default function CameraSelectionPage() {
                 return (
                   <motion.div
                     key={camera.id}
+                    data-testid="camera-card"
+                    data-camera-id={camera.id}
+                    data-camera-name={camera.name}
                     layout
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -358,32 +446,85 @@ export default function CameraSelectionPage() {
                         <span className="text-[11px] text-ink-3 capitalize font-mono">{camera.sourceType.toLowerCase()}</span>
                       </div>
                     </div>
-                    <h3 className="relative text-base font-semibold text-ink-0 mb-1 truncate" title={camera.name}>{camera.name}</h3>
-                    <p className="relative text-xs text-ink-4 mb-4 font-mono break-all line-clamp-2" title={camera.sourceValue}>{camera.sourceValue}</p>
-                    <div className="relative flex gap-2">
-                      <motion.button
-                        whileTap={{ scale: 0.97 }}
-                        onClick={() => handleActivate(camera.id)}
-                        className="flex-1 px-3 py-2 bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-xl text-sm font-medium hover:bg-brand-500/25 transition-colors flex items-center justify-center gap-1.5"
-                      >
-                        <Play className="w-3.5 h-3.5" strokeWidth={1.5} />
-                        {t('cameraSelection.activate')}
-                      </motion.button>
-                      <button
-                        onClick={() => navigator.clipboard.writeText(`python -m camera_analytics.run_with_websocket --source "${camera.sourceValue}"`)}
-                        className="px-3 py-2 bg-white/[0.04] text-ink-2 rounded-xl text-sm font-medium hover:bg-white/[0.08] transition-colors border border-white/[0.08]"
-                        title={t('cameraSelection.copyCmd')}
-                      >
-                        {t('cameraSelection.copy')}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(camera.id)}
-                        className="px-3 py-2 text-danger-400 hover:bg-danger-500/10 rounded-xl transition-colors border border-white/[0.08]"
-                        title={t('cameraSelection.delete')}
-                      >
-                        <Trash2 className="w-4 h-4" strokeWidth={1.5} />
-                      </button>
-                    </div>
+                    {editingId === camera.id ? (
+                      <div data-testid="camera-edit-form" className="relative space-y-3">
+                        <input
+                          data-testid="camera-edit-name"
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          placeholder={t('cameraSelection.sourceNamePh')}
+                          className="w-full px-3 py-2 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 text-sm placeholder:text-ink-4"
+                        />
+                        <input
+                          data-testid="camera-edit-value"
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          className="w-full px-3 py-2 border border-white/[0.08] bg-surface-2/70 text-ink-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/60 font-mono text-xs placeholder:text-ink-4"
+                        />
+                        {editError && <p className="text-xs text-danger-400">{editError}</p>}
+                        <div className="flex gap-2">
+                          <motion.button
+                            whileTap={{ scale: 0.97 }}
+                            data-testid="camera-edit-save"
+                            onClick={() => handleSaveEdit(camera.id)}
+                            disabled={isUpdating}
+                            className="flex-1 px-3 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5"
+                          >
+                            {isUpdating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" strokeWidth={2} />}
+                            {t('cameraSelection.save')}
+                          </motion.button>
+                          <button
+                            data-testid="camera-edit-cancel"
+                            onClick={cancelEdit}
+                            className="px-3 py-2 text-ink-2 hover:bg-white/[0.06] rounded-xl border border-white/[0.08] flex items-center justify-center"
+                            title={t('cameraSelection.cancel')}
+                          >
+                            <X className="w-4 h-4" strokeWidth={1.5} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <h3 data-testid="camera-name" className="relative text-base font-semibold text-ink-0 mb-1 truncate" title={camera.name}>{camera.name}</h3>
+                        <p data-testid="camera-value" className="relative text-xs text-ink-4 mb-4 font-mono break-all line-clamp-2" title={camera.sourceValue}>{camera.sourceValue}</p>
+                        <div className="relative flex gap-2">
+                          <motion.button
+                            whileTap={{ scale: 0.97 }}
+                            data-testid="camera-activate"
+                            onClick={() => handleActivate(camera.id)}
+                            className="flex-1 px-3 py-2 bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-xl text-sm font-medium hover:bg-brand-500/25 transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <Play className="w-3.5 h-3.5" strokeWidth={1.5} />
+                            {t('cameraSelection.activate')}
+                          </motion.button>
+                          <button
+                            data-testid="camera-edit"
+                            onClick={() => startEdit(camera)}
+                            className="px-3 py-2 text-ink-2 hover:bg-white/[0.06] rounded-xl transition-colors border border-white/[0.08]"
+                            title={t('cameraSelection.edit')}
+                          >
+                            <Pencil className="w-4 h-4" strokeWidth={1.5} />
+                          </button>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(`python -m camera_analytics.run_with_websocket --source "${camera.sourceValue}"`)}
+                            className="px-3 py-2 bg-white/[0.04] text-ink-2 rounded-xl text-sm font-medium hover:bg-white/[0.08] transition-colors border border-white/[0.08]"
+                            title={t('cameraSelection.copyCmd')}
+                          >
+                            {t('cameraSelection.copy')}
+                          </button>
+                          <button
+                            data-testid="camera-delete"
+                            onClick={() => handleDelete(camera.id)}
+                            className="px-3 py-2 text-danger-400 hover:bg-danger-500/10 rounded-xl transition-colors border border-white/[0.08]"
+                            title={t('cameraSelection.delete')}
+                          >
+                            <Trash2 className="w-4 h-4" strokeWidth={1.5} />
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </motion.div>
                 );
               })}

@@ -608,6 +608,206 @@ Recommendations:`;
 }
 
 /**
+ * Build a cross-period analytics context (current 24h vs previous 7d baseline).
+ * Used to ground the AI summary so the model isn't hallucinating numbers.
+ */
+async function buildSummaryContext(cameraId?: string): Promise<{
+  contextStr: string;
+  hasData: boolean;
+  totalVisitors: number;
+  prevWeekTotal: number;
+  weather: string;
+}> {
+  const now = new Date();
+  const oneDay = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const sevenDays = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const fourteenDays = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+  const where24h: any = { timestamp: { gte: oneDay } };
+  const where7d: any = { timestamp: { gte: sevenDays, lt: oneDay } };
+  const wherePrevWeek: any = { timestamp: { gte: fourteenDays, lt: sevenDays } };
+  if (cameraId) {
+    where24h.cameraId = cameraId;
+    where7d.cameraId = cameraId;
+    wherePrevWeek.cameraId = cameraId;
+  }
+
+  const [logs24h, logs7d, logsPrev, recentInsights, branch] = await Promise.all([
+    prisma.analyticsLog.findMany({ where: where24h, orderBy: { timestamp: 'desc' }, take: 500 }),
+    prisma.analyticsLog.findMany({ where: where7d, orderBy: { timestamp: 'desc' }, take: 1500 }),
+    prisma.analyticsLog.findMany({ where: wherePrevWeek, orderBy: { timestamp: 'desc' }, take: 1500 }),
+    prisma.$queryRaw<any[]>`
+      SELECT severity, title, message, "createdAt" FROM insights
+      WHERE "createdAt" >= ${sevenDays.toISOString()}
+      ORDER BY "createdAt" DESC LIMIT 25
+    `,
+    prisma.branch.findFirst({ where: { isDefault: true }, select: { latitude: true, longitude: true, city: true } }),
+  ]);
+
+  const sumIn = (xs: any[]) => xs.reduce((s, l) => s + l.peopleIn, 0);
+  const avgOcc = (xs: any[]) =>
+    xs.length > 0 ? round2(xs.reduce((s, l) => s + l.currentCount, 0) / xs.length) : 0;
+  const peak = (xs: any[]) => (xs.length > 0 ? Math.max(...xs.map((l) => l.currentCount)) : 0);
+
+  const hasData = logs24h.length > 0 || logs7d.length > 0;
+  const visitors24h = sumIn(logs24h);
+  const visitors7d = sumIn(logs7d);
+  const visitorsPrev = sumIn(logsPrev);
+  const wow = visitorsPrev > 0 ? Math.round(((visitors7d - visitorsPrev) / visitorsPrev) * 100) : null;
+
+  const demo24h = extractDemographicProfile(logs24h);
+  const demo7d = extractDemographicProfile(logs7d);
+
+  const insightsLine = recentInsights.length === 0
+    ? 'No alerts in the last 7 days'
+    : recentInsights.slice(0, 5).map((i) => `[${i.severity}] ${i.title}`).join('; ');
+
+  const weather = branch
+    ? await getWeatherContext(branch.latitude, branch.longitude, branch.city)
+    : await getWeatherContext();
+
+  const contextStr = `
+=== LAST 24 HOURS ===
+Visitors: ${visitors24h}
+Avg occupancy: ${avgOcc(logs24h)}
+Peak: ${peak(logs24h)}
+Demographics: ${demo24h ? `${demo24h.dominantGender} dominant, age group ${demo24h.dominantAgeGroup}` : 'n/a'}
+
+=== PREVIOUS 7 DAYS ===
+Visitors: ${visitors7d}
+Avg occupancy: ${avgOcc(logs7d)}
+Peak: ${peak(logs7d)}
+Demographics: ${demo7d ? `${demo7d.dominantGender} dominant, age group ${demo7d.dominantAgeGroup}` : 'n/a'}
+
+=== WEEK-OVER-WEEK ===
+This week: ${visitors7d} visitors
+Prior week: ${visitorsPrev} visitors
+Change: ${wow === null ? 'no prior baseline' : `${wow > 0 ? '+' : ''}${wow}%`}
+
+=== WEATHER ===
+${weather || 'Weather: not available'}
+
+=== RECENT ALERTS ===
+${insightsLine}
+`;
+
+  return { contextStr, hasData, totalVisitors: visitors24h, prevWeekTotal: visitorsPrev, weather };
+}
+
+function buildDemoSummary(
+  ctx: { totalVisitors: number; prevWeekTotal: number; weather: string }
+): { tr: string; en: string } {
+  const wow = ctx.prevWeekTotal > 0
+    ? Math.round(((ctx.totalVisitors - ctx.prevWeekTotal) / ctx.prevWeekTotal) * 100)
+    : null;
+  const wowStr = wow === null ? 'henüz haftalık karşılaştırma yapılamadı' : `${wow > 0 ? '+' : ''}${wow}%`;
+  const wowStrEn = wow === null ? 'no prior week baseline' : `${wow > 0 ? '+' : ''}${wow}%`;
+  const w = ctx.weather || 'hava durumu verisi alınamadı';
+  return {
+    tr: `Son 24 saatte ${ctx.totalVisitors} ziyaretçi kayıt edildi (haftalık değişim ${wowStr}). Hava: ${w}.`,
+    en: `Last 24 hours recorded ${ctx.totalVisitors} visitors (week-over-week ${wowStrEn}). Weather: ${w}.`,
+  };
+}
+
+/**
+ * Generate a short, grounded AI summary covering recent traffic, demographic
+ * shift vs the prior week, weather context, and any open alerts.
+ *
+ * Returns paired Turkish + English paragraphs so the frontend can render the
+ * one matching the active locale without a second round-trip.
+ */
+export async function getAISummary(cameraId?: string): Promise<{
+  tr: string;
+  en: string;
+  source: 'ollama' | 'gemini' | 'demo';
+}> {
+  try {
+    const ctx = await buildSummaryContext(cameraId);
+    if (!ctx.hasData) {
+      const demo = buildDemoSummary(ctx);
+      return { ...demo, source: 'demo' };
+    }
+
+    const prompt = `You are an AI analytics advisor for ObservAI, a real-time visitor analytics platform for cafes/restaurants.
+
+Write ONE concise summary (3-5 sentences) describing the current operational picture.
+Mention:
+- Recent visitor traffic vs the previous week
+- Weather and how it might be influencing footfall
+- The dominant demographic shift, if any
+- Any standout alerts
+
+CRITICAL RULES:
+- Only state facts present in the context below. Do NOT invent numbers.
+- If a value is missing, omit it rather than guessing.
+- Output BOTH a Turkish and English version.
+
+${ctx.contextStr}
+
+Return ONLY a JSON object with this exact shape (no extra text, no code fences):
+{"tr":"<Turkish summary>","en":"<English summary>"}`;
+
+    const parseJSON = (text: string): { tr: string; en: string } | null => {
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return null;
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (typeof parsed?.tr === 'string' && typeof parsed?.en === 'string') {
+          return { tr: parsed.tr.trim(), en: parsed.en.trim() };
+        }
+      } catch { /* fall through */ }
+      return null;
+    };
+
+    const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';
+    if (AI_PROVIDER === 'ollama') {
+      try {
+        const { response, model } = await callOllama(prompt);
+        console.log(`[InsightEngine] AI summary via Ollama ${model}`);
+        const parsed = parseJSON(response);
+        if (parsed) return { ...parsed, source: 'ollama' };
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err);
+        console.warn(`[InsightEngine] Ollama summary failed: ${m}`);
+      }
+    }
+
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+    if (GEMINI_API_KEY) {
+      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+      for (const modelName of GEMINI_MODEL_CANDIDATES) {
+        try {
+          const model = genAI.getGenerativeModel({ model: modelName });
+          const result = await model.generateContent(prompt);
+          const text = result.response.text();
+          console.log(`[InsightEngine] AI summary via Gemini ${modelName}`);
+          const parsed = parseJSON(text);
+          if (parsed) return { ...parsed, source: 'gemini' };
+        } catch (err) {
+          if (isGeminiFallbackError(err)) {
+            console.log(`[InsightEngine] Gemini ${modelName} summary: quota/404, trying next`);
+          } else {
+            console.error(`[InsightEngine] Gemini ${modelName} summary error: ${err instanceof Error ? err.message : String(err)}`);
+            break;
+          }
+        }
+      }
+    }
+
+    const demo = buildDemoSummary(ctx);
+    return { ...demo, source: 'demo' };
+  } catch (err) {
+    const m = err instanceof Error ? err.message : String(err);
+    console.error('[InsightEngine] AI summary error:', m);
+    return {
+      tr: 'AI özeti şu anda üretilemiyor. Daha sonra tekrar deneyin.',
+      en: 'AI summary unavailable right now. Please try again later.',
+      source: 'demo',
+    };
+  }
+}
+
+/**
  * Save generated insights to the database.
  * Uses raw SQL to work without regenerated Prisma client.
  */

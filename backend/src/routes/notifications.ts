@@ -22,6 +22,7 @@ import {
   sendStaffShiftEmail,
 } from '../services/emailService';
 import { notifyStaffShift } from '../services/notificationDispatcher';
+import { authenticate } from '../middleware/authMiddleware';
 
 const router = Router();
 
@@ -37,32 +38,11 @@ const UpdateSettingsSchema = z.object({
   dailySummaryTime: z.string().nullable().optional(),
 });
 
-// ─── Helper: get userId from session cookie ─────────────────────────────────
-
-async function getUserIdFromRequest(req: Request): Promise<string | null> {
-  const token = req.cookies?.session;
-  if (!token) return null;
-
-  try {
-    const session = await prisma.session.findUnique({
-      where: { token },
-      select: { userId: true, expiresAt: true },
-    });
-    if (!session || session.expiresAt < new Date()) return null;
-    return session.userId;
-  } catch {
-    return null;
-  }
-}
-
 // ─── GET /api/notifications/settings ────────────────────────────────────────
 
-router.get('/settings', async (req: Request, res: Response) => {
+router.get('/settings', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = await getUserIdFromRequest(req);
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
+    const userId = req.user.id;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -91,12 +71,9 @@ router.get('/settings', async (req: Request, res: Response) => {
 
 // ─── PUT /api/notifications/settings ────────────────────────────────────────
 
-router.put('/settings', async (req: Request, res: Response) => {
+router.put('/settings', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = await getUserIdFromRequest(req);
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
+    const userId = req.user.id;
 
     const data = UpdateSettingsSchema.parse(req.body);
 
@@ -134,12 +111,9 @@ router.put('/settings', async (req: Request, res: Response) => {
 
 // ─── POST /api/notifications/test/email ─────────────────────────────────────
 
-router.post('/test/email', async (req: Request, res: Response) => {
+router.post('/test/email', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = await getUserIdFromRequest(req);
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
+    const userId = req.user.id;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -180,10 +154,9 @@ const TestStaffSchema = z.object({
   }).optional(),
 });
 
-router.post('/test-staff', async (req: Request, res: Response) => {
+router.post('/test-staff', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = await getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+    const userId = req.user.id;
 
     const parsed = TestStaffSchema.parse(req.body);
 
@@ -250,10 +223,9 @@ router.post('/test-staff', async (req: Request, res: Response) => {
 // Authenticated KPI feed for the Staffing page. Reports how many emails
 // actually left the server in the requested window.
 
-router.get('/summary', async (req: Request, res: Response) => {
+router.get('/summary', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = await getUserIdFromRequest(req);
-    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+    const userId = req.user.id;
 
     const windowDays = Math.max(1, Math.min(90, parseInt(String(req.query.days ?? '7'), 10) || 7));
     const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);

@@ -20,6 +20,7 @@ import {
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { cameraBackendService, ZoneInsight } from '../../services/cameraBackendService';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 
 interface Insight {
   id: string;
@@ -68,6 +69,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 async function fetchJSON<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
@@ -181,6 +183,7 @@ function PeakHoursChart({ peakHours, quietHours }: { peakHours: TrendAnalysis['p
 
 export default function AIInsightsPage() {
   const { t, lang } = useLanguage();
+  const { selectedBranch } = useDashboardFilter();
 
   const [zoneInsights, setZoneInsights] = useState<ZoneInsight[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
@@ -188,6 +191,8 @@ export default function AIInsightsPage() {
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [recommendations, setRecommendations] = useState<string[]>([]);
   const [recSource, setRecSource] = useState<string>('');
+  const [summary, setSummary] = useState<{ tr: string; en: string; source: string } | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   const [aiStatus, setAiStatus] = useState<{
@@ -210,35 +215,41 @@ export default function AIInsightsPage() {
     setLoading(true);
     setError(null);
     try {
-      if (!cameraIdRef.current) {
-        try {
-          const camRes = await fetchJSON<{ id: string }[] | { cameras: { id: string }[] }>('/api/cameras');
-          const list = Array.isArray(camRes) ? camRes : (camRes as any).cameras;
-          if (list && list.length > 0) {
-            cameraIdRef.current = list[0].id;
-            cameraBackendService.setCameraId(list[0].id);
-          }
-        } catch {
-          /* continue without camera */
+      // Always re-resolve cameraId from the active branch so a branch switch
+      // can't keep a stale camera from the previous branch alive in cameraIdRef.
+      let resolved = '';
+      if (selectedBranch) {
+        resolved = selectedBranch.cameras?.find((c) => c.isActive)?.id
+          || selectedBranch.cameras?.[0]?.id
+          || '';
+        if (!resolved) {
+          // Branch-scoped lookup: never leaks cameras from another branch.
+          try {
+            const camRes = await fetchJSON<{ id: string }[] | { cameras: { id: string }[] }>(
+              `/api/cameras?branchId=${encodeURIComponent(selectedBranch.id)}`,
+            );
+            const list = Array.isArray(camRes) ? camRes : (camRes as any).cameras;
+            if (list && list.length > 0) resolved = list[0].id;
+          } catch { /* fall through to no-camera state */ }
         }
+      }
+      if (resolved !== cameraIdRef.current) {
+        cameraIdRef.current = resolved;
+        if (resolved) cameraBackendService.setCameraId(resolved);
       }
 
       const cameraId = cameraIdRef.current;
 
-      // Use Promise.allSettled so one failing endpoint doesn't stall the others.
-      // This fixes the "stuck on Loading insights..." bug when any sub-call fails.
-      const [insightsRes, unreadRes, recsRes] = await Promise.allSettled([
-        fetchJSON<{ insights: Insight[] }>(`/api/insights?limit=50`),
-        fetchJSON<{ unreadCount: number }>(`/api/insights/unread-count`),
-        fetchJSON<{ recommendations: string[]; source: string }>(`/api/insights/recommendations${cameraId ? `?cameraId=${cameraId}` : ''}`),
+      // Fast endpoints first — recommendations call Ollama (slow), don't block loading on it.
+      const branchQs = selectedBranch ? `&branchId=${encodeURIComponent(selectedBranch.id)}` : '';
+      const branchQsLeading = selectedBranch ? `?branchId=${encodeURIComponent(selectedBranch.id)}` : '';
+      const [insightsRes, unreadRes] = await Promise.allSettled([
+        fetchJSON<{ insights: Insight[] }>(`/api/insights?limit=50${branchQs}`),
+        fetchJSON<{ unreadCount: number }>(`/api/insights/unread-count${branchQsLeading}`),
       ]);
 
       setInsights(insightsRes.status === 'fulfilled' ? insightsRes.value.insights || [] : []);
       setUnreadCount(unreadRes.status === 'fulfilled' ? unreadRes.value.unreadCount || 0 : 0);
-      if (recsRes.status === 'fulfilled') {
-        setRecommendations(recsRes.value.recommendations || []);
-        setRecSource(recsRes.value.source || 'demo');
-      }
 
       if (cameraId) {
         const [statsRes, trendsRes] = await Promise.allSettled([
@@ -249,18 +260,39 @@ export default function AIInsightsPage() {
         if (trendsRes.status === 'fulfilled') setTrends(trendsRes.value);
       }
 
-      // Surface a soft error only if ALL calls failed
-      const anySuccess = [insightsRes, unreadRes, recsRes].some((r) => r.status === 'fulfilled');
+      // Surface a soft error only if both core list calls failed
+      const anySuccess = [insightsRes, unreadRes].some((r) => r.status === 'fulfilled');
       if (!anySuccess) {
         setError(t('insight.page.loadFailed') || 'Icgorii verileri alinamadi');
       }
+
+      // Recommendations fetch in background — Ollama 26b can take 30-60s for first inference.
+      fetchJSON<{ recommendations: string[]; source: string }>(
+        `/api/insights/recommendations${cameraId ? `?cameraId=${cameraId}` : ''}`
+      )
+        .then((res) => {
+          setRecommendations(res.recommendations || []);
+          setRecSource(res.source || 'demo');
+        })
+        .catch(() => { /* keep previous recommendations */ });
+
+      // AI summary in background — same reasoning as recommendations.
+      setSummaryLoading(true);
+      fetchJSON<{ tr: string; en: string; source: string }>(
+        `/api/insights/summary${cameraId ? `?cameraId=${cameraId}` : ''}`
+      )
+        .then((res) => {
+          setSummary({ tr: res.tr, en: res.en, source: res.source });
+        })
+        .catch(() => { /* keep previous summary */ })
+        .finally(() => setSummaryLoading(false));
     } catch (err: any) {
       console.error('[AIInsightsPage] Load error:', err);
       setError(err.message || t('insight.page.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, selectedBranch?.id]);
 
   useEffect(() => {
     loadData(selectedPeriod);
@@ -437,6 +469,39 @@ export default function AIInsightsPage() {
           </button>
         </div>
       )}
+
+      <div className="surface-card border border-violet-500/20 rounded-xl p-5">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 bg-violet-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-5 h-5 text-violet-300" strokeWidth={1.5} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="font-display text-sm font-semibold text-ink-0">
+                {lang === 'tr' ? 'AI Yorumu' : 'AI Summary'}
+              </h3>
+              {summary?.source && (
+                <span className="text-[10px] uppercase tracking-wider font-mono text-ink-4">
+                  {summary.source === 'ollama' ? 'Ollama' : summary.source === 'gemini' ? 'Gemini' : (lang === 'tr' ? 'Demo' : 'Demo')}
+                </span>
+              )}
+            </div>
+            {summaryLoading && !summary ? (
+              <p className="text-xs text-ink-3 leading-relaxed">
+                {lang === 'tr' ? 'AI özeti hazırlanıyor…' : 'Generating AI summary…'}
+              </p>
+            ) : summary ? (
+              <p className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap">
+                {lang === 'tr' ? summary.tr : summary.en}
+              </p>
+            ) : (
+              <p className="text-xs text-ink-4 leading-relaxed">
+                {lang === 'tr' ? 'Veri yok — yeterli analiz birikmedi.' : 'No data — not enough analytics yet.'}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
@@ -734,7 +799,7 @@ export default function AIInsightsPage() {
               <div>
                 <h3 className="font-display text-sm font-semibold text-ink-0">{t('insight.recs.title')}</h3>
                 <p className="text-[10px] text-ink-4 uppercase tracking-wider">
-                  {recSource === 'ollama' ? t('insight.recs.poweredOllama') : recSource === 'gemini' ? t('insight.recs.poweredGemini') : t('insight.recs.poweredDemo')}
+                  {recSource === 'ollama' ? t('insight.recs.poweredOllama') : recSource === 'gemini' ? t('insight.recs.poweredGemini') : t('insight.recs.poweredOllama')}
                 </p>
               </div>
             </div>

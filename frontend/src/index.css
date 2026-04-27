@@ -8,6 +8,10 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    /* Shrink rem baseline from browser default 16px to 14px. Every Tailwind
+       rem-based utility inherits this, so headings and dashboard chrome read
+       ~12.5% tighter without touching individual components. */
+    font-size: 14px;
   }
 
   body {

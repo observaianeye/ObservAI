@@ -30,7 +30,7 @@ function newConversationId(): string {
 
 // 65s — slightly longer than backend OLLAMA_TIMEOUT_MS so user sees the
 // backend's structured error (not an abort) when the model is genuinely slow.
-const REQUEST_TIMEOUT_MS = 65_000;
+const REQUEST_TIMEOUT_MS = 180_000;
 
 export default function GlobalChatbot() {
   const { isAuthenticated } = useAuth();

@@ -17,13 +17,13 @@ import {
   Clock,
   TrendingUp,
   Users,
-  Eye,
   Volume2,
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 
 interface Notification {
   id: string;
@@ -66,6 +66,7 @@ const WS_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
 async function fetchJSON<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
@@ -388,6 +389,7 @@ function PreferencesPanel({
 
 export default function NotificationsPage() {
   const { t } = useLanguage();
+  const { selectedBranch } = useDashboardFilter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -488,12 +490,14 @@ export default function NotificationsPage() {
     if (showLoader) setLoading(true);
     else setRefreshing(true);
     try {
+      const branchQs = selectedBranch ? `&branchId=${encodeURIComponent(selectedBranch.id)}` : '';
       const data = await fetchJSON<{ insights: Notification[]; total: number }>(
-        '/api/insights?limit=100'
+        `/api/insights?limit=100${branchQs}`,
       );
       setNotifications(data.insights || []);
 
-      const unreadData = await fetchJSON<{ unreadCount: number }>('/api/insights/unread-count');
+      const unreadQs = selectedBranch ? `?branchId=${encodeURIComponent(selectedBranch.id)}` : '';
+      const unreadData = await fetchJSON<{ unreadCount: number }>(`/api/insights/unread-count${unreadQs}`);
       setUnreadCount(unreadData.unreadCount);
     } catch (err) {
       console.error('[Notifications] Fetch error:', err);
@@ -504,7 +508,7 @@ export default function NotificationsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [getDemoNotifications]);
+  }, [getDemoNotifications, selectedBranch?.id]);
 
   useEffect(() => {
     fetchNotifications();
@@ -616,15 +620,6 @@ export default function NotificationsPage() {
     return 0;
   });
 
-  const stats = {
-    total: notifications.length,
-    unread: unreadCount,
-    critical: notifications.filter(n => n.severity === 'critical').length,
-    high: notifications.filter(n => n.severity === 'high').length,
-    medium: notifications.filter(n => n.severity === 'medium').length,
-    low: notifications.filter(n => n.severity === 'low').length,
-  };
-
   const filterButtons: { key: FilterType; labelKey: string }[] = [
     { key: 'all', labelKey: 'notif.filter.all' },
     { key: 'unread', labelKey: 'notif.filter.unread' },
@@ -632,15 +627,6 @@ export default function NotificationsPage() {
     { key: 'high', labelKey: 'notif.filter.high' },
     { key: 'medium', labelKey: 'notif.filter.medium' },
     { key: 'low', labelKey: 'notif.filter.low' },
-  ];
-
-  const statCards = [
-    { labelKey: 'notif.stats.total', value: stats.total, icon: Bell, color: 'text-ink-3', bg: 'bg-white/[0.04]' },
-    { labelKey: 'notif.stats.unread', value: stats.unread, icon: Eye, color: 'text-brand-300', bg: 'bg-brand-500/10' },
-    { labelKey: 'notif.stats.critical', value: stats.critical, icon: AlertCircle, color: 'text-danger-300', bg: 'bg-danger-500/10' },
-    { labelKey: 'notif.stats.high', value: stats.high, icon: AlertTriangle, color: 'text-warning-300', bg: 'bg-warning-500/10' },
-    { labelKey: 'notif.stats.medium', value: stats.medium, icon: Info, color: 'text-warning-300', bg: 'bg-warning-500/10' },
-    { labelKey: 'notif.stats.low', value: stats.low, icon: CheckCircle, color: 'text-success-300', bg: 'bg-success-500/10' },
   ];
 
   return (
@@ -701,21 +687,6 @@ export default function NotificationsPage() {
           onClose={() => setShowPrefs(false)}
         />
       )}
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {statCards.map(stat => (
-          <div
-            key={stat.labelKey}
-            className={`${stat.bg} rounded-xl border border-white/[0.06] p-3 flex items-center gap-3`}
-          >
-            <stat.icon className={`w-5 h-5 ${stat.color} flex-shrink-0`} strokeWidth={1.5} />
-            <div>
-              <p className="font-display text-lg font-bold text-ink-0 font-mono">{stat.value}</p>
-              <p className="text-xs text-ink-4">{t(stat.labelKey)}</p>
-            </div>
-          </div>
-        ))}
-      </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex flex-wrap gap-2">

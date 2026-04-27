@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticate } from '../middleware/authMiddleware';
+import { sendPasswordResetEmail } from '../services/emailService';
 
 const router = Router();
 
@@ -199,64 +200,6 @@ router.get('/me', authenticate, (req: Request, res: Response) => {
     });
 });
 
-// POST /api/auth/demo-login
-router.post('/demo-login', async (req: Request, res: Response) => {
-    try {
-        const demoEmail = 'demo@observai.com';
-
-        // Find or create demo user
-        let demoUser = await prisma.user.findUnique({
-            where: { email: demoEmail }
-        });
-
-        if (!demoUser) {
-            const passwordHash = await bcrypt.hash('demo-readonly-' + crypto.randomBytes(8).toString('hex'), 10);
-            demoUser = await prisma.user.create({
-                data: {
-                    email: demoEmail,
-                    passwordHash,
-                    firstName: 'Demo',
-                    lastName: 'User',
-                    role: 'VIEWER',
-                    accountType: 'DEMO',
-                    isActive: true
-                }
-            });
-        }
-
-        // Create short session (2 hours)
-        const token = crypto.randomBytes(32).toString('hex');
-        const expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + 2);
-
-        await prisma.session.create({
-            data: { token, userId: demoUser.id, expiresAt }
-        });
-
-        res.cookie('session_token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            expires: expiresAt,
-            path: '/'
-        });
-
-        res.json({
-            id: demoUser.id,
-            email: demoUser.email,
-            firstName: demoUser.firstName,
-            lastName: demoUser.lastName,
-            role: demoUser.role,
-            accountType: demoUser.accountType,
-            trialExpiresAt: null
-        });
-
-    } catch (error) {
-        console.error('Demo login error:', error);
-        res.status(500).json({ error: 'Failed to start demo session' });
-    }
-});
-
 // POST /api/auth/change-password
 router.post('/change-password', authenticate, async (req: Request, res: Response) => {
     try {
@@ -318,22 +261,26 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
             }
         });
 
-        // In development, log the reset URL
-        const resetUrl = `http://localhost:5173/reset-password?token=${token}`;
-        console.log('\n' + '='.repeat(80));
-        console.log('🔑 PASSWORD RESET REQUEST');
-        console.log('='.repeat(80));
-        console.log('📧 Email:', user.email);
-        console.log('🔗 Reset URL:', resetUrl);
-        console.log('⏰ Expires:', expiresAt.toLocaleString());
-        console.log('⏱️  Valid for: 1 hour');
-        console.log('='.repeat(80));
-        console.log('⚠️  DEVELOPMENT MODE: Copy the URL above to reset password');
-        console.log('⚠️  PRODUCTION: This would be sent via email');
-        console.log('='.repeat(80) + '\n');
+        const appOrigin = process.env.APP_URL || 'http://localhost:5173';
+        const resetUrl = `${appOrigin}/reset-password?token=${token}`;
 
-        // TODO: In production, send email here
-        // await sendPasswordResetEmail(user.email, resetUrl);
+        const userName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || undefined;
+        const sendResult = await sendPasswordResetEmail(user.email, resetUrl, userName);
+
+        if (sendResult.success) {
+          console.log(`[auth] Password reset email sent to ${user.email}`);
+        } else {
+          // Fall back to console in dev when SMTP is not configured. The
+          // response stays generic so attackers can't tell whether sending
+          // succeeded.
+          console.warn(`[auth] Password reset email NOT sent (${sendResult.error}). Falling back to console:`);
+          console.log('='.repeat(80));
+          console.log('PASSWORD RESET REQUEST');
+          console.log('Email:', user.email);
+          console.log('Reset URL:', resetUrl);
+          console.log('Expires:', expiresAt.toISOString());
+          console.log('='.repeat(80));
+        }
 
         res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
 

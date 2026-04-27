@@ -7,8 +7,34 @@ import { prisma } from '../lib/db';
 import { Parser } from 'json2csv';
 import PDFDocument from 'pdfkit';
 import { z } from 'zod';
+import { authenticate } from '../middleware/authMiddleware';
+import { userOwnsCamera } from '../middleware/tenantScope';
 
 const router = Router();
+
+async function buildOwnedWhere(userId: string, params: { cameraId?: string; startDate?: string; endDate?: string }) {
+  const ownedCams = await prisma.camera.findMany({
+    where: { createdBy: userId },
+    select: { id: true },
+  });
+  const ownedIds = ownedCams.map((c) => c.id);
+  if (params.cameraId) {
+    if (!ownedIds.includes(params.cameraId)) return null;
+  }
+  const where: any = {};
+  if (params.cameraId) {
+    where.cameraId = params.cameraId;
+  } else {
+    if (ownedIds.length === 0) return { __empty: true } as any;
+    where.cameraId = { in: ownedIds };
+  }
+  if (params.startDate || params.endDate) {
+    where.timestamp = {};
+    if (params.startDate) where.timestamp.gte = new Date(params.startDate);
+    if (params.endDate) where.timestamp.lte = new Date(params.endDate);
+  }
+  return where;
+}
 
 // Validation schema for export requests
 const ExportRequestSchema = z.object({
@@ -21,7 +47,7 @@ const ExportRequestSchema = z.object({
 /**
  * GET /api/export/csv - Export analytics data to CSV
  */
-router.get('/csv', async (req: Request, res: Response) => {
+router.get('/csv', authenticate, async (req: Request, res: Response) => {
   try {
     const params = ExportRequestSchema.parse({
       cameraId: req.query.cameraId,
@@ -30,16 +56,9 @@ router.get('/csv', async (req: Request, res: Response) => {
       limit: req.query.limit ? parseInt(req.query.limit as string) : 1000
     });
 
-    // Build query filters
-    const where: any = {};
-    if (params.cameraId) {
-      where.cameraId = params.cameraId;
-    }
-    if (params.startDate || params.endDate) {
-      where.timestamp = {};
-      if (params.startDate) where.timestamp.gte = new Date(params.startDate);
-      if (params.endDate) where.timestamp.lte = new Date(params.endDate);
-    }
+    const where = await buildOwnedWhere(req.user.id, params);
+    if (where === null) return res.status(404).json({ error: 'Camera not found' });
+    if ((where as any).__empty) return res.status(404).json({ error: 'No data found for the specified criteria' });
 
     // Fetch analytics data
     let logs: any[] = [];
@@ -115,7 +134,7 @@ router.get('/csv', async (req: Request, res: Response) => {
 /**
  * GET /api/export/pdf - Export analytics data to PDF
  */
-router.get('/pdf', async (req: Request, res: Response) => {
+router.get('/pdf', authenticate, async (req: Request, res: Response) => {
   try {
     const params = ExportRequestSchema.parse({
       cameraId: req.query.cameraId,
@@ -124,16 +143,9 @@ router.get('/pdf', async (req: Request, res: Response) => {
       limit: req.query.limit ? parseInt(req.query.limit as string) : 1000
     });
 
-    // Build query filters
-    const where: any = {};
-    if (params.cameraId) {
-      where.cameraId = params.cameraId;
-    }
-    if (params.startDate || params.endDate) {
-      where.timestamp = {};
-      if (params.startDate) where.timestamp.gte = new Date(params.startDate);
-      if (params.endDate) where.timestamp.lte = new Date(params.endDate);
-    }
+    const where = await buildOwnedWhere(req.user.id, params);
+    if (where === null) return res.status(404).json({ error: 'Camera not found' });
+    if ((where as any).__empty) return res.status(404).json({ error: 'No data found for the specified criteria' });
 
     // Fetch analytics data
     let logs: any[] = [];

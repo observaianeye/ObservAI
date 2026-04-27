@@ -20,7 +20,7 @@ export default function Navbar() {
             to="/register"
             className="px-4 sm:px-6 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white text-sm font-semibold rounded-xl hover:shadow-glow-brand transition-all focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:ring-offset-2 focus:ring-offset-surface-0"
           >
-            Get Demo
+            Get Started
           </Link>
         </div>
       </div>

@@ -3,22 +3,11 @@ entrance_line:
   end: [0.95, 0.95]
   inside_on: top
 
-# Minimal zone configuration (Entry/Exit only)
-tables:
-  - id: entrance_zone
-    name: Entrance
-    polygon:
-      - [0.05, 0.05]
-      - [0.30, 0.05]
-      - [0.30, 0.95]
-      - [0.05, 0.95]
-  - id: exit_zone
-    name: Exit
-    polygon:
-      - [0.70, 0.05]
-      - [0.95, 0.05]
-      - [0.95, 0.95]
-      - [0.70, 0.95]
+# Zones come from the Node DB at runtime (per-camera, tenant-scoped) and are
+# pushed into the engine via the `save_zones` Socket.IO event. Leave this
+# list empty so the engine starts with a clean slate — no demo zones leaking
+# into a fresh camera's analytics.
+tables: []
 
 heatmap:
   grid_width: 6
@@ -114,7 +103,7 @@ zone_exit_debounce_frames: 10
 # Stage 4: occlusion grace — how long a track can be "stale" before its zone
 # membership is cleared. Prevents a seated person from ghost-exiting their
 # table just because a waiter walked in front for half a second.
-zone_grace_period_s: 3.0
+zone_grace_period_s: 8.0
 
 # Stage 4: per-table occupant clamp. Default for zones with no explicit
 # max_capacity on the zone definition. Fixes the "1 kişi, aslında 3 oturuyor"
@@ -150,9 +139,10 @@ demo_ambiguous_recent_votes: 3
 # Max face yaw (degrees) for gender decision. 70° covers more poses than 55° while staying reliable.
 demo_pose_max_yaw: 70.0
 
-# Track persistence: seconds before dropping unseen tracks
-# Should be >= track_buffer/fps + margin (90/30 + 1 = 4s)
-track_stale_ttl: 4.0
+# Track persistence: seconds before dropping unseen tracks.
+# Must be >= track_buffer/fps + margin so BoT-SORT can re-link a track after
+# brief occlusion. With track_buffer=300 @ 30 fps that's 10 s + margin.
+track_stale_ttl: 12.0
 
 # Table occupancy tracking (v2 state machine)
 # Legacy fields (still read for backward compat, not used in new flow)
@@ -170,7 +160,7 @@ table_cleaning_empty_threshold: 120.0
 # needs_cleaning → empty otomatik geçiş süresi (staff unutursa, 15 dakika)
 table_auto_empty_timeout: 900.0
 # Dolu masada kısa (sandalye değişimi, tuvalet) boş kalış tolerensı — bu süreden kısa ise occupied kalır
-table_transit_grace: 10.0
+table_transit_grace: 30.0
 # Stage 6: empty → occupied için gerekli sürekli algılama süresi (saniye).
 # Masanın yanından geçen biri anında "dolu" yapmasın; gerçekten oturdu mu
 # diye bekle. Kullanıcı "belli bir süredir birisi algılanıyorsa dolu de" dedi.

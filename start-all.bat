@@ -127,7 +127,7 @@ if errorlevel 1 (
 )
 
 REM Check if Ollama is already running
-curl -s -o nul http://localhost:11434/ >nul 2>&1
+curl -s --max-time 3 -o nul http://localhost:11434/ >nul 2>&1
 if not errorlevel 1 (
     echo       %GREEN%Ollama is already running.%NC%
     goto :ollama_check_model
@@ -141,7 +141,7 @@ REM Wait for Ollama to become ready - max 30 seconds (14B model takes longer to 
 set "OLLAMA_READY=0"
 :ollama_wait_loop
 if !OLLAMA_READY! GEQ 30 goto :ollama_wait_done
-curl -s -o nul http://localhost:11434/ >nul 2>&1
+curl -s --max-time 2 -o nul http://localhost:11434/ >nul 2>&1
 if not errorlevel 1 goto :ollama_started_ok
 timeout /t 1 /nobreak >nul
 set /a OLLAMA_READY+=1
@@ -189,10 +189,11 @@ set "OLLAMA_MODEL=!OLLAMA_FALLBACK_MODEL!"
 echo       %GREEN%Fallback model !OLLAMA_FALLBACK_MODEL! downloaded.%NC%
 
 :ollama_warmup
-REM Warm-up request — loads weights into VRAM so the first user chat is snappy.
-echo       %BLUE%Warming up !OLLAMA_MODEL! (first token pre-load)...%NC%
-curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "{\"model\":\"!OLLAMA_MODEL!\",\"prompt\":\"hi\",\"stream\":false,\"options\":{\"num_predict\":4}}" >nul 2>&1
-echo       %GREEN%Warm-up complete.%NC%
+REM Warm-up request runs in background so script does not block on 14B model load (~30s).
+REM First user chat may be slow if warmup not done yet, but services start immediately.
+echo       %BLUE%Triggering background warm-up for !OLLAMA_MODEL! (non-blocking)...%NC%
+start "ObservAI Warmup" /min cmd /c "curl -s --max-time 120 -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "{\"model\":\"!OLLAMA_MODEL!\",\"prompt\":\"hi\",\"stream\":false,\"options\":{\"num_predict\":4}}" > "%SCRIPT_DIR%logs\ollama-warmup.log" 2>&1"
+echo       %GREEN%Warm-up running in background (see logs\ollama-warmup.log).%NC%
 
 :ollama_done
 echo %GREEN%Ollama AI ready (model: !OLLAMA_MODEL!)%NC%

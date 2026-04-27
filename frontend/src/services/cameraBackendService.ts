@@ -26,6 +26,7 @@ export interface AnalyticsData {
   exits: number;
   current: number;
   queue: number;
+  avgDwellTime?: number; // seconds — global average dwell across active people
   demographics: {
     gender: {
       male: number;
@@ -77,6 +78,7 @@ export interface TableData {
   currentOccupants: number;
   avgStaySeconds: number;
   occupancyDuration: number;
+  totalOccupiedSeconds?: number;
   turnoverCount: number;
 }
 

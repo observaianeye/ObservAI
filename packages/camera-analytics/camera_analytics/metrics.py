@@ -68,6 +68,7 @@ class TableSnapshot:
   longest_stay_seconds: float
   status: str = "empty"           # "empty" | "occupied" | "needs_cleaning"
   occupancy_duration: float = 0.0  # seconds since current occupancy began
+  total_occupied_seconds: float = 0.0  # cumulative seconds the table has been occupied (all turnovers + current)
   turnover_count: int = 0          # number of occupy→leave cycles
 
 
@@ -213,6 +214,7 @@ class CameraMetrics:
           "longestStaySeconds": round(table.longest_stay_seconds, 1),
           "status": table.status,
           "occupancyDuration": round(table.occupancy_duration, 1),
+          "totalOccupiedSeconds": round(table.total_occupied_seconds, 1),
           "turnoverCount": table.turnover_count,
         }
         for table in self.tables

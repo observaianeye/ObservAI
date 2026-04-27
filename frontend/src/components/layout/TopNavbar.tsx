@@ -6,7 +6,6 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { useState, useRef, useEffect } from 'react';
 import type { Lang } from '../../i18n/strings';
 import NotificationCenter from '../NotificationCenter';
-import DataModeToggle from '../DataModeToggle';
 
 interface TopNavbarProps {
   onMenuClick?: () => void;
@@ -135,8 +134,6 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
         </div>
 
         <div className="flex items-center gap-2 lg:gap-3">
-          <DataModeToggle />
-
           {/* Language switcher */}
           <div className="relative" ref={langMenuRef}>
             <button

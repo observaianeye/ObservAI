@@ -1,19 +1,15 @@
 import { useState, useEffect, memo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { analyticsDataService, GenderData } from '../../services/analyticsDataService';
-import { useDataMode } from '../../contexts/DataModeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { GlassCard } from '../ui/GlassCard';
 
 const GenderChart = memo(function GenderChart() {
-  const { dataMode } = useDataMode();
   const { t } = useLanguage();
   const [genderData, setGenderData] = useState<GenderData>({ male: 0, female: 0, unknown: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    analyticsDataService.setMode(dataMode);
-
     const loadData = async () => {
       setLoading(true);
       const data = await analyticsDataService.getData();
@@ -30,12 +26,12 @@ const GenderChart = memo(function GenderChart() {
     return () => {
       unsubscribe();
     };
-  }, [dataMode]);
+  }, []);
 
   const totalVisitors = genderData.male + genderData.female + genderData.unknown;
 
   const option = {
-    animation: dataMode === 'demo',
+    animation: false,
     title: {
       text: t('charts.gender.title'),
       left: 'center',
@@ -109,9 +105,7 @@ const GenderChart = memo(function GenderChart() {
       ) : totalVisitors === 0 ? (
         <div className="h-[300px] flex flex-col items-center justify-center text-ink-3">
           <p className="text-sm font-medium">{t('charts.empty.title')}</p>
-          <p className="text-xs mt-1 text-ink-4">
-            {dataMode === 'live' ? t('charts.empty.live') : t('charts.empty.demo')}
-          </p>
+          <p className="text-xs mt-1 text-ink-4">{t('charts.empty.live')}</p>
         </div>
       ) : (
         <ReactECharts option={option} style={{ height: '300px' }} />

@@ -9,7 +9,6 @@ import {
   HelpCircle,
   X,
   Settings,
-  Activity,
   BarChart3,
   Users,
   Bell,
@@ -17,7 +16,6 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import HelpCenter from '../HelpCenter';
-import Diagnostics from '../Diagnostics';
 import markSvg from '../../assets/mark.svg';
 
 interface SidebarProps {
@@ -68,12 +66,10 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const { t } = useLanguage();
   const userRole = user?.role?.toLowerCase() || 'manager';
   const [showHelpCenter, setShowHelpCenter] = useState(false);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   return (
     <>
       {showHelpCenter && <HelpCenter onClose={() => setShowHelpCenter(false)} />}
-      {showDiagnostics && <Diagnostics onClose={() => setShowDiagnostics(false)} />}
 
       <aside
         className={`
@@ -160,33 +156,6 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
             </div>
           </div>
         </nav>
-
-        <div className="p-3 border-t border-white/[0.06]">
-          <div className="relative surface-card p-4 overflow-hidden">
-            <div className="absolute -top-8 -right-8 w-28 h-28 rounded-full bg-brand-500/10 blur-2xl pointer-events-none" aria-hidden />
-            <div className="relative">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] font-mono font-semibold text-ink-3 uppercase tracking-[0.18em]">
-                  {t('nav.systemStatus')}
-                </p>
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-400 opacity-70" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-success-400" />
-                </span>
-              </div>
-              <p className="text-xs text-ink-2 mb-3">
-                {t('nav.allOperational')}
-              </p>
-              <button
-                onClick={() => setShowDiagnostics(true)}
-                className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] text-ink-1 text-xs font-semibold rounded-lg hover:border-brand-500/40 hover:bg-brand-500/10 hover:text-brand-200 transition-all flex items-center justify-center gap-1.5"
-              >
-                <Activity className="w-3.5 h-3.5" />
-                {t('nav.diagnostics')}
-              </button>
-            </div>
-          </div>
-        </div>
       </aside>
     </>
   );

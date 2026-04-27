@@ -25,6 +25,7 @@ export default function ZoneCanvas() {
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [drawMode, setDrawMode] = useState<DrawMode>(null);
   const [loading, setLoading] = useState(false);
+  const [activeCameraId, setActiveCameraId] = useState<string | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<string>('');
   const [captureError, setCaptureError] = useState<string>('');
   const [overlapError, setOverlapError] = useState<string>('');
@@ -54,20 +55,55 @@ export default function ZoneCanvas() {
   });
 
   const loadZones = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      if (!cameraBackendService.getConnectionStatus()) {
-        cameraBackendService.connect();
-        await new Promise((r) => setTimeout(r, 500));
+      // Tenant-scoped: fetch the caller's active camera, then ask the Node API
+      // (which already filters by req.user.id) for that camera's zones. We
+      // intentionally do NOT pull from the Python backend WebSocket here —
+      // that store is shared across the whole device and would leak zones
+      // from a previously-signed-in account.
+      const activeRes = await fetch('/api/cameras/active', { credentials: 'include' });
+      if (!activeRes.ok) {
+        setActiveCameraId(null);
+        setZones([]);
+        return;
       }
-      const loadedZones = await cameraBackendService.getZones();
-      setZones(loadedZones);
+      const activeBody = await activeRes.json();
+      if (!activeBody?.id) {
+        setActiveCameraId(null);
+        setZones([]);
+        return;
+      }
+      setActiveCameraId(activeBody.id);
+
+      const zonesRes = await fetch(`/api/zones/${activeBody.id}`, { credentials: 'include' });
+      if (!zonesRes.ok) {
+        setZones([]);
+        return;
+      }
+      const rows = await zonesRes.json() as Array<any>;
+      // Node payload uses { coordinates: NormPoint[], type, name, color, ... };
+      // map into the polygon shape ZoneCanvas renders.
+      const mapped: Zone[] = rows.map((r) => {
+        const coords: NormPoint[] = Array.isArray(r.coordinates) ? r.coordinates : [];
+        const bbox = polygonBounds(coords);
+        return {
+          id: r.id,
+          name: r.name,
+          type: (String(r.type || 'CUSTOM').toLowerCase()) as Zone['type'],
+          color: r.color || '#3b82f6',
+          shape: 'polygon',
+          points: coords,
+          x: bbox.x,
+          y: bbox.y,
+          width: bbox.width,
+          height: bbox.height,
+        };
+      });
+      setZones(mapped);
     } catch (error) {
-      const saved = localStorage.getItem('cameraZones');
-      if (saved) {
-        try { setZones(JSON.parse(saved)); } catch { /* noop */ }
-      }
       console.error('Failed to load zones:', error);
+      setZones([]);
     } finally {
       setLoading(false);
     }
@@ -395,6 +431,10 @@ export default function ZoneCanvas() {
   };
 
   const saveZones = async () => {
+    if (!activeCameraId) {
+      showToast('error', 'Once Kamera Secimi sayfasindan bir kamera secin.');
+      return;
+    }
     try {
       setLoading(true);
       // Ensure rect zones also have `shape: 'rect'` filled for backend normalization
@@ -402,8 +442,35 @@ export default function ZoneCanvas() {
         if (z.shape === 'polygon' && z.points) return z;
         return { ...z, shape: 'rect' as const, points: rectToPolygon(z.x, z.y, z.width, z.height) };
       });
-      await cameraBackendService.saveZones(normalized);
-      localStorage.setItem('cameraZones', JSON.stringify(normalized));
+
+      // Persist in the Node DB (tenant-scoped to the caller's camera). Replaces
+      // every zone for this camera, matching the prior "save all" semantics.
+      const persistRes = await fetch('/api/zones/batch', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cameraId: activeCameraId,
+          zones: normalized.map((z) => ({
+            name: z.name,
+            type: String(z.type || 'CUSTOM').toUpperCase(),
+            coordinates: z.points,
+            color: z.color,
+          })),
+        }),
+      });
+      if (!persistRes.ok) {
+        throw new Error(`Persist failed: ${persistRes.status}`);
+      }
+
+      // Best-effort push to Python so the live engine sees the new zones
+      // immediately. If Python is offline this is a no-op — DB is the truth.
+      try {
+        await cameraBackendService.saveZones(normalized);
+      } catch (err) {
+        console.warn('[zones] Python push failed (engine offline?):', err);
+      }
+
       showToast('success', `Saved ${zones.length} zone${zones.length !== 1 ? 's' : ''}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);

@@ -1,7 +1,7 @@
-import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Camera as CameraIcon, Settings, X, Upload, Link as LinkIcon, Plus, Activity } from 'lucide-react';
+import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Settings, X, Upload, Link as LinkIcon, Plus, Activity } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useDataMode } from '../../contexts/DataModeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 import { cameraBackendService, Detection, BackendHealth, Zone } from '../../services/cameraBackendService';
 import { GlassCard } from '../ui/GlassCard';
 
@@ -36,8 +36,8 @@ interface IPCamera {
 const STREAMING_ACTIVE_KEY = 'cameraStreamingActive';
 
 export default function CameraFeed() {
-  const { dataMode } = useDataMode();
   const { t } = useLanguage();
+  const { selectedBranch } = useDashboardFilter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -177,11 +177,15 @@ export default function CameraFeed() {
     localStorage.setItem('ipCameras', JSON.stringify(ipCameras));
   }, [ipCameras]);
 
-  // Fetch saved cameras from Camera Selection page
+  // Fetch saved cameras from Camera Selection page, scoped to the active branch
+  // when one is selected so the picker only shows cameras owned by that branch.
   const fetchSavedCameras = useCallback(async () => {
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-      const res = await fetch(`${apiUrl}/api/cameras`, { credentials: 'include' });
+      const url = selectedBranch
+        ? `${apiUrl}/api/cameras?branchId=${encodeURIComponent(selectedBranch.id)}`
+        : `${apiUrl}/api/cameras`;
+      const res = await fetch(url, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setSavedCameras(data);
@@ -189,7 +193,7 @@ export default function CameraFeed() {
     } catch {
       // Silently handle - API might not be available
     }
-  }, []);
+  }, [selectedBranch?.id]);
 
   useEffect(() => {
     fetchSavedCameras();
@@ -197,26 +201,14 @@ export default function CameraFeed() {
 
   // Explicit-start policy: no auto-connect. The user must click a source to start
   // streaming. We still remember the last source in localStorage so the form inputs
-  // stay prefilled, but we never open a socket, spawn Python, or poll /health until
-  // a source button is clicked. When leaving Live mode (e.g. switch to Demo), reset
-  // streaming state inline — we can't reference stopCamera here because it's
-  // declared later in the component.
-  useEffect(() => {
-    if (dataMode !== 'live') {
-      setIsStreaming(false);
-      setDetections([]);
-      setBackendConnected(false);
-    }
-  }, [dataMode]);
-
   // Mirror `isStreaming` into a persistent flag whenever we reach an active
-  // live-mode stream. Used by the remount-restore effect below to distinguish
+  // stream. Used by the remount-restore effect below to distinguish
   // "user already started a source" from a fresh explicit-start.
   useEffect(() => {
-    if (dataMode === 'live' && isStreaming) {
+    if (isStreaming) {
       localStorage.setItem(STREAMING_ACTIVE_KEY, '1');
     }
-  }, [dataMode, isStreaming]);
+  }, [isStreaming]);
 
   // Restore streaming state after route change / remount. The user already clicked
   // a source earlier (flag persisted in localStorage); Python runs as a separate
@@ -225,7 +217,6 @@ export default function CameraFeed() {
   // probe so stale flags (Python killed between sessions) don't trigger false
   // "connecting" states.
   useEffect(() => {
-    if (dataMode !== 'live') return;
     if (isStreaming) return;
     if (localStorage.getItem(STREAMING_ACTIVE_KEY) !== '1') return;
 
@@ -250,7 +241,7 @@ export default function CameraFeed() {
     })();
 
     return () => { cancelled = true; };
-  }, [dataMode, isStreaming]);
+  }, [isStreaming]);
 
   // REMOVED: Initialize camera useEffect was causing race conditions
   // Camera initialization is now exclusively handled by handleSourceChange
@@ -260,7 +251,7 @@ export default function CameraFeed() {
   // the user has explicitly started a source. Keeps the idle state silent (no
   // 503 spam, no WebSocket retry loop, no wasted CPU).
   useEffect(() => {
-    if (dataMode === 'live' && isStreaming) {
+    if (isStreaming) {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
       console.log('[CameraFeed] Connecting to backend Socket.IO...');
@@ -407,7 +398,7 @@ export default function CameraFeed() {
       localStorage.removeItem('backendRunning');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataMode, sourceVersion, isStreaming]);
+  }, [sourceVersion, isStreaming]);
 
   // Monitor fullscreen changes
   useEffect(() => {
@@ -419,31 +410,64 @@ export default function CameraFeed() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Load zones from localStorage
+  // Load zones from the Node DB for the caller's active camera (per branch).
+  // The DB is the single source of truth — never read from the Python engine
+  // or localStorage, both of which are device-global and leak ghost zones
+  // across cameras / accounts. Re-fetches when the dashboard's branch
+  // selection changes so different camera angles get their own zone set.
   useEffect(() => {
-    const loadZones = () => {
-      const saved = localStorage.getItem('cameraZones');
-      if (saved) {
-        try {
-          setZones(JSON.parse(saved));
-        } catch {
-          setZones([]);
+    let cancelled = false;
+    const loadFromDb = async () => {
+      try {
+        const branchParam = selectedBranch?.id
+          ? `?branchId=${encodeURIComponent(selectedBranch.id)}`
+          : '';
+        const activeRes = await fetch(`/api/cameras/active${branchParam}`, { credentials: 'include' });
+        if (!activeRes.ok) {
+          if (!cancelled) setZones([]);
+          return;
         }
+        const active = await activeRes.json();
+        if (!active?.id) {
+          if (!cancelled) setZones([]);
+          return;
+        }
+        const zonesRes = await fetch(`/api/zones/${active.id}`, { credentials: 'include' });
+        if (!zonesRes.ok) {
+          if (!cancelled) setZones([]);
+          return;
+        }
+        const rows = await zonesRes.json() as Array<any>;
+        const mapped: Zone[] = rows.map((r) => {
+          const coords: Array<{ x: number; y: number }> =
+            Array.isArray(r.coordinates) ? r.coordinates : [];
+          const xs = coords.map((c) => c.x);
+          const ys = coords.map((c) => c.y);
+          const minX = xs.length ? Math.min(...xs) : 0;
+          const minY = ys.length ? Math.min(...ys) : 0;
+          const maxX = xs.length ? Math.max(...xs) : 0;
+          const maxY = ys.length ? Math.max(...ys) : 0;
+          return {
+            id: r.id,
+            name: r.name,
+            x: minX,
+            y: minY,
+            width: Math.max(0, maxX - minX),
+            height: Math.max(0, maxY - minY),
+            type: String(r.type || 'CUSTOM').toLowerCase() as Zone['type'],
+            color: r.color || '#3b82f6',
+            shape: 'polygon',
+            points: coords,
+          };
+        });
+        if (!cancelled) setZones(mapped);
+      } catch {
+        if (!cancelled) setZones([]);
       }
     };
-
-    loadZones();
-
-    // Listen for zone updates
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'cameraZones') {
-        loadZones();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    loadFromDb();
+    return () => { cancelled = true; };
+  }, [selectedBranch?.id]);
 
   // Update canvas size ONLY from actual MJPEG frame dimensions — never from container.
   // Using container.clientHeight as fallback was causing the layout to stretch to a
@@ -500,28 +524,65 @@ export default function CameraFeed() {
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw zones if enabled
+      // Draw zones if enabled — supports both legacy rect (x/y/w/h) and polygon (points[]).
       if (showZones && zones.length > 0) {
-        zones.forEach((zone) => {
-          // Zone coordinates are normalized (0-1), convert to pixels
-          const zoneX = zone.x * canvas.width;
-          const zoneY = zone.y * canvas.height;
-          const zoneWidth = zone.width * canvas.width;
-          const zoneHeight = zone.height * canvas.height;
+        const zoneColor = (type: string) =>
+          type === 'entrance' ? '#10b981'
+          : type === 'exit' ? '#ef4444'
+          : type === 'queue' ? '#f59e0b'
+          : type === 'table' ? '#3b82f6'
+          : '#a78bfa';
 
-          ctx.strokeStyle = zone.type === 'entrance' ? '#10b981' : '#ef4444';
-          ctx.lineWidth = lineWidth; // Use responsive line width
-          ctx.setLineDash([5, 5]);
-          ctx.strokeRect(zoneX, zoneY, zoneWidth, zoneHeight);
+        zones.forEach((zone) => {
+          const stroke = zoneColor(zone.type);
+          ctx.strokeStyle = stroke;
+          ctx.fillStyle = stroke;
+          ctx.lineWidth = lineWidth;
+          ctx.setLineDash([6, 6]);
+
+          let labelX = 0;
+          let labelY = 0;
+
+          if (zone.shape === 'polygon' && Array.isArray(zone.points) && zone.points.length >= 3) {
+            ctx.beginPath();
+            zone.points.forEach((pt, i) => {
+              const x = pt.x * canvas.width;
+              const y = pt.y * canvas.height;
+              if (i === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            });
+            ctx.closePath();
+            ctx.stroke();
+            // Translucent fill to make the zone region readable on busy frames.
+            const prevAlpha = ctx.globalAlpha;
+            ctx.globalAlpha = 0.12;
+            ctx.fill();
+            ctx.globalAlpha = prevAlpha;
+            // Label anchor: top-left of polygon bounding box.
+            labelX = Math.min(...zone.points.map((p) => p.x)) * canvas.width;
+            labelY = Math.min(...zone.points.map((p) => p.y)) * canvas.height;
+          } else {
+            const zoneX = zone.x * canvas.width;
+            const zoneY = zone.y * canvas.height;
+            const zoneWidth = zone.width * canvas.width;
+            const zoneHeight = zone.height * canvas.height;
+            ctx.strokeRect(zoneX, zoneY, zoneWidth, zoneHeight);
+            const prevAlpha = ctx.globalAlpha;
+            ctx.globalAlpha = 0.12;
+            ctx.fillRect(zoneX, zoneY, zoneWidth, zoneHeight);
+            ctx.globalAlpha = prevAlpha;
+            labelX = zoneX;
+            labelY = zoneY;
+          }
+
           ctx.setLineDash([]);
 
-          // Draw zone label with responsive font
-          ctx.fillStyle = zone.type === 'entrance' ? '#10b981' : '#ef4444';
-          ctx.font = `${fontSize}px sans-serif`; // Use responsive font size
+          ctx.font = `${fontSize}px sans-serif`;
           const textMetrics = ctx.measureText(zone.name);
-          ctx.fillRect(zoneX, zoneY - 20, textMetrics.width + 10, 20);
+          ctx.fillStyle = stroke;
+          ctx.fillRect(labelX, labelY - fontSize - 4, textMetrics.width + 10, fontSize + 6);
           ctx.fillStyle = '#ffffff';
-          ctx.fillText(zone.name, zoneX + 5, zoneY - 5);
+          ctx.fillText(zone.name, labelX + 5, labelY - 5);
         });
       }
 
@@ -619,67 +680,9 @@ export default function CameraFeed() {
       switch (currentSource.type) {
         case 'webcam':
         case 'iphone':
-          // CRITICAL: In Live mode, backend owns the camera exclusively
-          // Frontend should NOT use getUserMedia to avoid conflicts
-          if (dataMode === 'live') {
-            setIsStreaming(true);
-            // Backend will handle camera access and send frames via MJPEG stream
-            return;
-          }
-
-          // Demo mode: Use getUserMedia for local preview only
-          if (currentSource.type === 'webcam') {
-            // MacBook built-in camera (default device)
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-                facingMode: 'user'
-              },
-              audio: false
-            });
-          } else {
-            // iPhone camera - enumerate devices and select by label
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoDevices = devices.filter(d => d.kind === 'videoinput');
-
-            // Look for "iPhone" or "Continuity" in label
-            const iphoneDevice = videoDevices.find(d =>
-              d.label.toLowerCase().includes('iphone') ||
-              d.label.toLowerCase().includes('continuity')
-            );
-
-            if (iphoneDevice) {
-              mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                  deviceId: { exact: iphoneDevice.deviceId },
-                  width: { ideal: 1920 },
-                  height: { ideal: 1080 }
-                },
-                audio: false
-              });
-            } else if (videoDevices.length > 1) {
-              // Fallback to second camera if no label match
-              mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                  deviceId: { exact: videoDevices[1].deviceId },
-                  width: { ideal: 1920 },
-                  height: { ideal: 1080 }
-                },
-                audio: false
-              });
-            } else {
-              throw new Error(
-                'No secondary camera found.\n\n' +
-                'To use your iPhone as a camera on Windows:\n' +
-                '1. Install EpocCam on iPhone and Windows (elgato.com/epoccam)\n' +
-                '   Or iVCam (e2esoft.com/ivcam)\n' +
-                '2. Connect via USB or Wi-Fi and launch the app\n' +
-                '3. Select "Phone Cam" again once connected'
-              );
-            }
-          }
-          break;
+          // Backend owns the camera exclusively and streams frames via MJPEG.
+          setIsStreaming(true);
+          return;
 
         case 'ip':
           // IP camera - backend handles RTSP/HTTP streams
@@ -699,16 +702,11 @@ export default function CameraFeed() {
 
         case 'videolink':
           // Video Link (YouTube, HLS, RTMP, MP4) - backend processes
-          if (dataMode === 'live') {
-            if (!currentSource.url) {
-              throw new Error('Please enter a video URL');
-            }
-            // Backend will handle video link processing
-            // Frontend just shows MJPEG stream from backend
-            setIsStreaming(true);
-            return;
+          if (!currentSource.url) {
+            throw new Error('Please enter a video URL');
           }
-          throw new Error('Video links require Live mode');
+          setIsStreaming(true);
+          return;
 
         case 'file':
           // Local video file - play in browser
@@ -787,14 +785,6 @@ export default function CameraFeed() {
     try {
       // Frontend-side teardown (MediaStream tracks, video element, detections)
       stopCamera();
-
-      if (dataMode !== 'live') {
-        // Browser-local playback path (type === 'file')
-        const newSource = { type, ...config };
-        setCurrentSource(newSource);
-        localStorage.setItem('lastCameraSource', JSON.stringify(newSource));
-        return;
-      }
 
       // Resolve the backend source descriptor
       let backendSource: number | string = 0;
@@ -878,7 +868,7 @@ export default function CameraFeed() {
       isChangingSourceRef.current = false;
       setIsSwitchingSource(false);
     }
-  }, [dataMode, ipCameras, iphoneRemoteUrl, stopCamera]);
+  }, [ipCameras, iphoneRemoteUrl, stopCamera]);
 
   const handleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -985,7 +975,7 @@ export default function CameraFeed() {
             <div className="flex items-center space-x-2">
               <span className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-success animate-pulse' : 'bg-danger'}`}></span>
               <span className="text-xs text-ink-2 font-mono">
-                {dataMode === 'demo' ? t('cameraFeed.demoMode') : (isStreaming ? t('cameraFeed.live') : t('cameraFeed.offline'))}
+                {isStreaming ? t('cameraFeed.live') : t('cameraFeed.offline')}
               </span>
               {isStreaming && backendConnected && (
                 <>
@@ -993,7 +983,7 @@ export default function CameraFeed() {
                   <span className="text-xs text-success font-mono">{t('cameraFeed.backendConnected')}</span>
                 </>
               )}
-              {isStreaming && !backendConnected && dataMode === 'live' && (
+              {isStreaming && !backendConnected && (
                 <>
                   <span className="text-xs text-ink-3">•</span>
                   <span className="text-xs text-warning font-mono">{t('cameraFeed.waitingForBackend')}</span>
@@ -1004,36 +994,29 @@ export default function CameraFeed() {
         </div>
         <div className="flex items-center space-x-2">
           {/* Heatmap Toggle */}
-          {dataMode === 'live' && (
-            <button
-              onClick={() => {
-                const newState = !showHeatmap;
-                setShowHeatmap(newState);
-                // Send toggle to backend for heatmap visibility
-                cameraBackendService.toggleHeatmap(newState).catch(() => {
-                  // Silently handle errors
-                });
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
-                showHeatmap
-                  ? 'bg-violet-500 text-white shadow-glow-brand'
-                  : 'bg-white/[0.06] text-ink-2 hover:bg-white/[0.1]'
-              }`}
-              title={showHeatmap ? t('cameraFeed.hideHeatmap') : t('cameraFeed.showHeatmap')}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>{t('cameraFeed.heatmap')}</span>
-            </button>
-          )}
-          {dataMode === 'live' && (
-            <button
-              onClick={() => setShowSourceSelect(!showSourceSelect)}
-              className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-              title={t('cameraFeed.changeSource')}
-            >
-              <Settings className="w-4 h-4 text-ink-1" />
-            </button>
-          )}
+          <button
+            onClick={() => {
+              const newState = !showHeatmap;
+              setShowHeatmap(newState);
+              cameraBackendService.toggleHeatmap(newState).catch(() => {});
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
+              showHeatmap
+                ? 'bg-violet-500 text-white shadow-glow-brand'
+                : 'bg-white/[0.06] text-ink-2 hover:bg-white/[0.1]'
+            }`}
+            title={showHeatmap ? t('cameraFeed.hideHeatmap') : t('cameraFeed.showHeatmap')}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>{t('cameraFeed.heatmap')}</span>
+          </button>
+          <button
+            onClick={() => setShowSourceSelect(!showSourceSelect)}
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+            title={t('cameraFeed.changeSource')}
+          >
+            <Settings className="w-4 h-4 text-ink-1" />
+          </button>
           <button
             onClick={() => {
               stopCamera();
@@ -1059,7 +1042,7 @@ export default function CameraFeed() {
       </div>
 
       {/* Source Selector */}
-      {showSourceSelect && dataMode === 'live' && (
+      {showSourceSelect && (
         <div className="bg-surface-1 px-4 py-3 border-t border-white/[0.08]">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs text-ink-2">{t('cameraFeed.selectSource')}</p>
@@ -1327,19 +1310,7 @@ export default function CameraFeed() {
             inset: 0,
           } : undefined}
         >
-          {dataMode === 'demo' ? (
-            // Demo mode - placeholder
-            <div className="w-full h-full flex items-center justify-center">
-              <div className="w-full h-full bg-gradient-to-br from-surface-2 via-surface-1 to-surface-0 flex items-center justify-center">
-                <div className="text-center">
-                  <CameraIcon className="w-16 h-16 text-ink-4 mx-auto mb-4" />
-                  <p className="text-ink-3 font-medium">{t('cameraFeed.demoActive')}</p>
-                  <p className="text-ink-4 text-sm mt-1">{t('cameraFeed.switchToLive')}</p>
-                  <p className="text-ink-4 text-xs mt-2">{t('cameraFeed.demoCharts')}</p>
-                </div>
-              </div>
-            </div>
-          ) : error ? (
+          {error ? (
             // Error state
             <div className="w-full h-full flex items-center justify-center p-6">
               <div className="text-center max-w-md">
@@ -1410,8 +1381,8 @@ export default function CameraFeed() {
             </div>
           ) : null}
 
-          {/* MJPEG stream from backend (Live mode - 30 FPS, low latency) */}
-          {dataMode === 'live' && isStreaming && !error && !stream && !isSwitchingSource && (
+          {/* MJPEG stream from backend (30 FPS, low latency) */}
+          {isStreaming && !error && !stream && !isSwitchingSource && (
             <img
               ref={mjpegImgRef}
               src={mjpegUrl}
@@ -1473,10 +1444,10 @@ export default function CameraFeed() {
             />
           )}
 
-          {/* Video element (Demo mode or when using browser camera directly) */}
+          {/* Video element (browser camera fallback) */}
           <video
             ref={videoRef}
-            className={`w-full h-full object-fill ${dataMode === 'demo' || error ? 'hidden' : ''}`}
+            className={`w-full h-full object-fill ${error ? 'hidden' : ''}`}
             autoPlay
             playsInline
             muted
@@ -1489,7 +1460,7 @@ export default function CameraFeed() {
           />
 
           {/* Canvas overlay for detections — matches video dimensions exactly */}
-          {dataMode === 'live' && isStreaming && !error && (
+          {isStreaming && !error && (
             <canvas
               ref={canvasRef}
               width={videoDimensions.width > 64 ? videoDimensions.width : 1920}
@@ -1504,7 +1475,7 @@ export default function CameraFeed() {
             <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-xs font-mono">
               {new Date().toLocaleTimeString()}
             </div>
-            {dataMode === 'live' && detections.length > 0 && (
+            {detections.length > 0 && (
               <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
                 <p className="text-xs text-white font-semibold">
                   {t('cameraFeed.detected', { count: detections.length })}
@@ -1519,7 +1490,6 @@ export default function CameraFeed() {
       <div className="px-4 py-3 bg-surface-2/60 border-t border-white/[0.08] flex items-center justify-between">
         <div className="text-xs text-ink-4">
           <span className="font-semibold">{t('cameraFeed.status')}</span> {
-            dataMode === 'demo' ? t('cameraFeed.statusDemo') :
             isStreaming ? t('cameraFeed.statusLive', { source: getSourceLabel() }) :
             connectionState === 'FAILED' ? t('cameraFeed.statusUnreachable') :
             connectionState === 'WAITING_FOR_BACKEND' ? t('cameraFeed.statusLoading') :
@@ -1527,7 +1497,7 @@ export default function CameraFeed() {
             t('cameraFeed.statusWaiting')
           }
         </div>
-        {dataMode === 'live' && isStreaming && (
+        {isStreaming && (
           <div className="flex items-center space-x-4 text-xs">
             <div>
               <span className="text-ink-4">{t('cameraFeed.detectedLabel')}</span>

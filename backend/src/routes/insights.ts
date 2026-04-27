@@ -23,10 +23,45 @@ import {
   analyzeTrends,
   getStats,
   getAIRecommendations,
+  getAISummary,
   generateInsights,
 } from '../services/insightEngine';
+import { authenticate } from '../middleware/authMiddleware';
+import { requireCameraOwnership, userOwnsCamera } from '../middleware/tenantScope';
 
 const router = Router();
+
+async function ownedCameraIdsForUser(userId: string): Promise<string[]> {
+  const cams = await prisma.camera.findMany({
+    where: { createdBy: userId },
+    select: { id: true },
+  });
+  return cams.map((c) => c.id);
+}
+
+// Restricts the visible camera ids to those belonging to a specific branch
+// owned by the caller. Returns null if the branch does not exist or is owned
+// by another user — caller should treat that as "no insights".
+async function ownedBranchCameraIds(userId: string, branchId: string): Promise<string[] | null> {
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, userId },
+    select: { id: true },
+  });
+  if (!branch) return null;
+  const cams = await prisma.camera.findMany({
+    where: { createdBy: userId, branchId },
+    select: { id: true },
+  });
+  return cams.map((c) => c.id);
+}
+
+// Quote a string for inline SQL — only used to build the IN (...) list of
+// caller-owned camera ids, which themselves come from the database (UUID
+// strings or 'sample-<uuid>'). Defensive escape in case future rows include
+// other characters.
+function sqlQuote(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -54,19 +89,34 @@ const GenerateSchema = z.object({
 
 // ─── GET /api/insights ───────────────────────────────────────────────────────
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const { cameraId, type, severity, isRead, limit: limitStr, startDate, endDate } = req.query;
+    const { cameraId, branchId, type, severity, isRead, limit: limitStr, startDate, endDate } = req.query;
     const limit = limitStr ? Math.min(parseInt(limitStr as string), 200) : 50;
 
-    // Build WHERE clauses dynamically
-    const conditions: string[] = ['1=1'];
-    if (cameraId) conditions.push(`"cameraId" = '${cameraId}'`);
-    if (type) conditions.push(`"type" = '${type}'`);
-    if (severity) conditions.push(`"severity" = '${severity}'`);
+    const ownedIds = await ownedCameraIdsForUser(req.user.id);
+    if (cameraId && !ownedIds.includes(cameraId as string)) {
+      return res.status(404).json({ error: 'Camera not found' });
+    }
+    let scopedIds: string[];
+    if (cameraId) {
+      scopedIds = [cameraId as string];
+    } else if (branchId) {
+      const branchIds = await ownedBranchCameraIds(req.user.id, branchId as string);
+      if (branchIds === null) return res.status(404).json({ error: 'Branch not found' });
+      scopedIds = branchIds;
+    } else {
+      scopedIds = ownedIds;
+    }
+    if (scopedIds.length === 0) return res.json({ insights: [], total: 0, filters: { cameraId, branchId, type, severity } });
+
+    // Build WHERE clauses with parameterised values where possible.
+    const conditions: string[] = [`"cameraId" IN (${scopedIds.map(sqlQuote).join(',')})`];
+    if (type) conditions.push(`"type" = ${sqlQuote(String(type))}`);
+    if (severity) conditions.push(`"severity" = ${sqlQuote(String(severity))}`);
     if (isRead !== undefined) conditions.push(`"isRead" = ${isRead === 'true' ? 1 : 0}`);
-    if (startDate) conditions.push(`"createdAt" >= '${new Date(startDate as string).toISOString()}'`);
-    if (endDate) conditions.push(`"createdAt" <= '${new Date(endDate as string).toISOString()}'`);
+    if (startDate) conditions.push(`"createdAt" >= ${sqlQuote(new Date(startDate as string).toISOString())}`);
+    if (endDate) conditions.push(`"createdAt" <= ${sqlQuote(new Date(endDate as string).toISOString())}`);
 
     const whereClause = conditions.join(' AND ');
 
@@ -84,7 +134,7 @@ router.get('/', async (req: Request, res: Response) => {
     res.json({
       insights: parsed,
       total: parsed.length,
-      filters: { cameraId, type, severity },
+      filters: { cameraId, branchId, type, severity },
     });
   } catch (error) {
     console.error('[Insights] List error:', error);
@@ -95,12 +145,27 @@ router.get('/', async (req: Request, res: Response) => {
 // ─── GET /api/insights/unread-count ──────────────────────────────────────────
 // NOTE: This must be BEFORE /:id routes to avoid parameter capture
 
-router.get('/unread-count', async (req: Request, res: Response) => {
+router.get('/unread-count', authenticate, async (req: Request, res: Response) => {
   try {
     const cameraId = req.query.cameraId as string | undefined;
-    let query = `SELECT COUNT(*) as cnt FROM insights WHERE "isRead" = 0`;
-    if (cameraId) query += ` AND "cameraId" = '${cameraId}'`;
+    const branchId = req.query.branchId as string | undefined;
+    const ownedIds = await ownedCameraIdsForUser(req.user.id);
+    if (cameraId && !ownedIds.includes(cameraId)) {
+      return res.status(404).json({ error: 'Camera not found' });
+    }
+    let scopedIds: string[];
+    if (cameraId) {
+      scopedIds = [cameraId];
+    } else if (branchId) {
+      const branchIds = await ownedBranchCameraIds(req.user.id, branchId);
+      if (branchIds === null) return res.status(404).json({ error: 'Branch not found' });
+      scopedIds = branchIds;
+    } else {
+      scopedIds = ownedIds;
+    }
+    if (scopedIds.length === 0) return res.json({ unreadCount: 0 });
 
+    const query = `SELECT COUNT(*) as cnt FROM insights WHERE "isRead" = 0 AND "cameraId" IN (${scopedIds.map(sqlQuote).join(',')})`;
     const result = await prisma.$queryRawUnsafe<{ cnt: number }[]>(query);
     res.json({ unreadCount: Number(result[0]?.cnt || 0) });
   } catch (error) {
@@ -111,7 +176,7 @@ router.get('/unread-count', async (req: Request, res: Response) => {
 
 // ─── GET /api/insights/stats/:cameraId ───────────────────────────────────────
 
-router.get('/stats/:cameraId', async (req: Request, res: Response) => {
+router.get('/stats/:cameraId', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
     const period = (req.query.period as 'day' | 'week' | 'month') || 'day';
@@ -130,7 +195,7 @@ router.get('/stats/:cameraId', async (req: Request, res: Response) => {
 
 // ─── GET /api/insights/trends/:cameraId ──────────────────────────────────────
 
-router.get('/trends/:cameraId', async (req: Request, res: Response) => {
+router.get('/trends/:cameraId', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   try {
     const { cameraId } = req.params;
     const { startDate, endDate } = req.query;
@@ -149,9 +214,12 @@ router.get('/trends/:cameraId', async (req: Request, res: Response) => {
 
 // ─── GET /api/insights/recommendations ───────────────────────────────────────
 
-router.get('/recommendations', async (req: Request, res: Response) => {
+router.get('/recommendations', authenticate, async (req: Request, res: Response) => {
   try {
     const cameraId = req.query.cameraId as string | undefined;
+    if (cameraId && !(await userOwnsCamera(req.user.id, cameraId))) {
+      return res.status(404).json({ error: 'Camera not found' });
+    }
     const recommendations = await getAIRecommendations(cameraId);
 
     // Determine which AI source was used
@@ -174,11 +242,34 @@ router.get('/recommendations', async (req: Request, res: Response) => {
   }
 });
 
+// ─── GET /api/insights/summary ───────────────────────────────────────────────
+
+router.get('/summary', authenticate, async (req: Request, res: Response) => {
+  try {
+    const cameraId = req.query.cameraId as string | undefined;
+    if (cameraId && !(await userOwnsCamera(req.user.id, cameraId))) {
+      return res.status(404).json({ error: 'Camera not found' });
+    }
+    const summary = await getAISummary(cameraId);
+    res.json({
+      ...summary,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[Insights] Summary error:', error);
+    res.status(500).json({ error: 'Failed to generate summary' });
+  }
+});
+
 // ─── POST /api/insights/generate ─────────────────────────────────────────────
 
-router.post('/generate', async (req: Request, res: Response) => {
+router.post('/generate', authenticate, async (req: Request, res: Response) => {
   try {
     const { cameraId } = GenerateSchema.parse(req.body);
+
+    if (!(await userOwnsCamera(req.user.id, cameraId))) {
+      return res.status(404).json({ error: 'Camera not found' });
+    }
 
     const result = await generateInsights(cameraId);
 
@@ -200,16 +291,20 @@ router.post('/generate', async (req: Request, res: Response) => {
 
 // ─── PATCH /api/insights/:id/read ────────────────────────────────────────────
 
-router.patch('/:id/read', async (req: Request, res: Response) => {
+router.patch('/:id/read', authenticate, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
+    const ownedIds = await ownedCameraIdsForUser(req.user.id);
+    if (ownedIds.length === 0) return res.status(404).json({ error: 'Insight not found' });
+
+    const owned = await prisma.$queryRawUnsafe<InsightRow[]>(
+      `SELECT * FROM insights WHERE id = ${sqlQuote(id)} AND "cameraId" IN (${ownedIds.map(sqlQuote).join(',')})`
+    );
+    if (owned.length === 0) return res.status(404).json({ error: 'Insight not found' });
+
     await prisma.$executeRaw`UPDATE insights SET "isRead" = 1 WHERE id = ${id}`;
     const result = await prisma.$queryRaw<InsightRow[]>`SELECT * FROM insights WHERE id = ${id}`;
-
-    if (result.length === 0) {
-      return res.status(404).json({ error: 'Insight not found' });
-    }
 
     res.json({ ...result[0], isRead: true });
   } catch (error) {
@@ -220,9 +315,17 @@ router.patch('/:id/read', async (req: Request, res: Response) => {
 
 // ─── DELETE /api/insights/:id ────────────────────────────────────────────────
 
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+
+    const ownedIds = await ownedCameraIdsForUser(req.user.id);
+    if (ownedIds.length === 0) return res.status(404).json({ error: 'Insight not found' });
+
+    const owned = await prisma.$queryRawUnsafe<InsightRow[]>(
+      `SELECT id FROM insights WHERE id = ${sqlQuote(id)} AND "cameraId" IN (${ownedIds.map(sqlQuote).join(',')})`
+    );
+    if (owned.length === 0) return res.status(404).json({ error: 'Insight not found' });
 
     await prisma.$executeRaw`DELETE FROM insights WHERE id = ${id}`;
     res.json({ message: 'Insight deleted', id });

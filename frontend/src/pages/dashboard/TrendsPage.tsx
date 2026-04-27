@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { motion } from 'framer-motion';
-import { Calendar, TrendingUp, Activity, Clock, AlertCircle } from 'lucide-react';
+import { Calendar, TrendingUp, Clock, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 
@@ -44,29 +44,17 @@ export default function TrendsPage() {
 
   const weekdayLabels = [0, 1, 2, 3, 4, 5, 6].map((i) => t(`common.weekday.${i}`));
 
-  // Resolve camera: branch cameras → first active camera → /api/cameras fallback
+  // Resolve camera: branch cameras (active first) → none. We deliberately do
+  // NOT fall back to the unscoped /api/cameras list; that would leak data from
+  // other branches into this branch's view.
   useEffect(() => {
-    let cancelled = false;
-    const resolve = async () => {
-      if (selectedBranch?.cameras && selectedBranch.cameras.length > 0) {
-        const active = selectedBranch.cameras.find((c) => c.isActive) || selectedBranch.cameras[0];
-        if (!cancelled) setCameraId(active.id);
-        return;
-      }
-      try {
-        const res = await fetch(`${API_URL}/api/cameras`, { credentials: 'include' });
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled && Array.isArray(data) && data.length > 0) {
-            setCameraId(data[0].id);
-            return;
-          }
-        }
-      } catch { /* noop */ }
-      if (!cancelled) setCameraId('');
-    };
-    resolve();
-    return () => { cancelled = true; };
+    if (!selectedBranch) { setCameraId(''); return; }
+    if (selectedBranch.cameras && selectedBranch.cameras.length > 0) {
+      const active = selectedBranch.cameras.find((c) => c.isActive) || selectedBranch.cameras[0];
+      setCameraId(active.id);
+      return;
+    }
+    setCameraId('');
   }, [selectedBranch]);
 
   const fetchData = useCallback(async (camId: string) => {
@@ -74,9 +62,9 @@ export default function TrendsPage() {
     setErrorMsg(null);
     try {
       const [weeklyRes, peakRes, predRes] = await Promise.all([
-        fetch(`${API_URL}/api/analytics/${camId}/trends/weekly`).then((r) => (r.ok ? r.json() : null)),
-        fetch(`${API_URL}/api/analytics/${camId}/peak-hours`).then((r) => (r.ok ? r.json() : null)),
-        fetch(`${API_URL}/api/analytics/${camId}/prediction`).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_URL}/api/analytics/${camId}/trends/weekly`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_URL}/api/analytics/${camId}/peak-hours`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_URL}/api/analytics/${camId}/prediction`, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)),
       ]);
       if (weeklyRes?.weekdays) setWeeklyData(weeklyRes.weekdays);
       if (peakRes) {
@@ -278,16 +266,7 @@ export default function TrendsPage() {
             </motion.div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Heatmap: weekly pattern */}
-            <div className="surface-card rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Activity className="w-4 h-4 text-accent-300" />
-                <h3 className="font-semibold text-ink-0">Haftalik Pattern</h3>
-              </div>
-              <WeeklyHeatmap data={weeklyData} maxAvg={maxAvg} />
-            </div>
-
+          <div className="grid grid-cols-1 gap-6">
             {/* Peak hours */}
             <div className="surface-card rounded-2xl p-5">
               <div className="flex items-center gap-2 mb-4">
@@ -337,7 +316,7 @@ export default function TrendsPage() {
                   <h3 className="font-semibold text-ink-0">Tahmin &mdash; {prediction.date}</h3>
                 </div>
                 <div className="text-xs text-ink-3 font-mono">
-                  guven: <span className="text-violet-300">{Math.round(prediction.confidence * 100)}%</span> &middot; {prediction.dataWeeks} hafta veri
+                  guven: <span className="text-violet-300">{Math.round(prediction.confidence)}%</span> &middot; {prediction.dataWeeks} hafta veri
                 </div>
               </div>
               {prediction.message && <p className="text-xs text-ink-4 mb-3">{prediction.message}</p>}
@@ -346,50 +325,6 @@ export default function TrendsPage() {
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function WeeklyHeatmap({ data, maxAvg }: { data: WeekdayTrend[]; maxAvg: number }) {
-  const dayLabels = ['Paz', 'Pzt', 'Sal', 'Car', 'Per', 'Cum', 'Cmt'];
-  const dayOrder = [1, 2, 3, 4, 5, 6, 0];
-  return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[480px]">
-        <div className="grid grid-cols-[40px_1fr] gap-1 text-[10px] text-ink-4 mb-1">
-          <div />
-          <div className="grid grid-cols-24 gap-px font-mono">
-            {Array.from({ length: 24 }, (_, i) => (
-              <div key={i} className="text-center">{i % 3 === 0 ? i : ''}</div>
-            ))}
-          </div>
-        </div>
-        {dayOrder.map((d) => {
-          const week = data.find((w) => w.weekday === d);
-          const thisWeek = week?.thisWeek || new Array(24).fill(0);
-          return (
-            <div key={d} className="grid grid-cols-[40px_1fr] gap-1 mb-1">
-              <div className="text-xs text-ink-3 font-mono self-center">{dayLabels[d]}</div>
-              <div className="grid grid-cols-24 gap-px">
-                {thisWeek.map((val: number, h: number) => {
-                  const pct = Math.min(1, val / maxAvg);
-                  const bg = pct === 0
-                    ? 'rgba(255,255,255,0.03)'
-                    : `rgba(29,107,255,${0.12 + pct * 0.7})`;
-                  return (
-                    <div
-                      key={h}
-                      className="h-6 rounded-sm"
-                      style={{ backgroundColor: bg, boxShadow: pct > 0.7 ? '0 0 8px rgba(29,107,255,0.5)' : undefined }}
-                      title={`${dayLabels[d]} ${h}:00 - ${val}`}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

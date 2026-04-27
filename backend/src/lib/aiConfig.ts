@@ -13,8 +13,9 @@ export const GEMINI_MODEL_CANDIDATES: readonly string[] = [
 
 /**
  * Ollama model tag prefixes, tried in preference order.
- * qwen3 (14B) and llama3.3 lead — strongest Turkish reasoning + analytics summarization
- * in independent evaluations. Older fallbacks remain for environments without the new weights.
+ * qwen3:14b (9GB) leads — fits fully in 12GB VRAM (RTX 5070) and responds in seconds.
+ * gemma4:26b (17GB) ranks last because it does not fit in 12GB VRAM and falls back to
+ * CPU inference (>180s/request). Promote it on hosts with >=24GB VRAM.
  */
 export const OLLAMA_MODEL_PRIORITY: readonly string[] = [
   'qwen3:14b',
@@ -31,6 +32,8 @@ export const OLLAMA_MODEL_PRIORITY: readonly string[] = [
   'mistral',
   'phi3',
   'qwen2',
+  'gemma4:26b',
+  'gemma4',
 ];
 
 /** Returns true if an error looks like a Gemini quota/404/exhaustion case worth retrying against the next model. */

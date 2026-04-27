@@ -1,26 +1,22 @@
 /**
- * User management API routes
+ * User management API routes.
+ *
+ * Self-service profile only. Account creation goes through /api/auth/register;
+ * any cross-user listing or lookup is intentionally absent — the previous
+ * GET / and GET /:id routes leaked the full user table to anyone who could
+ * reach the API.
  */
 
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
-import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authMiddleware';
+import { requireAdmin } from '../middleware/roleCheck';
 
 const router = Router();
 
-// Validation schemas
-const CreateUserSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-  role: z.enum(['ADMIN', 'MANAGER', 'ANALYST', 'VIEWER']).optional()
-});
-
-// GET /api/users - List all users
-router.get('/', async (req: Request, res: Response) => {
+// GET /api/users - Admin only: list users.
+router.get('/', requireAdmin, async (_req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
       select: {
@@ -31,11 +27,9 @@ router.get('/', async (req: Request, res: Response) => {
         role: true,
         isActive: true,
         createdAt: true,
-        lastLoginAt: true
+        lastLoginAt: true,
       },
-      orderBy: {
-        createdAt: 'desc'
-      }
+      orderBy: { createdAt: 'desc' },
     });
 
     res.json(users);
@@ -45,78 +39,26 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/users - Create new user
-router.post('/', async (req: Request, res: Response) => {
-  try {
-    const data = CreateUserSchema.parse(req.body);
-
-    // Hash password
-    const passwordHash = await bcrypt.hash(data.password, 10);
-
-    const user = await prisma.user.create({
-      data: {
-        email: data.email,
-        passwordHash,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        role: data.role || 'MANAGER'
-      },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        createdAt: true
-      }
-    });
-
-    res.status(201).json(user);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation error', details: error.errors });
-    }
-    console.error('Error creating user:', error);
-    res.status(500).json({ error: 'Failed to create user' });
-  }
+// GET /api/users/me - Return the caller's profile (alias for /api/auth/me).
+router.get('/me', authenticate, (req: Request, res: Response) => {
+  const u = req.user;
+  res.json({
+    id: u.id,
+    email: u.email,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    role: u.role,
+    accountType: u.accountType || 'TRIAL',
+    trialExpiresAt: u.trialExpiresAt?.toISOString() || null,
+  });
 });
 
-// GET /api/users/:id - Get single user
-router.get('/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        isActive: true,
-        createdAt: true,
-        lastLoginAt: true
-      }
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(user);
-  } catch (error) {
-    console.error('Error fetching user:', error);
-    res.status(500).json({ error: 'Failed to fetch user' });
-  }
-});
-
-// PATCH /api/users/profile - Update own profile
+// PATCH /api/users/profile - Update own profile.
 router.patch('/profile', authenticate, async (req: Request, res: Response) => {
   try {
     const ProfileSchema = z.object({
       firstName: z.string().optional(),
-      lastName: z.string().optional()
+      lastName: z.string().optional(),
     });
 
     const data = ProfileSchema.parse(req.body);
@@ -131,8 +73,8 @@ router.patch('/profile', authenticate, async (req: Request, res: Response) => {
         lastName: true,
         role: true,
         accountType: true,
-        trialExpiresAt: true
-      }
+        trialExpiresAt: true,
+      },
     });
 
     res.json(updated);

@@ -546,11 +546,13 @@ class CameraAnalyticsEngine:
     self.table_turnover: Dict[str, int] = {}         # zone_id → occupy→leave cycle count
     self.table_occupy_start: Dict[str, float] = {}   # zone_id → when current occupancy began
     self.table_last_occupied_duration: Dict[str, float] = {}  # zone_id → duration of the last completed occupancy
+    self.table_total_occupied: Dict[str, float] = {}  # zone_id → cumulative seconds occupied across all turnovers (committed only)
     self.table_cleaning_since: Dict[str, float] = {} # zone_id → timestamp when status became needs_cleaning
     self.table_transit_empty_since: Dict[str, float] = {}  # zone_id → transient empty during occupancy (chair shuffle)
     for tid in self.table_ids:
       self.table_status[tid] = "empty"
       self.table_turnover[tid] = 0
+      self.table_total_occupied[tid] = 0.0
 
     # Zone insights tracking (track IDs that have already triggered insights)
     self.zone_insight_triggered: Dict[str, set[int]] = defaultdict(set)
@@ -1298,8 +1300,45 @@ class CameraAnalyticsEngine:
             print(f"[WARN] Slow cap.read(): {_read_ms:.0f}ms (HLS segment stall #{_slow_read_count[0]})", flush=True)
         if not ret or frame is None:
           _consecutive_failures += 1
+          # Local recorded video EOF — seek to frame 0 so demos (mozart, .mov) loop forever.
+          # is_live_source is False for files; HTTP streams take the reconnect branch below.
+          if (not self.is_live_source
+              and isinstance(self.source, str)
+              and not self.source.startswith(('http://', 'https://'))):
+            try:
+              _cap_holder[0].set(cv2.CAP_PROP_POS_FRAMES, 0)
+              ret, frame = _cap_holder[0].read()
+              if ret and frame is not None:
+                print("[INFO] End of video reached — looping back to frame 0", flush=True)
+                _consecutive_failures = 0
+                # Fall through to normal frame-handling code below
+              else:
+                # Seek failed — reopen the capture (some codecs need a fresh handle)
+                try:
+                  _cap_holder[0].release()
+                except Exception:
+                  pass
+                new_cap = cv2.VideoCapture(self.source)
+                if new_cap.isOpened():
+                  _cap_holder[0] = new_cap
+                  ret, frame = new_cap.read()
+                  if ret and frame is not None:
+                    print("[INFO] End of video reached — reopened capture for loop", flush=True)
+                    _consecutive_failures = 0
+                  else:
+                    print("[WARN] Loop reopen succeeded but read failed, retrying", flush=True)
+                    time.sleep(0.1)
+                    continue
+                else:
+                  print("[ERROR] Failed to reopen video for loop, retrying in 1s", flush=True)
+                  time.sleep(1.0)
+                  continue
+            except Exception as e:
+              print(f"[ERROR] Loop seek/reopen failed: {e}", flush=True)
+              time.sleep(0.5)
+              continue
           # Reconnect HTTP streams after sustained failures
-          if (_consecutive_failures >= _MAX_CONSECUTIVE_FAILURES
+          elif (_consecutive_failures >= _MAX_CONSECUTIVE_FAILURES
               and isinstance(self.source, str)
               and self.source.startswith(('http://', 'https://'))):
             print(f"[WARN] {_consecutive_failures} consecutive capture failures, reconnecting to {self.source[:60]}...")
@@ -1319,9 +1358,11 @@ class CameraAnalyticsEngine:
             except Exception as e:
               print(f"[ERROR] Reconnection failed: {e}")
             _consecutive_failures = 0
+            time.sleep(0.005)
+            continue
           else:
             time.sleep(0.005)
-          continue
+            continue
         _consecutive_failures = 0
         # Smooth playback strategy:
         # - Keep only the LATEST frame so inference always works on fresh data
@@ -2102,10 +2143,18 @@ class CameraAnalyticsEngine:
         
         ret, frame = cap.read()
         if not ret or frame is None:
-          # End of video file
-          print("[INFO] End of video reached")
-          break
-        
+          # End of video — loop back to start so demo videos (e.g. mozart) replay forever
+          if cap.isOpened():
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = cap.read()
+            if not ret or frame is None:
+              print("[INFO] End of video, loop seek failed — exiting")
+              break
+            print("[INFO] End of video reached — looping")
+          else:
+            print("[INFO] End of video, capture closed — exiting")
+            break
+
         # Run YOLO tracking on the frame
         results = self.model.track(
           source=frame,
@@ -3157,6 +3206,8 @@ class CameraAnalyticsEngine:
           occ_start = self.table_occupy_start.get(table_id, now)
           occupied_duration = now - occ_start
           self.table_last_occupied_duration[table_id] = occupied_duration
+          # Accumulate lifetime total — never resets, survives turnovers and never decreases.
+          self.table_total_occupied[table_id] = self.table_total_occupied.get(table_id, 0.0) + occupied_duration
           self.table_turnover[table_id] = self.table_turnover.get(table_id, 0) + 1
           self.table_occupy_start.pop(table_id, None)
           self.table_left_at[table_id] = self.table_transit_empty_since[table_id]
@@ -3236,7 +3287,11 @@ class CameraAnalyticsEngine:
     now = time.time()
 
     for person in self.tracks.values():
-      if not person.inside:
+      # Include ANY recently-seen track for dwell + demographics aggregation, not
+      # just zone-bound tracks. Dashboards need a non-zero Avg Dwell Time even on
+      # cameras with no defined entrance zone (e.g. fresh installs, demo video).
+      age_since_seen = now - person.last_seen
+      if age_since_seen > 2.0:
         continue
 
       dwell = now - person.first_seen
@@ -3322,7 +3377,11 @@ class CameraAnalyticsEngine:
       longest = float(np.max(durations)) if durations else 0.0
 
       occ_start = self.table_occupy_start.get(table_id)
-      occ_duration = (now - occ_start) if occ_start else 0.0
+      # Only count current sub-duration once we've actually committed to "occupied" — avoids
+      # showing a duration while still in the empty→occupied confirm window.
+      is_currently_occupied = self.table_status.get(table_id, "empty") == "occupied" and occ_start is not None
+      occ_duration = (now - occ_start) if is_currently_occupied else 0.0
+      total_occupied = self.table_total_occupied.get(table_id, 0.0) + occ_duration
 
       table_snapshots.append(
         TableSnapshot(
@@ -3333,6 +3392,7 @@ class CameraAnalyticsEngine:
           longest_stay_seconds=longest,
           status=self.table_status.get(table_id, "empty"),
           occupancy_duration=occ_duration,
+          total_occupied_seconds=total_occupied,
           turnover_count=self.table_turnover.get(table_id, 0),
         )
       )
@@ -3403,6 +3463,7 @@ class CameraAnalyticsEngine:
       "exits": _n(metrics.people_out),
       "current": _n(metrics.current),
       "queue": _n(metrics.queue.current),
+      "avgDwellTime": round(float(metrics.avg_dwell_time), 1),
       "demographics": {
         "gender": gender,
         "ages": ages,
@@ -3430,6 +3491,7 @@ class CameraAnalyticsEngine:
           "currentOccupants": _n(t.current_occupants),
           "avgStaySeconds": round(float(t.avg_stay_seconds), 1),
           "occupancyDuration": round(float(t.occupancy_duration), 1),
+          "totalOccupiedSeconds": round(float(t.total_occupied_seconds), 1),
           "turnoverCount": _n(t.turnover_count),
         } for t in metrics.tables
       ],
@@ -3440,8 +3502,10 @@ class CameraAnalyticsEngine:
     track_payload: List[Dict[str, object]] = []
     for track_id, person in self.tracks.items():
       age_since_seen = now - person.last_seen
-      # Skip tracks unseen for >1.0s — don't send ghost BBoxes to frontend
-      if age_since_seen > 1.0:
+      # Hold the bbox on screen for up to 3s after the last detection. Brief YOLO
+      # misses (occlusion, motion blur, sitting still) shouldn't strobe boxes off.
+      # BoT-SORT track_buffer (300 frames ≈10s) keeps the ID alive longer.
+      if age_since_seen > 3.0:
         continue
       x1, y1, x2, y2 = person.bbox_norm
       width = max(0.0, x2 - x1)
