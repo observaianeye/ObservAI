@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Cloud, CloudRain, Sun, CloudSnow, Wind, Droplet, type LucideIcon } from 'lucide-react';
+import { Cloud, CloudRain, Sun, CloudSnow, Wind, Droplet, Car, type LucideIcon } from 'lucide-react';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const TRAFFIC_TTL_MS = 5 * 60 * 1000;
 
 interface WeatherData {
   temperature: number;
@@ -16,7 +18,16 @@ interface WeatherData {
   branch: { id: string; name: string; city: string };
 }
 
-// Open-Meteo weather codes (subset) → label + icon
+interface TrafficData {
+  congestion: number;
+  level: 'low' | 'medium' | 'high';
+  currentSpeed?: number;
+  freeFlowSpeed?: number;
+  source: 'tomtom' | 'heuristic';
+  localHour: number;
+  branch: { id: string; name: string; city: string };
+}
+
 function weatherMeta(code: number): { label: string; Icon: LucideIcon; accent: string } {
   if ([0, 1].includes(code)) return { label: 'Acik', Icon: Sun, accent: '#f59e0b' };
   if ([2, 3].includes(code)) return { label: 'Parcali', Icon: Cloud, accent: '#94a3b8' };
@@ -27,31 +38,52 @@ function weatherMeta(code: number): { label: string; Icon: LucideIcon; accent: s
   return { label: 'Bulutlu', Icon: Cloud, accent: '#94a3b8' };
 }
 
+function trafficMeta(level: 'low' | 'medium' | 'high', lang: 'tr' | 'en'): { label: string; accent: string } {
+  if (level === 'high') return { label: lang === 'tr' ? 'Yoğun' : 'Heavy', accent: '#ef4444' };
+  if (level === 'medium') return { label: lang === 'tr' ? 'Orta' : 'Medium', accent: '#f59e0b' };
+  return { label: lang === 'tr' ? 'Akıcı' : 'Light', accent: '#22c55e' };
+}
+
 export function WeatherWidget() {
   const { selectedBranch } = useDashboardFilter();
+  const { lang } = useLanguage();
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [traffic, setTraffic] = useState<TrafficData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!selectedBranch) { setWeather(null); return; }
+    if (!selectedBranch) { setWeather(null); setTraffic(null); return; }
 
-    // Simple localStorage cache
-    const cacheKey = `weather:${selectedBranch.id}`;
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
+    const wKey = `weather:${selectedBranch.id}`;
+    const tKey = `traffic:${selectedBranch.id}`;
+
+    let usedWeatherCache = false;
+    const wCached = localStorage.getItem(wKey);
+    if (wCached) {
       try {
-        const parsed = JSON.parse(cached);
+        const parsed = JSON.parse(wCached);
         if (parsed.expiresAt > Date.now()) {
           setWeather(parsed.data);
-          return;
+          usedWeatherCache = true;
         }
       } catch { /* ignore */ }
     }
 
-    setLoading(true);
+    const tCached = localStorage.getItem(tKey);
+    if (tCached) {
+      try {
+        const parsed = JSON.parse(tCached);
+        if (parsed.expiresAt > Date.now()) {
+          setTraffic(parsed.data);
+        }
+      } catch { /* ignore */ }
+    }
+
+    if (!usedWeatherCache) setLoading(true);
     setError(null);
-    fetch(`${API_URL}/api/branches/${selectedBranch.id}/weather`, { credentials: 'include' })
+
+    const wPromise = fetch(`${API_URL}/api/branches/${selectedBranch.id}/weather`, { credentials: 'include' })
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
@@ -65,11 +97,19 @@ export function WeatherWidget() {
           branch: data.branch,
         };
         setWeather(payload);
-        localStorage.setItem(cacheKey, JSON.stringify({
-          data: payload,
-          expiresAt: Date.now() + CACHE_TTL_MS,
-        }));
+        localStorage.setItem(wKey, JSON.stringify({ data: payload, expiresAt: Date.now() + CACHE_TTL_MS }));
+      });
+
+    const tPromise = fetch(`${API_URL}/api/branches/${selectedBranch.id}/traffic`, { credentials: 'include' })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data: TrafficData = await r.json();
+        setTraffic(data);
+        localStorage.setItem(tKey, JSON.stringify({ data, expiresAt: Date.now() + TRAFFIC_TTL_MS }));
       })
+      .catch(() => { /* traffic optional, swallow */ });
+
+    Promise.all([wPromise, tPromise])
       .catch((e) => setError(e instanceof Error ? e.message : 'Hava durumu alinamadi'))
       .finally(() => setLoading(false));
   }, [selectedBranch?.id]);
@@ -86,7 +126,7 @@ export function WeatherWidget() {
           exit={{ opacity: 0, y: -6 }}
           className="relative overflow-hidden surface-card rounded-xl p-4"
         >
-          <WeatherContent w={weather} />
+          <WeatherContent w={weather} traffic={traffic} lang={lang as 'tr' | 'en'} />
         </motion.div>
       ) : loading ? (
         <div className="surface-card rounded-xl p-4 text-xs text-ink-3">
@@ -101,9 +141,12 @@ export function WeatherWidget() {
   );
 }
 
-function WeatherContent({ w }: { w: WeatherData }) {
+function WeatherContent({ w, traffic, lang }: { w: WeatherData; traffic: TrafficData | null; lang: 'tr' | 'en' }) {
   const meta = weatherMeta(w.weatherCode);
   const { Icon, label, accent } = meta;
+  const trafficInfo = traffic ? trafficMeta(traffic.level, lang) : null;
+  const trafficPct = traffic ? Math.round(traffic.congestion * 100) : null;
+
   return (
     <>
       <div
@@ -121,18 +164,49 @@ function WeatherContent({ w }: { w: WeatherData }) {
           </div>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-ink-3 flex-shrink-0">
-          <div className="flex items-center gap-1" title="Ruzgar">
+          <div className="flex items-center gap-1" title={lang === 'tr' ? 'Rüzgar' : 'Wind'}>
             <Wind className="w-3.5 h-3.5" />
             <span className="font-mono">{Math.round(w.windSpeed)} km/s</span>
           </div>
           {typeof w.precipitation === 'number' && (
-            <div className="flex items-center gap-1" title="Yagis ihtimali">
+            <div className="flex items-center gap-1" title={lang === 'tr' ? 'Yağış ihtimali' : 'Rain probability'}>
               <Droplet className="w-3.5 h-3.5" />
               <span className="font-mono">%{w.precipitation}</span>
             </div>
           )}
         </div>
       </div>
+
+      {trafficInfo && (
+        <div className="relative mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: `${trafficInfo.accent}25` }}
+            >
+              <Car className="w-4 h-4" style={{ color: trafficInfo.accent }} strokeWidth={1.5} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-ink-1">
+                {lang === 'tr' ? 'Trafik' : 'Traffic'}: <span style={{ color: trafficInfo.accent }}>{trafficInfo.label}</span>
+              </div>
+              <div className="text-[10px] text-ink-4 font-mono">
+                {trafficPct}%
+                {traffic?.currentSpeed && traffic?.freeFlowSpeed && (
+                  <> · {traffic.currentSpeed}/{traffic.freeFlowSpeed} km/s</>
+                )}
+                {traffic?.source === 'heuristic' && <> · {lang === 'tr' ? 'tahmin' : 'estimate'}</>}
+              </div>
+            </div>
+          </div>
+          <div className="w-24 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+            <div
+              className="h-full transition-[width] duration-500"
+              style={{ width: `${trafficPct}%`, backgroundColor: trafficInfo.accent }}
+            />
+          </div>
+        </div>
+      )}
     </>
   );
 }

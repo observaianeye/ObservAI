@@ -19,6 +19,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { callOllama } from '../routes/ai';
 import { dispatchBatch } from './notificationDispatcher';
 import { GEMINI_MODEL_CANDIDATES, isGeminiFallbackError } from '../lib/aiConfig';
+import { fetchTrafficData } from '../routes/branches';
 
 // ─── Weather Helper ───────────────────────────────────────────────────────────
 
@@ -68,6 +69,39 @@ async function getWeatherContext(lat?: number, lon?: number, city?: string): Pro
     let weatherStr = `Current Weather (${city}): ${cw.temperature}°C, ${desc}, Wind: ${cw.windspeed} km/h`;
     if (precipProb !== null) weatherStr += `, Rain probability: ${precipProb}%`;
     return weatherStr;
+  } catch {
+    return '';
+  }
+}
+
+// ─── Traffic Helper ───────────────────────────────────────────────────────────
+
+async function getTrafficContext(lat?: number, lon?: number, timezone?: string, city?: string): Promise<string> {
+  if (!lat || !lon || !timezone) {
+    try {
+      const defaultBranch = await prisma.branch.findFirst({
+        where: { isDefault: true },
+        select: { latitude: true, longitude: true, timezone: true, city: true }
+      });
+      if (defaultBranch) {
+        lat = defaultBranch.latitude;
+        lon = defaultBranch.longitude;
+        timezone = defaultBranch.timezone;
+        city = city || defaultBranch.city;
+      }
+    } catch { /* ignore */ }
+  }
+  lat = lat || 39.9334;
+  lon = lon || 32.8597;
+  timezone = timezone || 'Europe/Istanbul';
+  city = city || 'Ankara';
+  try {
+    const t = await fetchTrafficData(lat, lon, timezone);
+    const pct = Math.round(t.congestion * 100);
+    const speed = t.currentSpeed && t.freeFlowSpeed
+      ? `, ${t.currentSpeed}/${t.freeFlowSpeed} km/h`
+      : '';
+    return `Traffic (${city}, hour ${t.localHour}): ${t.level} congestion (${pct}%${speed}, source: ${t.source})`;
   } catch {
     return '';
   }
@@ -489,6 +523,7 @@ async function buildRecommendationContext(cameraId?: string): Promise<{
   ).join('\n');
 
   const weatherCtx = await getWeatherContext();
+  const trafficCtx = await getTrafficContext();
 
   const contextStr = `
 === LAST 24-HOUR ANALYTICS SUMMARY ===
@@ -498,6 +533,7 @@ Peak Occupancy: ${peakCount}
 Data Points: ${logs.length}
 
 ${weatherCtx ? `Weather Context:\n  ${weatherCtx}` : ''}
+${trafficCtx ? `Traffic Context:\n  ${trafficCtx}` : ''}
 
 ${demographics ? `Demographics:
   Dominant Gender: ${demographics.dominantGender}
@@ -617,6 +653,7 @@ async function buildSummaryContext(cameraId?: string): Promise<{
   totalVisitors: number;
   prevWeekTotal: number;
   weather: string;
+  traffic: string;
 }> {
   const now = new Date();
   const oneDay = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -641,7 +678,7 @@ async function buildSummaryContext(cameraId?: string): Promise<{
       WHERE "createdAt" >= ${sevenDays.toISOString()}
       ORDER BY "createdAt" DESC LIMIT 25
     `,
-    prisma.branch.findFirst({ where: { isDefault: true }, select: { latitude: true, longitude: true, city: true } }),
+    prisma.branch.findFirst({ where: { isDefault: true }, select: { latitude: true, longitude: true, timezone: true, city: true } }),
   ]);
 
   const sumIn = (xs: any[]) => xs.reduce((s, l) => s + l.peopleIn, 0);
@@ -665,6 +702,9 @@ async function buildSummaryContext(cameraId?: string): Promise<{
   const weather = branch
     ? await getWeatherContext(branch.latitude, branch.longitude, branch.city)
     : await getWeatherContext();
+  const traffic = branch
+    ? await getTrafficContext(branch.latitude, branch.longitude, branch.timezone, branch.city)
+    : await getTrafficContext();
 
   const contextStr = `
 === LAST 24 HOURS ===
@@ -687,15 +727,19 @@ Change: ${wow === null ? 'no prior baseline' : `${wow > 0 ? '+' : ''}${wow}%`}
 === WEATHER ===
 ${weather || 'Weather: not available'}
 
+=== TRAFFIC ===
+${traffic || 'Traffic: not available'}
+Note: Traffic congestion can shift customer arrival patterns. Compare visitor counts during high-traffic windows vs free-flow windows.
+
 === RECENT ALERTS ===
 ${insightsLine}
 `;
 
-  return { contextStr, hasData, totalVisitors: visitors24h, prevWeekTotal: visitorsPrev, weather };
+  return { contextStr, hasData, totalVisitors: visitors24h, prevWeekTotal: visitorsPrev, weather, traffic };
 }
 
 function buildDemoSummary(
-  ctx: { totalVisitors: number; prevWeekTotal: number; weather: string }
+  ctx: { totalVisitors: number; prevWeekTotal: number; weather: string; traffic: string }
 ): { tr: string; en: string } {
   const wow = ctx.prevWeekTotal > 0
     ? Math.round(((ctx.totalVisitors - ctx.prevWeekTotal) / ctx.prevWeekTotal) * 100)
@@ -703,9 +747,10 @@ function buildDemoSummary(
   const wowStr = wow === null ? 'henüz haftalık karşılaştırma yapılamadı' : `${wow > 0 ? '+' : ''}${wow}%`;
   const wowStrEn = wow === null ? 'no prior week baseline' : `${wow > 0 ? '+' : ''}${wow}%`;
   const w = ctx.weather || 'hava durumu verisi alınamadı';
+  const tr = ctx.traffic || 'trafik verisi alınamadı';
   return {
-    tr: `Son 24 saatte ${ctx.totalVisitors} ziyaretçi kayıt edildi (haftalık değişim ${wowStr}). Hava: ${w}.`,
-    en: `Last 24 hours recorded ${ctx.totalVisitors} visitors (week-over-week ${wowStrEn}). Weather: ${w}.`,
+    tr: `Son 24 saatte ${ctx.totalVisitors} ziyaretçi kayıt edildi (haftalık değişim ${wowStr}). Hava: ${w}. Trafik: ${tr}.`,
+    en: `Last 24 hours recorded ${ctx.totalVisitors} visitors (week-over-week ${wowStrEn}). Weather: ${w}. Traffic: ${tr}.`,
   };
 }
 
