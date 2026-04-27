@@ -1,6 +1,5 @@
 import CameraFeed from '../../components/camera/CameraFeed';
-import GenderChart from '../../components/camera/GenderChart';
-import AgeChart from '../../components/camera/AgeChart';
+import DemographicsCard from '../../components/camera/DemographicsCard';
 import VisitorCountWidget from '../../components/camera/VisitorCountWidget';
 import TableFloorMini from '../../components/camera/TableFloorMini';
 import { WeatherWidget } from '../../components/dashboard/WeatherWidget';
@@ -24,13 +23,9 @@ export default function CameraAnalyticsPage() {
         </div>
         <div className="space-y-6">
           <VisitorCountWidget />
+          <DemographicsCard />
           <TableFloorMini />
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <GenderChart />
-        <AgeChart />
       </div>
     </div>
   );
