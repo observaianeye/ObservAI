@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, Sparkles, X, AlertTriangle, Users, DoorOpen, LogOut } from 'lucide-react';
+import { X, AlertTriangle, Users, DoorOpen, LogOut } from 'lucide-react';
 import { cameraBackendService, type TableData, type Zone, type AnalyticsData } from '../../services/cameraBackendService';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
@@ -21,22 +21,7 @@ type RenderedZone = {
   status?: TableStatusUI;
   occupants?: number;
   crowded?: boolean;
-  occupancyDuration?: number;
-  totalOccupiedSeconds?: number;
-  avgStaySeconds?: number;
-  turnoverCount?: number;
 };
-
-function formatDuration(secs: number, lang: 'tr' | 'en'): string {
-  if (!secs || secs < 1) return '—';
-  if (secs < 60) return `${Math.round(secs)} ${lang === 'tr' ? 'sn' : 's'}`;
-  const m = Math.floor(secs / 60);
-  const s = Math.round(secs % 60);
-  if (m < 60) return s > 0 ? `${m}d ${s}sn` : `${m} ${lang === 'tr' ? 'dk' : 'min'}`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return `${h}sa ${rm}d`;
-}
 
 function centroidOf(points: Array<{ x: number; y: number }>): { x: number; y: number } {
   if (!points.length) return { x: 0.5, y: 0.5 };
@@ -174,14 +159,10 @@ export default function TableFloorMini() {
       if (z.type === 'table') {
         const t = tables.find((tt) => tt.id === z.id);
         r.status = t && t.status === 'occupied' ? 'occupied' : 'empty';
-        r.occupancyDuration = t?.occupancyDuration ?? 0;
-        r.totalOccupiedSeconds = t?.totalOccupiedSeconds ?? 0;
-        r.avgStaySeconds = t?.avgStaySeconds ?? 0;
-        r.turnoverCount = t?.turnoverCount ?? 0;
       } else if (z.type === 'queue' || z.type === 'entrance' || z.type === 'exit') {
         const occ = zoneOccupancy[z.id] ?? (z.type === 'queue' ? globalQueue : 0);
         r.occupants = occ;
-        if ((z.type === 'queue' || z.type === 'entrance') && occ > CROWD_THRESHOLD) {
+        if (occ > CROWD_THRESHOLD) {
           r.crowded = true;
         }
       }
@@ -405,7 +386,6 @@ function ZoneLabel({ zone, isSelected }: { zone: RenderedZone; isSelected: boole
   const cx = zone.centroid.x * 100;
   const cy = zone.centroid.y * 100;
   const isTable = zone.type === 'table';
-  const isCrowdable = zone.type === 'queue' || zone.type === 'entrance';
 
   const dotColor = zone.crowded
     ? 'bg-danger-400'
@@ -424,7 +404,7 @@ function ZoneLabel({ zone, isSelected }: { zone: RenderedZone; isSelected: boole
   const Icon = isTable ? null
     : zone.type === 'entrance' ? DoorOpen
     : zone.type === 'exit' ? LogOut
-    : isCrowdable ? Users
+    : zone.type === 'queue' ? Users
     : null;
 
   return (
@@ -446,15 +426,6 @@ function ZoneLabel({ zone, isSelected }: { zone: RenderedZone; isSelected: boole
         <span className="text-[10px] font-semibold text-ink-1 leading-tight max-w-[70px] truncate">
           {zone.name}
         </span>
-        {isCrowdable && typeof zone.occupants === 'number' && (
-          <span
-            className={`text-[10px] font-mono font-bold ${
-              zone.crowded ? 'text-danger-100' : 'text-ink-2'
-            }`}
-          >
-            {zone.occupants}
-          </span>
-        )}
       </div>
     </div>
   );
@@ -470,34 +441,19 @@ function TableDetail({
   onClose: () => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className={`w-2 h-2 rounded-full ${z.status === 'occupied' ? 'bg-brand-400' : 'bg-success-400'}`} />
-          <p className="text-sm font-semibold text-ink-0 truncate">{z.name}</p>
-          <span
-            className={`text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded ${
-              z.status === 'occupied'
-                ? 'bg-brand-500/20 text-brand-200'
-                : 'bg-success-500/15 text-success-200'
-            }`}
-          >
-            {z.status === 'occupied' ? (lang === 'tr' ? 'Dolu' : 'Occupied') : (lang === 'tr' ? 'Boş' : 'Free')}
-          </span>
-        </div>
-        <div className="grid grid-cols-3 gap-3 text-[11px]">
-          <Stat
-            icon={<Clock className="w-3 h-3" />}
-            label={lang === 'tr' ? 'Toplam dolu' : 'Total occupied'}
-            value={formatDuration(z.totalOccupiedSeconds ?? 0, lang)}
-          />
-          <Stat
-            icon={<Sparkles className="w-3 h-3" />}
-            label={lang === 'tr' ? 'Ort. oturum' : 'Avg stay'}
-            value={formatDuration(z.avgStaySeconds ?? 0, lang)}
-          />
-          <Stat label={lang === 'tr' ? 'Devir' : 'Turnover'} value={String(z.turnoverCount ?? 0)} />
-        </div>
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0 flex-1 flex items-center gap-2">
+        <span className={`w-2 h-2 rounded-full ${z.status === 'occupied' ? 'bg-brand-400' : 'bg-success-400'}`} />
+        <p className="text-sm font-semibold text-ink-0 truncate">{z.name}</p>
+        <span
+          className={`text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded ${
+            z.status === 'occupied'
+              ? 'bg-brand-500/20 text-brand-200'
+              : 'bg-success-500/15 text-success-200'
+          }`}
+        >
+          {z.status === 'occupied' ? (lang === 'tr' ? 'Dolu' : 'Occupied') : (lang === 'tr' ? 'Boş' : 'Free')}
+        </span>
       </div>
       <button
         onClick={onClose}
@@ -521,7 +477,6 @@ function CrowdDetail({
   threshold: number;
   onClose: () => void;
 }) {
-  const occ = z.occupants ?? 0;
   const isQueue = z.type === 'queue';
   const isEntrance = z.type === 'entrance';
   const TypeIcon = isEntrance ? DoorOpen : isQueue ? Users : LogOut;
@@ -545,7 +500,7 @@ function CrowdDetail({
             {typeLabel}
           </span>
         </div>
-        {z.crowded ? (
+        {z.crowded && (
           <div className="flex items-start gap-2 mt-1">
             <AlertTriangle className="w-4 h-4 text-danger-300 flex-shrink-0 mt-0.5" />
             <div>
@@ -554,17 +509,11 @@ function CrowdDetail({
               </p>
               <p className="text-[11px] text-ink-2 mt-0.5">
                 {lang === 'tr'
-                  ? `${occ} kişi tespit edildi (eşik: ${threshold}). Personel yönlendirin.`
-                  : `${occ} people detected (threshold: ${threshold}). Dispatch staff.`}
+                  ? `Eşik aşıldı (${threshold}+ kişi). Personel yönlendirin.`
+                  : `Threshold exceeded (${threshold}+ people). Dispatch staff.`}
               </p>
             </div>
           </div>
-        ) : (
-          <p className="text-[11px] text-ink-2">
-            {lang === 'tr'
-              ? `${occ} kişi · eşik ${threshold}`
-              : `${occ} people · threshold ${threshold}`}
-          </p>
         )}
       </div>
       <button
@@ -587,14 +536,3 @@ function Legend({ dotClass, label }: { dotClass: string; label: string }) {
   );
 }
 
-function Stat({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="space-y-0.5">
-      <div className="flex items-center gap-1 text-ink-4 text-[10px] uppercase tracking-wider font-mono">
-        {icon}
-        <span>{label}</span>
-      </div>
-      <p className="text-ink-1 font-semibold text-xs">{value}</p>
-    </div>
-  );
-}

@@ -1061,12 +1061,6 @@ export default function CameraFeed() {
               <span className="text-xs text-ink-2 font-mono">
                 {isStreaming ? t('cameraFeed.live') : t('cameraFeed.offline')}
               </span>
-              {isStreaming && backendConnected && (
-                <>
-                  <span className="text-xs text-ink-3">•</span>
-                  <span className="text-xs text-success font-mono">{t('cameraFeed.backendConnected')}</span>
-                </>
-              )}
               {isStreaming && !backendConnected && (
                 <>
                   <span className="text-xs text-ink-3">•</span>
