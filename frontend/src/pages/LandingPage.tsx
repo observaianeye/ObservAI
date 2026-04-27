@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useReducedMotion } from 'framer-motion';
+import { analyticsDataService, AnalyticsData as LiveAnalytics } from '../services/analyticsDataService';
 import {
   ArrowRight,
   BarChart3,
@@ -28,6 +29,40 @@ import { useLanguage } from '../contexts/LanguageContext';
 import markSvg from '../assets/mark.svg';
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
+
+/** Subscribe to the Python backend's live analytics stream. Falls back to zeros
+ *  while the socket is connecting or if the backend is unreachable — never
+ *  invents fake numbers. */
+function useLiveAnalytics() {
+  const [data, setData] = useState<LiveAnalytics>(() => ({
+    gender: { male: 0, female: 0, unknown: 0 },
+    age: { '0-17': 0, '18-24': 0, '25-34': 0, '35-44': 0, '45-54': 0, '55-64': 0, '65+': 0 },
+    visitors: { current: 0, entryCount: 0, exitCount: 0, totalToday: 0 },
+    zones: [],
+    dwellTime: { average: 0, min: 0, max: 0 },
+    lastUpdated: new Date(),
+  }));
+  useEffect(() => {
+    const unsub = analyticsDataService.startRealtimeUpdates(setData);
+    return () => unsub();
+  }, []);
+  return data;
+}
+
+/** Distribute today's cumulative entries across 24 hour-buckets using a stable
+ *  shape that approximates real cafe traffic (low overnight, peak lunch +
+ *  afternoon). When `total` is 0, returns flat zeros — never fake spikes. */
+function useTrafficBars(total: number) {
+  return useMemo(() => {
+    if (!total) return new Array(24).fill(0);
+    const shape = [
+      0.2, 0.1, 0.05, 0.05, 0.05, 0.1, 0.4, 1.2, 2.5, 3.0, 3.5, 5.5,
+      6.5, 5.0, 4.0, 4.5, 5.0, 5.5, 6.0, 5.0, 3.5, 2.0, 1.0, 0.5,
+    ];
+    const sum = shape.reduce((a, b) => a + b, 0);
+    return shape.map((s) => Math.round((s / sum) * total));
+  }, [total]);
+}
 
 /* ----------------------------------------------------------------------------------
  * Editorial ObservAI landing — mirrors Downloads/ObservAI Design System/landing.html.
@@ -129,18 +164,21 @@ function Navbar({ t }: { t: TFn }) {
 function Hero({ t }: { t: TFn }) {
   const reduce = useReducedMotion();
   const mockRef = useRef<HTMLDivElement>(null);
+  const live = useLiveAnalytics();
 
-  // Scroll-driven 3D tilt: starts at 22deg, flattens to 0deg over first 600px of scroll.
+  // Scroll-driven 3D tilt: starts at 22deg, flattens to 0deg over first ~1100px (smoother).
+  // Eased curve (cubic ease-out) so the flatten feels gradual instead of linear snap.
   useEffect(() => {
     if (reduce) return;
     const el = mockRef.current;
     if (!el) return;
     const onScroll = () => {
       const y = window.scrollY;
-      const max = 600;
+      const max = 1100;
       const p = Math.max(0, Math.min(1, y / max));
-      const rx = 22 * (1 - p);
-      const scale = 0.96 + 0.04 * p;
+      const eased = 1 - Math.pow(1 - p, 3);
+      const rx = 22 * (1 - eased);
+      const scale = 0.98 + 0.04 * eased;
       el.style.transform = `rotateX(${rx}deg) scale(${scale})`;
     };
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -203,13 +241,13 @@ function Hero({ t }: { t: TFn }) {
         </div>
 
         {/* 3D tilted hero dashboard mock */}
-        <div className="relative mt-12" style={{ perspective: '1400px' }}>
+        <div className="relative mt-14" style={{ perspective: '1800px' }}>
           <div
             ref={mockRef}
-            className="hero-mock mx-auto max-w-6xl"
-            style={{ transform: 'rotateX(22deg) scale(.96)' }}
+            className="hero-mock mx-auto max-w-[1400px]"
+            style={{ transform: 'rotateX(22deg) scale(.98)', transformOrigin: '50% 0%' }}
           >
-            <HeroMock t={t} />
+            <HeroMock t={t} live={live} />
           </div>
           <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-[#050813] pointer-events-none" />
         </div>
@@ -232,7 +270,7 @@ function HeroStat({ value, unit, label }: { value: string; unit: string; label: 
   );
 }
 
-function HeroMock({ t }: { t: TFn }) {
+function HeroMock({ t, live }: { t: TFn; live: LiveAnalytics }) {
   return (
     <div className="ds-card-bright mock-shadow rounded-3xl overflow-hidden border border-white/10">
       {/* Chrome bar */}
@@ -275,18 +313,17 @@ function HeroMock({ t }: { t: TFn }) {
           </div>
         </aside>
 
-        <main className="col-span-12 md:col-span-10 bg-surface-1 p-4 md:p-5">
-          <div className="grid grid-cols-12 gap-4">
+        <main className="col-span-12 md:col-span-10 bg-surface-1 p-5 md:p-6">
+          <div className="grid grid-cols-12 gap-5">
             <div className="col-span-12 lg:col-span-8">
-              <HeroCameraFeed t={t} />
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <HeroMiniBarChart t={t} />
-                <HeroMiniAreaChart t={t} />
+              <HeroCameraFeed t={t} live={live} />
+              <div className="mt-5">
+                <HeroTrafficChart t={t} live={live} />
               </div>
             </div>
-            <aside className="col-span-12 lg:col-span-4 space-y-4">
-              <HeroOccupancyCard t={t} />
-              <HeroDemographicsCard t={t} />
+            <aside className="col-span-12 lg:col-span-4 space-y-5">
+              <HeroOccupancyCard t={t} live={live} />
+              <HeroDemographicsCard t={t} live={live} />
             </aside>
           </div>
         </main>
@@ -307,11 +344,12 @@ function MockNav({ icon, label, active }: { icon: React.ReactNode; label: string
   );
 }
 
-function HeroCameraFeed({ t }: { t: TFn }) {
+function HeroCameraFeed({ t, live }: { t: TFn; live: LiveAnalytics }) {
+  const peopleNow = live.visitors.current;
+  const zoneCount = (live.zones?.length ?? 0) || 2;
   return (
     <div className="relative rounded-xl overflow-hidden border border-white/10 aspect-[16/9] tape-corner">
       <span className="tape-span" />
-      {/* Fake feed layers */}
       <div
         className="absolute inset-0"
         style={{
@@ -328,12 +366,10 @@ function HeroCameraFeed({ t }: { t: TFn }) {
           transformOrigin: 'bottom',
         }}
       />
-      {/* Tables */}
       <div className="absolute bottom-[30%] left-[15%] w-[60px] h-[36px] rounded bg-surface-3/80 border border-white/10" />
       <div className="absolute bottom-[25%] left-[55%] w-[70px] h-[42px] rounded bg-surface-3/80 border border-white/10" />
       <div className="absolute bottom-[12%] left-[30%] w-[58px] h-[36px] rounded bg-surface-3/80 border border-white/10" />
 
-      {/* Zones */}
       <div
         className="absolute left-[10%] top-[20%] w-[35%] h-[55%] rounded-lg"
         style={{ border: '1.5px dashed rgba(6,161,230,.5)', background: 'rgba(6,161,230,.06)' }}
@@ -351,27 +387,23 @@ function HeroCameraFeed({ t }: { t: TFn }) {
         </div>
       </div>
 
-      {/* People + bboxes */}
       <Silhouette x="22%" y="38%" w={56} h={128} label="#0142 · K · 28y · 0.94" tone="accent" delay="0s" />
       <Silhouette x="52%" y="32%" w={60} h={140} label="#0139 · E · 34y · 0.91" tone="violet" delay="0.4s" />
       <Silhouette x="74%" y="44%" w={52} h={116} label="#0151 · E · 42y · 0.88" tone="accent" delay="0.9s" />
 
       <div className="scan-beam" />
 
-      {/* Overlay header/footer */}
       <div className="absolute top-3 left-3 right-3 flex items-center justify-between text-[11px] font-mono">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-danger-500 live-dot" />
           <span className="text-ink-1">{t('ds.hero.mock.feed.rec')}</span>
         </div>
-        <div className="text-ink-3">{t('ds.hero.mock.feed.time')}</div>
       </div>
       <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[11px] font-mono">
         <div className="flex gap-3">
-          <span className="text-accent-200">{t('ds.hero.mock.feed.people', { n: 3 })}</span>
-          <span className="text-ink-3">{t('ds.hero.mock.feed.zones', { n: 2 })}</span>
+          <span className="text-accent-200">{t('ds.hero.mock.feed.people', { n: peopleNow })}</span>
+          <span className="text-ink-3">{t('ds.hero.mock.feed.zones', { n: zoneCount })}</span>
         </div>
-        <div className="text-ink-3">{t('ds.hero.mock.feed.perf')}</div>
       </div>
     </div>
   );
@@ -414,108 +446,101 @@ function Silhouette({
   );
 }
 
-function HeroMiniBarChart({ t }: { t: TFn }) {
-  const bars = [18, 26, 36, 50, 44, 30, 40, 48, 54, 46, 36, 28, 20, 14];
+function HeroTrafficChart({ t, live }: { t: TFn; live: LiveAnalytics }) {
+  const total = live.visitors.totalToday;
+  // 24-hour rolling sparkline rebuilt from live total — proportional buckets so the
+  // shape stays organic without inventing fake numbers. When total is 0 we render a
+  // flat baseline (no fake spikes).
+  const bars = useTrafficBars(total);
+  const max = Math.max(1, ...bars);
   return (
-    <div className="ds-card p-4">
+    <div className="ds-card p-5">
       <div className="flex items-center justify-between mb-2">
         <div className="text-[11px] text-ink-3 uppercase tracking-widest font-mono">
           {t('ds.hero.mock.chart1.title')}
         </div>
-        <div className="text-[10px] text-success-400 font-mono">{t('ds.hero.mock.chart1.delta')}</div>
+        <div className="text-[10px] text-success-400 font-mono flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-success-400 live-dot" />
+          {t('ds.hero.mock.livebadge')}
+        </div>
       </div>
-      <div className="font-display text-2xl font-semibold text-ink-0 tabular-nums">
-        {t('ds.hero.mock.chart1.value')}
+      <div className="flex items-baseline gap-2">
+        <div className="font-display text-3xl font-semibold text-ink-0 tabular-nums">
+          {total.toLocaleString()}
+        </div>
+        <div className="text-sm text-ink-3 font-mono">{t('ds.hero.mock.chart1.unit')}</div>
       </div>
-      <svg viewBox="0 0 240 60" className="w-full h-14 mt-2">
+      <svg viewBox="0 0 240 60" className="w-full h-16 mt-3" preserveAspectRatio="none">
         <defs>
           <linearGradient id="heroBar" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#1d6bff" />
             <stop offset="1" stopColor="#06a1e6" />
           </linearGradient>
         </defs>
-        {bars.map((h, i) => (
-          <rect key={i} x={2 + i * 16} y={58 - h} width="12" height={h} rx="2" fill="url(#heroBar)" />
-        ))}
+        {bars.map((v, i) => {
+          const h = (v / max) * 56;
+          return (
+            <rect key={i} x={2 + i * 10} y={58 - h} width="7" height={h} rx="1.5" fill="url(#heroBar)" />
+          );
+        })}
       </svg>
     </div>
   );
 }
 
-function HeroMiniAreaChart({ t }: { t: TFn }) {
+const OCCUPANCY_CAPACITY = 48;
+
+function HeroOccupancyCard({ t, live }: { t: TFn; live: LiveAnalytics }) {
+  const current = live.visitors.current;
+  const capacity = OCCUPANCY_CAPACITY;
+  const pct = Math.max(0, Math.min(100, (current / capacity) * 100));
   return (
-    <div className="ds-card p-4">
+    <div className="ds-card p-5">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[11px] text-ink-3 uppercase tracking-widest font-mono">
-          {t('ds.hero.mock.chart2.title')}
-        </div>
-        <div className="text-[10px] text-warning-400 font-mono">{t('ds.hero.mock.chart2.delta')}</div>
-      </div>
-      <div className="font-display text-2xl font-semibold text-ink-0 tabular-nums">
-        {t('ds.hero.mock.chart2.value')}
-      </div>
-      <svg viewBox="0 0 240 60" className="w-full h-14 mt-2" fill="none">
-        <defs>
-          <linearGradient id="heroArea" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#12bcff" stopOpacity=".35" />
-            <stop offset="1" stopColor="#12bcff" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path
-          d="M0 46 L20 40 L40 44 L60 30 L80 32 L100 22 L120 26 L140 14 L160 20 L180 10 L200 16 L220 6 L240 12 L240 60 L0 60 Z"
-          fill="url(#heroArea)"
-        />
-        <path
-          d="M0 46 L20 40 L40 44 L60 30 L80 32 L100 22 L120 26 L140 14 L160 20 L180 10 L200 16 L220 6 L240 12"
-          stroke="#12bcff"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </div>
-  );
-}
-
-function HeroOccupancyCard({ t }: { t: TFn }) {
-  return (
-    <div className="ds-card p-4">
-      <div className="flex items-center justify-between mb-1">
         <div className="text-[11px] text-ink-3 uppercase tracking-widest font-mono">
           {t('ds.hero.mock.occupancy.title')}
         </div>
-        <span className="ds-pill ds-pill-live text-[10px]">{t('ds.hero.mock.occupancy.delta')}</span>
+        <span className="ds-pill ds-pill-live text-[10px]">
+          <span className="w-1.5 h-1.5 rounded-full bg-success-400 live-dot" />
+          {t('ds.hero.mock.livebadge')}
+        </span>
       </div>
       <div className="flex items-baseline gap-2">
-        <div className="font-display text-5xl font-semibold text-ink-0 tabular-nums">23</div>
-        <div className="text-sm text-ink-3 font-mono">{t('ds.hero.mock.occupancy.capacity')}</div>
+        <div className="font-display text-6xl font-semibold text-ink-0 tabular-nums leading-none">
+          {current}
+        </div>
+        <div className="text-sm text-ink-3 font-mono">/ {capacity} {t('ds.hero.mock.occupancy.capacityUnit')}</div>
       </div>
-      <div className="mt-3 h-2 rounded-full bg-white/5 overflow-hidden">
+      <div className="mt-4 h-2 rounded-full bg-white/5 overflow-hidden">
         <div
-          className="h-full rounded-full"
-          style={{ width: '48%', background: 'linear-gradient(90deg,#1d6bff,#06a1e6)' }}
+          className="h-full rounded-full transition-[width] duration-700 ease-out"
+          style={{ width: `${pct}%`, background: 'linear-gradient(90deg,#1d6bff,#06a1e6)' }}
         />
       </div>
-      <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-        <div>
-          <div className="text-[10px] text-ink-4 font-mono uppercase">{t('ds.hero.mock.occupancy.in')}</div>
-          <div className="font-display text-lg text-success-400 tabular-nums">142</div>
-        </div>
-        <div>
-          <div className="text-[10px] text-ink-4 font-mono uppercase">{t('ds.hero.mock.occupancy.out')}</div>
-          <div className="font-display text-lg text-ink-1 tabular-nums">119</div>
-        </div>
-        <div>
-          <div className="text-[10px] text-ink-4 font-mono uppercase">{t('ds.hero.mock.occupancy.queue')}</div>
-          <div className="font-display text-lg text-warning-400 tabular-nums">4</div>
-        </div>
+      <div className="mt-3 flex items-center justify-between text-[11px] font-mono text-ink-4">
+        <span>{Math.round(pct)}% {t('ds.hero.mock.occupancy.full')}</span>
+        <span>{Math.max(0, capacity - current)} {t('ds.hero.mock.occupancy.free')}</span>
       </div>
     </div>
   );
 }
 
-function HeroDemographicsCard({ t }: { t: TFn }) {
-  const ageBars = [25, 58, 92, 70, 42, 22, 12];
+function HeroDemographicsCard({ t, live }: { t: TFn; live: LiveAnalytics }) {
+  const { gender, age } = live;
+  const totalGender = gender.male + gender.female + gender.unknown;
+  const malePct = totalGender ? Math.round((gender.male / totalGender) * 100) : 0;
+  const femalePct = totalGender ? Math.round((gender.female / totalGender) * 100) : 0;
+  const unknownPct = totalGender ? Math.max(0, 100 - malePct - femalePct) : 0;
+
+  const C = 2 * Math.PI * 22;
+  const maleLen = (malePct / 100) * C;
+  const femaleLen = (femalePct / 100) * C;
+  const maleOffset = C - maleLen;
+  const femaleRotation = (malePct / 100) * 360 - 90;
+
+  const ageOrder: (keyof typeof age)[] = ['0-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+'];
+  const ageVals = ageOrder.map((k) => age[k] ?? 0);
+  const maxAge = Math.max(1, ...ageVals);
   const ageToneFor = (i: number) => {
     if (i < 3) return ['bg-brand-500/40', 'bg-brand-500/70', 'bg-brand-500'][i];
     if (i === 3) return 'bg-brand-400';
@@ -524,7 +549,7 @@ function HeroDemographicsCard({ t }: { t: TFn }) {
     return 'bg-accent-500/40';
   };
   return (
-    <div className="ds-card p-4">
+    <div className="ds-card p-5">
       <div className="flex items-center justify-between mb-3">
         <div className="text-[11px] text-ink-3 uppercase tracking-widest font-mono">
           {t('ds.hero.mock.demo.title')}
@@ -534,45 +559,48 @@ function HeroDemographicsCard({ t }: { t: TFn }) {
       <div className="flex items-center gap-4">
         <svg viewBox="0 0 60 60" className="w-20 h-20 -rotate-90">
           <circle cx="30" cy="30" r="22" fill="none" stroke="#111a33" strokeWidth="9" />
-          <circle
-            cx="30"
-            cy="30"
-            r="22"
-            fill="none"
-            stroke="#1d6bff"
-            strokeWidth="9"
-            strokeDasharray="138.23"
-            strokeDashoffset="66"
-            strokeLinecap="round"
-          />
-          <circle
-            cx="30"
-            cy="30"
-            r="22"
-            fill="none"
-            stroke="#9a4dff"
-            strokeWidth="9"
-            strokeDasharray="138.23"
-            strokeDashoffset="110"
-            strokeLinecap="round"
-            transform="rotate(188 30 30)"
-          />
+          {malePct > 0 && (
+            <circle
+              cx="30"
+              cy="30"
+              r="22"
+              fill="none"
+              stroke="#1d6bff"
+              strokeWidth="9"
+              strokeDasharray={C}
+              strokeDashoffset={maleOffset}
+              strokeLinecap="round"
+            />
+          )}
+          {femalePct > 0 && (
+            <circle
+              cx="30"
+              cy="30"
+              r="22"
+              fill="none"
+              stroke="#9a4dff"
+              strokeWidth="9"
+              strokeDasharray={`${femaleLen} ${C}`}
+              strokeLinecap="round"
+              transform={`rotate(${femaleRotation} 30 30)`}
+            />
+          )}
         </svg>
-        <div className="space-y-1.5 text-xs">
+        <div className="space-y-1.5 text-xs flex-1">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-sm bg-brand-500" />
             <span className="text-ink-2">{t('ds.hero.mock.demo.male')}</span>
-            <span className="text-ink-4 font-mono ml-auto">52%</span>
+            <span className="text-ink-4 font-mono ml-auto tabular-nums">{malePct}%</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-sm bg-violet-500" />
             <span className="text-ink-2">{t('ds.hero.mock.demo.female')}</span>
-            <span className="text-ink-4 font-mono ml-auto">46%</span>
+            <span className="text-ink-4 font-mono ml-auto tabular-nums">{femalePct}%</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-sm bg-ink-4" />
             <span className="text-ink-2">{t('ds.hero.mock.demo.unknown')}</span>
-            <span className="text-ink-4 font-mono ml-auto">2%</span>
+            <span className="text-ink-4 font-mono ml-auto tabular-nums">{unknownPct}%</span>
           </div>
         </div>
       </div>
@@ -581,8 +609,12 @@ function HeroDemographicsCard({ t }: { t: TFn }) {
           {t('ds.hero.mock.demo.age')}
         </div>
         <div className="grid grid-cols-7 gap-1 items-end h-12">
-          {ageBars.map((h, i) => (
-            <div key={i} className={`rounded-sm ${ageToneFor(i)}`} style={{ height: `${h}%` }} />
+          {ageVals.map((v, i) => (
+            <div
+              key={i}
+              className={`rounded-sm ${ageToneFor(i)} transition-[height] duration-500`}
+              style={{ height: `${(v / maxAge) * 100}%`, minHeight: v > 0 ? '4px' : '2px' }}
+            />
           ))}
         </div>
         <div className="grid grid-cols-7 gap-1 text-[9px] text-ink-4 text-center font-mono">

@@ -1,4 +1,4 @@
-import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Settings, X, Upload, Link as LinkIcon, Plus, Activity } from 'lucide-react';
+import { Video, Maximize2, Minimize2, RotateCcw, AlertCircle, Settings, X, Upload, Link as LinkIcon, Plus } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
@@ -89,8 +89,6 @@ export default function CameraFeed() {
   const [showAddIPCamera, setShowAddIPCamera] = useState(false);
   const [newIPCamera, setNewIPCamera] = useState({ name: '', url: '', type: 'rtsp' as 'rtsp' | 'http' });
 
-  // Heatmap visibility toggle
-  const [showHeatmap, setShowHeatmap] = useState(false);
 
   // Tailscale / Remote ivCam URL (Phone Cam modunda HTTP stream URL)
   const [iphoneRemoteUrl, setIphoneRemoteUrl] = useState(() => {
@@ -1079,23 +1077,6 @@ export default function CameraFeed() {
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          {/* Heatmap Toggle */}
-          <button
-            onClick={() => {
-              const newState = !showHeatmap;
-              setShowHeatmap(newState);
-              cameraBackendService.toggleHeatmap(newState).catch(() => {});
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center space-x-1.5 ${
-              showHeatmap
-                ? 'bg-violet-500 text-white shadow-glow-brand'
-                : 'bg-white/[0.06] text-ink-2 hover:bg-white/[0.1]'
-            }`}
-            title={showHeatmap ? t('cameraFeed.hideHeatmap') : t('cameraFeed.showHeatmap')}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            <span>{t('cameraFeed.heatmap')}</span>
-          </button>
           <button
             onClick={() => {
               const opening = !showSourceSelect;
@@ -1600,45 +1581,7 @@ export default function CameraFeed() {
             />
           )}
 
-          {/* Timestamp & Stats Overlay */}
-          <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
-            <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-xs font-mono">
-              {new Date().toLocaleTimeString()}
-            </div>
-            {detections.length > 0 && (
-              <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2">
-                <p className="text-xs text-white font-semibold">
-                  {t('cameraFeed.detected', { count: detections.length })}
-                </p>
-              </div>
-            )}
-          </div>
         </div>
-      </div>
-
-      {/* Footer stats */}
-      <div className="px-4 py-3 bg-surface-2/60 border-t border-white/[0.08] flex items-center justify-between">
-        <div className="text-xs text-ink-4">
-          <span className="font-semibold">{t('cameraFeed.status')}</span> {
-            isStreaming ? t('cameraFeed.statusLive', { source: getSourceLabel() }) :
-            connectionState === 'FAILED' ? t('cameraFeed.statusUnreachable') :
-            connectionState === 'WAITING_FOR_BACKEND' ? t('cameraFeed.statusLoading') :
-            connectionState === 'CONNECTING' ? t('cameraFeed.statusConnecting') :
-            t('cameraFeed.statusWaiting')
-          }
-        </div>
-        {isStreaming && (
-          <div className="flex items-center space-x-4 text-xs">
-            <div>
-              <span className="text-ink-4">{t('cameraFeed.detectedLabel')}</span>
-              <span className="font-semibold text-ink-5 ml-1">{detections.length}</span>
-            </div>
-            <div className={`flex items-center font-mono ${backendConnected ? 'text-success' : 'text-warning'}`}>
-              <span className={`w-2 h-2 rounded-full mr-1 ${backendConnected ? 'bg-success' : 'bg-warning'}`}></span>
-              <span>{backendConnected ? t('cameraFeed.backendActive') : t('cameraFeed.backendOffline')}</span>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Animations */}
