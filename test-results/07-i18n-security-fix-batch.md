@@ -21,7 +21,7 @@
 | Batch | Yan'lar | Durum | Yeni vitest | Sure |
 |---|---|---|---|---|
 | A | #30, #34, #45, #54 | DONE | +7 | ~25 dk |
-| B | #22 | TODO | — | — |
+| B | #22 | DONE_PATCH_PENDING_RESTART | +3 | ~30 dk |
 | C | #1.5a, #10, #11, #41, #56, #34 yayilim | TODO | — | — |
 | D | #28, #36, #40, #46, #47, #48, #59 | TODO | — | — |
 | E | #38, #44, #50, #51, #57 | TODO | — | — |
@@ -70,5 +70,71 @@
 - **`packages/camera-analytics/config/zones.json`** still dirty in working tree — confirmed Python runtime drift (UUID + coord shuffle, no schema change). User opted to leave it untracked; not committed.
 - Pre-flight added a small chore commit `9e02c66 chore(gitignore): exclude per-developer helper scripts (_partal_test_*, kisalik)` so the working tree was clean for Batch A commits.
 
+## Batch B Detay
+
+### Yan #22 — Python → Node analytics persistence (frontend-bagimsiz)
+
+**Plan A secildi** (env-var gating). Tek kompleks yan, alt-bilesenler:
+
+- **Python**: `packages/camera-analytics/camera_analytics/run_with_websocket.py`
+  - `NodePersister` sinifi (asyncio.Lock + 1s batched POST + retry exp backoff,
+    max 5/batch, owns its own `aiohttp.ClientSession`).
+  - `CameraAnalyticsWithWebSocket` icine wiring: `__init__`'te `cam_id =
+    os.environ['OBSERVAI_CAMERA_ID']`, `start()` icinde NODE_URL+KEY
+    saglandiginda persister start, `emit_metrics` callback'inde
+    `asyncio.run_coroutine_threadsafe(persister.push(...))` ile metrics
+    payload'i Node'a forward (entries→peopleIn, exits→peopleOut, current→currentCount, queue→queueCount, fps→fps; avg/longestWaitTime field placeholder 0.0 — payload exposure'a girmiyor su an).
+- **Node**: `backend/src/routes/analytics.ts`
+  - `POST /api/analytics/ingest` endpoint. `X-Ingest-Key` header check
+    (env `OBSERVAI_INGEST_KEY` ile karsilastirir; env yoksa 401).
+  - Zod batch (max 100): `cameraId` UUID, `timestamp` ms, ints + floats
+    nonneg. `prisma.analyticsLog.createMany({ data: rows })` (SQLite
+    skipDuplicates desteklemiyor, AnalyticsLog @default(uuid()) cakisma riski yok).
+- **Spawn env**: `backend/src/lib/pythonBackendManager.ts`
+  - `BackendConfig` interface'a `cameraId?: string` eklendi.
+  - `start()`'ta spawn'dan once `env.OBSERVAI_CAMERA_ID = config.cameraId`
+    (config'te varsa). Calismasi icin pythonBackendManager.start() Python'i
+    yeniden spawn etmesi gerek (mevcut "external running" early-return
+    durumunda OBSERVAI_CAMERA_ID inject olamaz; live verify icin start-all
+    restart gerekecek).
+- **Bootstrap env**: `start-all.bat`
+  - `OBSERVAI_NODE_URL=http://localhost:3001` set.
+  - `OBSERVAI_INGEST_KEY` `backend/.env`'den okunur (`findstr` bloku).
+  - `OBSERVAI_CAMERA_ID=` bos (start-all webcam --source 0 ile spawn'liyor;
+    persister inert kalir warning ile, dashboard switch'i sonrasi
+    pythonBackendManager spawn yolu ile aktif olur).
+- **Dev key**: `backend/.env`'e `OBSERVAI_INGEST_KEY=dev-ingest-caccc142`
+  eklendi (gitignored). `.env.example`'a `OBSERVAI_INGEST_KEY=set-in-prod-with-random-hex` placeholder eklendi.
+- **Vitest**: `backend/src/__tests__/analytics-ingest.test.ts` (+3)
+  - happy: valid batch + key → 200, accepted=2, createMany rows translated correctly (ms→Date).
+  - 401: yanlis X-Ingest-Key → DB'ye dokunmaz.
+  - 400: cameraId UUID degil → zod issues array.
+
+**Regression Gate**:
+- Vitest: **48 PASS / 6 expected FAIL** (45 baseline + 3 yeni). Beklenen 6
+  fail: `tables-ai-summary.test.ts` (Yan #4.4 korunur).
+- TS: `npx tsc --noEmit` → 0 error.
+- Yan #37 leak probe: **0** ✓ (admin secret deneme'ye sizmiyor, conv id paylasilmasi rağmen).
+- Frontend smoke (`e2e/smoke.spec.ts`): **2/2 PASS** in 7.3s (chromium headless).
+
+**Live verify**: PATCH_PENDING_RESTART. Persister yeni env var ile Python
+yeniden spawn edilince aktif olur. start-all.bat zaten env vari export
+ediyor, ama mevcut Python process'i (start-all'in oncesinden) yeni env'i
+gormez. Restart icin USER ONAY:
+
+1. `./stop-all.bat` (Python + Node + Frontend + Prisma Studio durur)
+2. `./start-all.bat` (yeni env var ile re-spawn)
+3. ~30-60s wait (TRT engine cache + Ollama warmup)
+4. `curl -s http://localhost:5001/health` → `status=ready`
+5. SQL probe MozartHigh delta>0 son 60s — beklenen: > 0 satir → LIVE_VERIFIED
+
+NOT: `OBSERVAI_CAMERA_ID` start-all.bat'ta bos. Live verify icin user
+dashboard'dan MozartHigh kamerasini secmeli (pythonBackendManager spawn
+yolu ile cameraId env enjekte olur). Alternatif manuel: `set
+OBSERVAI_CAMERA_ID=f1fd68f7-91be-4c01-8242-82baf69715dd` start-all.bat
+oncesi shell'de export.
+
+**Commit**: `988c642` `feat(persist): yan #22 Python OBSERVAI_NODE_URL + Node POST /api/analytics/ingest endpoint + 3 vitest`
+
 ## Sonraki Batch
-Prompt 2 → Batch B (Yan #22 ana rota — frontend-bagimsiz analytics persistence pipeline).
+Prompt 3 → Batch C (Yan #1.5a, #10, #11, #41, #56, #34 yayilim).
