@@ -312,6 +312,7 @@ echo.
 echo %YELLOW%💡 Run stop-all.bat to stop all services%NC%
 echo %YELLOW%💡 Or close this window to keep services running in background%NC%
 echo.
-echo Press any key to exit (services will continue running)...
-pause >nul
+echo Window will close in 5 seconds. Services keep running in background.
+timeout /t 5 /nobreak >nul
+exit /b 0
 
