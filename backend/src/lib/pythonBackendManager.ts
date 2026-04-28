@@ -15,6 +15,9 @@ interface BackendConfig {
   source: string | number;
   wsPort?: number;
   wsHost?: string;
+  // Yan #22 — when set, propagated to Python as OBSERVAI_CAMERA_ID so the
+  // NodePersister can attach analytics ticks to the right camera row.
+  cameraId?: string;
 }
 
 interface BackendStatus {
@@ -92,6 +95,10 @@ class PythonBackendManager extends EventEmitter {
       // dir and Python adds them via os.add_dll_directory, so this env var is
       // only needed on Linux/macOS.
       const env = { ...process.env };
+      // Yan #22 — Surface the active camera id to the Python persister.
+      if (config.cameraId) {
+        env.OBSERVAI_CAMERA_ID = config.cameraId;
+      }
       if (process.platform !== 'win32') {
         const nvidiaBase = path.join(cwd, 'venv', 'lib', 'python3.14', 'site-packages', 'nvidia');
         const nvidiaLibs = [

@@ -240,6 +240,18 @@ REM Service 3: Camera Analytics (Port 5001)
 echo %GREEN%[3/4] 📹 Starting Camera Analytics AI...%NC%
 cd "%SCRIPT_DIR%packages\camera-analytics"
 
+REM ──────────────────────────────────────────────────────────
+REM Yan #22 — Frontend-independent analytics persistence.
+REM Python pipeline POSTs each tick to Node /api/analytics/ingest
+REM when both env vars are set. Camera id is left empty here so the
+REM persister stays inert until pythonBackendManager.spawn() injects it
+REM (or until the user exports OBSERVAI_CAMERA_ID before launching).
+REM Read OBSERVAI_INGEST_KEY from backend/.env so prod keys never leak.
+REM ──────────────────────────────────────────────────────────
+set "OBSERVAI_NODE_URL=http://localhost:3001"
+if exist "%SCRIPT_DIR%backend\.env" for /f "tokens=2 delims==" %%K in ('findstr /I "^OBSERVAI_INGEST_KEY=" "%SCRIPT_DIR%backend\.env" 2^>nul') do set "OBSERVAI_INGEST_KEY=%%K"
+set "OBSERVAI_CAMERA_ID="
+
 REM Use venv Python directly
 set "VENV_PYTHON=%SCRIPT_DIR%packages\camera-analytics\venv\Scripts\python.exe"
 

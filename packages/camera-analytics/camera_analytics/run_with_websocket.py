@@ -4,15 +4,113 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import platform
 import signal
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+import aiohttp
 
 from .analytics import CameraAnalyticsEngine
 from .config import load_config
 from .sources import prepare_source
 from .websocket_server import AnalyticsWebSocketServer
+
+
+class NodePersister:
+    """Yan #22 — Push analytics ticks directly to Node `/api/analytics/ingest`.
+
+    Frontend-independent persistence: the Python pipeline buffers per-tick
+    metrics and POSTs them in batches to the Node backend, so historical
+    data is captured even when no dashboard client is open.
+    Activated when both OBSERVAI_NODE_URL and OBSERVAI_INGEST_KEY env vars
+    are set; otherwise instances are not created and emit cost is zero.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        api_key: str,
+        batch_size: int = 5,
+        interval: float = 1.0,
+    ) -> None:
+        self.url = url.rstrip("/") + "/api/analytics/ingest"
+        self.api_key = api_key
+        self.batch_size = batch_size
+        self.interval = interval
+        self.buffer: List[Dict[str, Any]] = []
+        self.lock = asyncio.Lock()
+        self.task: Optional[asyncio.Task] = None
+        self.session: Optional[aiohttp.ClientSession] = None
+        self._stopped = False
+
+    async def start(self) -> None:
+        if self.session is None:
+            self.session = aiohttp.ClientSession()
+        self._stopped = False
+        self.task = asyncio.create_task(self._loop())
+        print(
+            f"[NodePersister] started → {self.url}, "
+            f"batch={self.batch_size}, interval={self.interval}s"
+        )
+
+    async def stop(self) -> None:
+        self._stopped = True
+        if self.task:
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
+            self.task = None
+        if self.session:
+            await self.session.close()
+            self.session = None
+
+    async def push(self, payload: Dict[str, Any]) -> None:
+        if self._stopped:
+            return
+        async with self.lock:
+            self.buffer.append(payload)
+
+    async def _loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(self.interval)
+                async with self.lock:
+                    if not self.buffer:
+                        continue
+                    batch = self.buffer[: self.batch_size]
+                    self.buffer = self.buffer[self.batch_size:]
+                await self._post(batch)
+        except asyncio.CancelledError:
+            return
+
+    async def _post(self, batch: List[Dict[str, Any]], retries: int = 3) -> None:
+        if self.session is None:
+            return
+        for attempt in range(retries):
+            try:
+                async with self.session.post(
+                    self.url,
+                    json=batch,
+                    headers={
+                        "X-Ingest-Key": self.api_key,
+                        "Content-Type": "application/json",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status == 200:
+                        return
+                    body = await resp.text()
+                    print(f"[NodePersister] {resp.status}: {body[:200]}")
+                    return
+            except Exception as e:  # network, timeout, dns
+                if attempt == retries - 1:
+                    print(f"[NodePersister] Failed after {retries} attempts: {e}")
+                else:
+                    await asyncio.sleep(2 ** attempt)
 
 
 class CameraAnalyticsWithWebSocket:
@@ -53,10 +151,17 @@ class CameraAnalyticsWithWebSocket:
 
         self.engine: Optional[CameraAnalyticsEngine] = None
         self.analytics_task: Optional[asyncio.Task] = None
-        
+
         # Preloaded model cache (set during startup by _preload_models)
         self._preloaded_yolo = None
         self._preloaded_estimator = None
+
+        # Yan #22 — Node persister (frontend-independent persistence).
+        # Activated when both OBSERVAI_NODE_URL + OBSERVAI_INGEST_KEY are set.
+        # cam_id sourced from OBSERVAI_CAMERA_ID env var (set by start-all.bat
+        # or pythonBackendManager.spawn). Unset → persister disabled.
+        self.persister: Optional[NodePersister] = None
+        self.cam_id: Optional[str] = os.environ.get("OBSERVAI_CAMERA_ID") or None
 
     async def update_zones(self, zones: List[Dict]) -> None:
         """Update zones in the running analytics engine"""
@@ -92,15 +197,37 @@ class CameraAnalyticsWithWebSocket:
         print(
             f"✓ WebSocket server started on {self.ws_server.host}:{self.ws_server.port}"
         )
+
+        # Yan #22 — Activate Node persister if env vars are set.
+        node_url = os.environ.get("OBSERVAI_NODE_URL")
+        ingest_key = os.environ.get("OBSERVAI_INGEST_KEY")
+        if node_url and ingest_key:
+            if not self.cam_id:
+                print(
+                    "[NodePersister] WARN: OBSERVAI_NODE_URL+KEY set but "
+                    "OBSERVAI_CAMERA_ID is empty — persister disabled."
+                )
+            else:
+                self.persister = NodePersister(node_url, ingest_key)
+                await self.persister.start()
+        else:
+            print(
+                "[NodePersister] disabled (set OBSERVAI_NODE_URL + "
+                "OBSERVAI_INGEST_KEY + OBSERVAI_CAMERA_ID to enable)."
+            )
+
         # Preload models in background so first start_analytics is fast
         asyncio.ensure_future(self._preload_models())
         print("✓ Waiting for client to start stream (models loading in background)...")
-        
+
         # Keep the main loop running until signal
         await stop_event.wait()
-        
+
         # Cleanup
         await self.stop_analytics()
+        if self.persister:
+            await self.persister.stop()
+            self.persister = None
         # self.ws_server.stop() # If implemented in future
 
     async def _preload_models(self) -> None:
@@ -196,6 +323,24 @@ class CameraAnalyticsWithWebSocket:
             asyncio.run_coroutine_threadsafe(
                 self.ws_server.broadcast_global_stream(payload), loop
             )
+            # Yan #22 — Forward tick to Node ingest endpoint when configured.
+            # Field translation: payload uses entries/exits/current/queue/fps;
+            # AnalyticsLog schema expects peopleIn/peopleOut/currentCount/queueCount/fps.
+            if self.persister and self.cam_id:
+                ingest_entry = {
+                    "cameraId": self.cam_id,
+                    "timestamp": int(payload.get("timestamp", 0) or 0),
+                    "currentCount": int(payload.get("current", 0) or 0),
+                    "peopleIn": int(payload.get("entries", 0) or 0),
+                    "peopleOut": int(payload.get("exits", 0) or 0),
+                    "queueCount": int(payload.get("queue", 0) or 0),
+                    "avgWaitTime": 0.0,
+                    "longestWaitTime": 0.0,
+                    "fps": float(payload.get("fps", 0.0) or 0.0),
+                }
+                asyncio.run_coroutine_threadsafe(
+                    self.persister.push(ingest_entry), loop
+                )
 
         def emit_tracks(payload: List[Dict[str, object]]) -> None:
             asyncio.run_coroutine_threadsafe(

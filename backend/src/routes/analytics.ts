@@ -140,6 +140,79 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
+// ============================================================
+// Yan #22 — Direct Python → Node analytics ingest
+// ============================================================
+//
+// POST /api/analytics/ingest
+//
+// Frontend-independent persistence: the Python pipeline (run_with_websocket.py
+// NodePersister) batches per-tick metrics and POSTs them here, so historical
+// data is captured even when no dashboard client is open. Auth is a shared
+// secret in OBSERVAI_INGEST_KEY (header X-Ingest-Key) — endpoint stays closed
+// when the env var is unset.
+const IngestEntrySchema = z.object({
+  cameraId: z.string().uuid(),
+  timestamp: z.number().int().min(1_000_000_000_000),
+  currentCount: z.number().int().min(0),
+  peopleIn: z.number().int().min(0),
+  peopleOut: z.number().int().min(0),
+  queueCount: z.number().int().min(0).optional().default(0),
+  avgWaitTime: z.number().min(0).optional().default(0),
+  longestWaitTime: z.number().min(0).optional().default(0),
+  fps: z.number().min(0).optional().default(0),
+});
+
+const IngestBatchSchema = z.array(IngestEntrySchema).min(1).max(100);
+
+function checkIngestKey(req: Request): boolean {
+  const provided = req.header('X-Ingest-Key');
+  const expected = process.env.OBSERVAI_INGEST_KEY;
+  return !!expected && provided === expected;
+}
+
+router.post('/ingest', async (req: Request, res: Response) => {
+  if (!checkIngestKey(req)) {
+    return res.status(401).json({ error: 'Invalid or missing X-Ingest-Key' });
+  }
+
+  const parsed = IngestBatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Invalid batch',
+      issues: parsed.error.issues,
+    });
+  }
+
+  try {
+    const rows = parsed.data.map((e) => ({
+      cameraId: e.cameraId,
+      timestamp: new Date(e.timestamp),
+      peopleIn: e.peopleIn,
+      peopleOut: e.peopleOut,
+      currentCount: e.currentCount,
+      queueCount: e.queueCount,
+      avgWaitTime: e.avgWaitTime,
+      longestWaitTime: e.longestWaitTime,
+      fps: e.fps,
+    }));
+
+    // SQLite Prisma adapter does not support skipDuplicates; AnalyticsLog uses
+    // @default(uuid()) so duplicate id collisions are not a concern here.
+    const result = await prisma.analyticsLog.createMany({
+      data: rows,
+    });
+
+    return res.status(200).json({
+      accepted: result.count,
+      total: parsed.data.length,
+    });
+  } catch (err) {
+    console.error('[ingest]', err);
+    return res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // GET /api/analytics/compare - Compare analytics data across time periods
 router.get('/compare', authenticate, async (req: Request, res: Response) => {
   try {
