@@ -41,6 +41,10 @@ function findOverlaps(
   return false;
 }
 
+// Yan #32: cap polygon vertex count. ZonePolygonUtils.simplify already keeps
+// shapes well under 128 in normal use; the cap exists to keep the request
+// body bounded so a malicious client can't ship a 100k-corner polygon and
+// blow up persistence / ray-cast loops.
 const CreateZoneSchema = z.object({
   cameraId: z.string().uuid(),
   name: utf8String(1, 100),
@@ -48,7 +52,7 @@ const CreateZoneSchema = z.object({
   coordinates: z.array(z.object({
     x: z.number().min(0).max(1),
     y: z.number().min(0).max(1)
-  })),
+  })).min(3).max(128),
   color: z.string().optional(),
 });
 
