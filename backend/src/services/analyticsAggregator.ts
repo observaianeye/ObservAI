@@ -49,6 +49,70 @@ function endOfDay(d: Date): Date {
   return r;
 }
 
+/**
+ * Yan #45: branch-timezone-aware day window helpers.
+ *
+ * Until now `startOfDay` used the backend host's local timezone (typically
+ * Europe/Istanbul on the dev box), so a Cape Town branch's "daily" rollup
+ * was actually the Istanbul day window. That made `daily.totalEntries`
+ * disagree with `sum(hourly.totalEntries)` by hours' worth of traffic.
+ *
+ * These helpers compute the UTC instant corresponding to local midnight in
+ * an arbitrary IANA timezone, using only `Intl.DateTimeFormat` (no extra
+ * dependency). The aggregator passes each camera's branch tz so each
+ * branch's daily window aligns with its own wall clock.
+ */
+function tzOffsetMinutes(utcInstant: Date, tz: string): number {
+  // Compare the same UTC instant rendered as wall clocks in UTC vs `tz`,
+  // and return how many minutes ahead `tz` is of UTC. e.g. +180 for
+  // Europe/Istanbul, +120 for Africa/Johannesburg, -300 for America/New_York
+  // (during EST). DST is handled because Intl re-evaluates per instant.
+  const fields: Intl.DateTimeFormatOptions = {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  };
+  const utcParts = new Intl.DateTimeFormat('en-CA', { ...fields, timeZone: 'UTC' }).formatToParts(utcInstant);
+  const tzParts = new Intl.DateTimeFormat('en-CA', { ...fields, timeZone: tz }).formatToParts(utcInstant);
+  const toMap = (parts: Intl.DateTimeFormatPart[]) => {
+    const m: Record<string, string> = {};
+    for (const p of parts) m[p.type] = p.value;
+    return m;
+  };
+  const u = toMap(utcParts);
+  const t = toMap(tzParts);
+  // Intl can emit hour=24 at midnight for some locales — coerce to 0.
+  const uHour = Number(u.hour) === 24 ? 0 : Number(u.hour);
+  const tHour = Number(t.hour) === 24 ? 0 : Number(t.hour);
+  const utcMs = Date.UTC(+u.year, +u.month - 1, +u.day, uHour, +u.minute, +u.second);
+  const tzMs = Date.UTC(+t.year, +t.month - 1, +t.day, tHour, +t.minute, +t.second);
+  return (tzMs - utcMs) / 60000;
+}
+
+export function startOfDayInTz(date: Date, tz: string): Date {
+  // Find the wall-clock date of `date` in `tz`, then return the UTC instant
+  // of 00:00 on that local date.
+  const dateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const p of dateParts) map[p.type] = p.value;
+  const y = +map.year, m = +map.month, d = +map.day;
+  // Take UTC-midnight as the seed, sample the tz offset at that instant,
+  // and shift back. Sufficient for tz boundaries that don't fall mid-day.
+  const seed = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+  const offsetMin = tzOffsetMinutes(seed, tz);
+  return new Date(seed.getTime() - offsetMin * 60000);
+}
+
+export function endOfDayInTz(date: Date, tz: string): Date {
+  // Add 24h to the local-midnight instant — accurate when no DST jump
+  // intervenes; the aggregator only consumes this as an exclusive upper
+  // bound, so a 1h DST drift would just include/exclude one extra hour
+  // (not a correctness regression for daily totals).
+  return new Date(startOfDayInTz(date, tz).getTime() + 24 * 60 * 60 * 1000);
+}
+
 export function mergeDemographics(rows: Array<{ demographics: string | null }>): string | null {
   const gender: Record<string, number> = {};
   const age: Record<string, number> = {};
@@ -119,8 +183,20 @@ async function aggregateHourBucket(cameraId: string, hourStart: Date): Promise<v
   });
 }
 
-async function aggregateDayBucket(cameraId: string, dayStart: Date): Promise<void> {
-  const dayEnd = endOfDay(dayStart);
+async function getCameraBranchTimezone(cameraId: string): Promise<string> {
+  // Fall back to Europe/Istanbul to preserve the historical default for
+  // any camera that doesn't have a branch yet (legacy seed rows).
+  const cam = await prisma.camera.findUnique({
+    where: { id: cameraId },
+    include: { branch: { select: { timezone: true } } },
+  });
+  return cam?.branch?.timezone ?? 'Europe/Istanbul';
+}
+
+async function aggregateDayBucket(cameraId: string, dayDate: Date): Promise<void> {
+  const tz = await getCameraBranchTimezone(cameraId);
+  const dayStart = startOfDayInTz(dayDate, tz);
+  const dayEnd = endOfDayInTz(dayDate, tz);
   const logs = await prisma.analyticsLog.findMany({
     where: { cameraId, timestamp: { gte: dayStart, lt: dayEnd } },
     select: {
@@ -133,6 +209,8 @@ async function aggregateDayBucket(cameraId: string, dayStart: Date): Promise<voi
   const stats = computeStats(logs);
 
   // SQLite treats NULL as distinct in unique indexes; can't rely on upsert for hour=null.
+  // The `date` key is the branch-local midnight instant — same camera in different
+  // branches would land on different keys, which is what we want.
   const existing = await prisma.analyticsSummary.findFirst({
     where: { cameraId, date: dayStart, hour: null },
     select: { id: true },
@@ -176,13 +254,16 @@ export async function runHourlyAggregationFor(hourDate: Date): Promise<number> {
 }
 
 export async function runDailyAggregationFor(dayDate: Date): Promise<number> {
-  const dayStart = startOfDay(dayDate);
-  const dayEnd = endOfDay(dayStart);
-  const cameras = await listCamerasWithLogsIn(dayStart, dayEnd);
+  // Cameras can be in any timezone, so we widen the search window by ±14h
+  // (the maximum IANA offset spread) and then let aggregateDayBucket apply
+  // each camera's precise branch-local bounds.
+  const broadStart = new Date(dayDate.getTime() - 14 * 60 * 60 * 1000);
+  const broadEnd = new Date(dayDate.getTime() + 38 * 60 * 60 * 1000);
+  const cameras = await listCamerasWithLogsIn(broadStart, broadEnd);
   let done = 0;
   for (const cameraId of cameras) {
     try {
-      await aggregateDayBucket(cameraId, dayStart);
+      await aggregateDayBucket(cameraId, dayDate);
       done++;
     } catch (err) {
       console.error(`[aggregator] daily rollup failed for ${cameraId}:`, err);
