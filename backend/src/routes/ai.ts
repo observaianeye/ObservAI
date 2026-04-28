@@ -9,7 +9,7 @@ import { prisma } from '../lib/db';
 import { z } from 'zod';
 import { GEMINI_MODEL_CANDIDATES, OLLAMA_MODEL_PRIORITY, isGeminiFallbackError } from '../lib/aiConfig';
 import { authenticate } from '../middleware/authMiddleware';
-import { userOwnsCamera } from '../middleware/tenantScope';
+import { userOwnsCamera, userOwnsBranch } from '../middleware/tenantScope';
 import { CameraIdOptionalSchema } from '../lib/schemas';
 
 const router = Router();
@@ -20,6 +20,9 @@ const ChatRequestSchema = z.object({
   // Yan #40: cameraId now uses the shared UUID schema so /chat and /export
   // share one contract.
   cameraId: CameraIdOptionalSchema,
+  // Yan #46: branch-level questions ("tüm subelerimde kaç ziyaretçi?") need
+  // multi-camera aggregate. branchId is alternative to cameraId.
+  branchId: z.string().uuid().optional(),
   // Frontend dil tercihi — yoksa heuristic devreye girer (geriye doğru uyumlu)
   lang: z.enum(['tr', 'en']).optional(),
   // Conversation history anchor — frontend persists this in localStorage so
@@ -386,14 +389,17 @@ export async function checkOllamaHealth(): Promise<{
 
 router.post('/chat', authenticate, async (req: Request, res: Response) => {
   try {
-    const { message, cameraId, lang, conversationId } = ChatRequestSchema.parse(req.body);
+    const { message, cameraId, branchId, lang, conversationId } = ChatRequestSchema.parse(req.body);
 
     if (cameraId && !(await userOwnsCamera(req.user.id, cameraId))) {
       return res.status(404).json({ error: 'Camera not found' });
     }
+    if (branchId && !(await userOwnsBranch(req.user.id, branchId))) {
+      return res.status(404).json({ error: 'Branch not found' });
+    }
 
-    // Get recent analytics data for context
-    const recentAnalytics = await getRecentAnalyticsContext(cameraId);
+    // Get recent analytics data for context (branchId aggregates multi-cam)
+    const recentAnalytics = await getRecentAnalyticsContext(cameraId, branchId);
 
     // Pull the last N turns so follow-up questions work ("peki cinsiyet dağılımı?").
     const history = conversationId ? await loadConversationHistory(conversationId, req.user.id) : [];
@@ -539,10 +545,13 @@ router.post('/chat/stream', authenticate, async (req: Request, res: Response) =>
     }
     throw err;
   }
-  const { message, cameraId, lang, conversationId } = parsed;
+  const { message, cameraId, branchId, lang, conversationId } = parsed;
 
   if (cameraId && !(await userOwnsCamera(req.user.id, cameraId))) {
     return res.status(404).json({ error: 'Camera not found' });
+  }
+  if (branchId && !(await userOwnsBranch(req.user.id, branchId))) {
+    return res.status(404).json({ error: 'Branch not found' });
   }
 
   // SSE headers — once set we must keep writing events, not switch to JSON.
@@ -563,7 +572,7 @@ router.post('/chat/stream', authenticate, async (req: Request, res: Response) =>
   });
 
   try {
-    const recentAnalytics = await getRecentAnalyticsContext(cameraId);
+    const recentAnalytics = await getRecentAnalyticsContext(cameraId, branchId);
     const history = conversationId ? await loadConversationHistory(conversationId, req.user.id) : [];
     const contextPrompt = buildContextPrompt(message, recentAnalytics + renderHistoryForPrompt(history), lang);
 
@@ -688,13 +697,19 @@ router.get('/debug', async (req: Request, res: Response) => {
 });
 
 /**
- * Fetch recent analytics data for context
+ * Fetch recent analytics data for context.
+ *
+ * Yan #46: branchId widens the lookup to every camera in the branch so
+ * branch-level questions ("tüm subelerimde kaç ziyaretçi?") aggregate
+ * across cameras instead of returning one camera's slice.
  */
-async function getRecentAnalyticsContext(cameraId?: string): Promise<string> {
+async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): Promise<string> {
   try {
     const where: any = {};
     if (cameraId) {
       where.cameraId = cameraId;
+    } else if (branchId) {
+      where.camera = { branchId };
     }
 
     // Get recent analytics logs (last 100 entries)
