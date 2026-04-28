@@ -265,7 +265,12 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
         const resetUrl = `${appOrigin}/reset-password?token=${token}`;
 
         const userName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || undefined;
-        const sendResult = await sendPasswordResetEmail(user.email, resetUrl, userName);
+        // Yan #10: pick locale from Accept-Language ('tr' or 'en'), default 'tr'.
+        // (User.locale would be authoritative once added to schema; until then
+        // header parse is the only signal we have for unauthenticated requests.)
+        const acceptLang = String(req.headers['accept-language'] ?? '').toLowerCase();
+        const locale: 'tr' | 'en' = acceptLang.startsWith('en') ? 'en' : 'tr';
+        const sendResult = await sendPasswordResetEmail(user.email, resetUrl, userName, locale);
 
         if (sendResult.success) {
           console.log(`[auth] Password reset email sent to ${user.email}`);

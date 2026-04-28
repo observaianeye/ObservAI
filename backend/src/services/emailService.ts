@@ -290,15 +290,59 @@ export async function sendStaffShiftEmail(
 }
 
 /**
+ * Yan #10: password reset emails were TR-only. Now locale-aware.
+ * Caller passes 'tr' | 'en' (defaulting to 'tr' to preserve old behaviour).
+ */
+export type EmailLocale = 'tr' | 'en';
+
+interface PasswordResetTemplate {
+  subject: string;
+  headerTitle: string;
+  greetingNamed: (name: string) => string;
+  greetingAnon: string;
+  bodyP1: string;
+  cta: string;
+  fallbackHint: string;
+  expiryNote: string;
+  footer: string;
+}
+
+export const PASSWORD_RESET_TEMPLATES: Record<EmailLocale, PasswordResetTemplate> = {
+  tr: {
+    subject: '\u{1F511} [ObservAI] Sifre Sifirlama Talebi',
+    headerTitle: 'Sifre Sifirlama',
+    greetingNamed: (name) => `Merhaba <strong>${name}</strong>,`,
+    greetingAnon: 'Merhaba,',
+    bodyP1: 'ObservAI hesabiniz icin sifre sifirlama talebi aldik. Yeni bir sifre belirlemek icin asagidaki butona tiklayin:',
+    cta: 'Sifreyi Sifirla',
+    fallbackHint: 'Buton calismazsa bu baglantiyi tarayicinizda acin:',
+    expiryNote: 'Bu baglanti 1 saat sonra gecerliligini yitirir. Eger bu istegi siz yapmadiysaniz e-postayi gormezden gelin; sifreniz degismeyecek.',
+    footer: 'ObservAI &mdash; Real-time Cafe Analytics',
+  },
+  en: {
+    subject: '\u{1F511} [ObservAI] Password Reset Request',
+    headerTitle: 'Password Reset',
+    greetingNamed: (name) => `Hello <strong>${name}</strong>,`,
+    greetingAnon: 'Hello,',
+    bodyP1: 'We received a password reset request for your ObservAI account. Click the button below to set a new password:',
+    cta: 'Reset Password',
+    fallbackHint: 'If the button does not work, open this link in your browser:',
+    expiryNote: 'This link expires in 1 hour. If you did not request a reset, ignore this email — your password will not change.',
+    footer: 'ObservAI &mdash; Real-time Cafe Analytics',
+  },
+};
+
+/**
  * Send a password reset email.
  *
  * The link is good for 1 hour and single-use; the auth route is responsible
- * for token bookkeeping.
+ * for token bookkeeping. Locale defaults to 'tr' for backwards compat.
  */
 export async function sendPasswordResetEmail(
   to: string,
   resetUrl: string,
   userName?: string,
+  locale: EmailLocale = 'tr',
 ): Promise<EmailSendResult> {
   const transporter = createTransporter();
   if (!transporter) {
@@ -306,31 +350,32 @@ export async function sendPasswordResetEmail(
   }
 
   const from = process.env.EMAIL_FROM || process.env.SMTP_USER || 'noreply@observai.com';
-  const greeting = userName ? `Merhaba <strong>${userName}</strong>,` : 'Merhaba,';
+  const tpl = PASSWORD_RESET_TEMPLATES[locale] ?? PASSWORD_RESET_TEMPLATES.tr;
+  const greeting = userName ? tpl.greetingNamed(userName) : tpl.greetingAnon;
 
   const html = `
 <!DOCTYPE html>
-<html>
+<html lang="${locale}">
 <head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#0f0f14;font-family:Arial,sans-serif;">
   <div style="max-width:560px;margin:24px auto;background:#1a1a24;border-radius:12px;overflow:hidden;border:1px solid #2a2a3a;">
     <div style="background:linear-gradient(135deg,#7c3aed,#2563eb);padding:20px 24px;">
-      <h2 style="margin:0;color:#fff;font-size:18px;">&#x1F511; Sifre Sifirlama</h2>
+      <h2 style="margin:0;color:#fff;font-size:18px;">&#x1F511; ${tpl.headerTitle}</h2>
     </div>
     <div style="padding:24px;">
       <p style="margin:0 0 16px;color:#e5e5e5;font-size:14px;">${greeting}</p>
       <p style="margin:0 0 16px;color:#a0a0b0;font-size:14px;line-height:1.5;">
-        ObservAI hesabiniz icin sifre sifirlama talebi aldik. Yeni bir sifre belirlemek icin asagidaki butona tiklayin:
+        ${tpl.bodyP1}
       </p>
       <div style="text-align:center;margin:24px 0;">
-        <a href="${resetUrl}" style="display:inline-block;padding:12px 28px;background:#7c3aed;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Sifreyi Sifirla</a>
+        <a href="${resetUrl}" style="display:inline-block;padding:12px 28px;background:#7c3aed;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">${tpl.cta}</a>
       </div>
-      <p style="margin:0 0 8px;color:#888;font-size:13px;">Buton calismazsa bu baglantiyi tarayicinizda acin:</p>
+      <p style="margin:0 0 8px;color:#888;font-size:13px;">${tpl.fallbackHint}</p>
       <p style="margin:0 0 16px;word-break:break-all;color:#7c3aed;font-size:12px;">${resetUrl}</p>
-      <p style="margin:0;color:#888;font-size:12px;">Bu baglanti 1 saat sonra gecerliligini yitirir. Eger bu istegi siz yapmadiysaniz e-postayi gormezden gelin; sifreniz degismeyecek.</p>
+      <p style="margin:0;color:#888;font-size:12px;">${tpl.expiryNote}</p>
     </div>
     <div style="padding:12px 24px;border-top:1px solid #2a2a3a;text-align:center;">
-      <span style="color:#555;font-size:11px;">ObservAI &mdash; Real-time Cafe Analytics</span>
+      <span style="color:#555;font-size:11px;">${tpl.footer}</span>
     </div>
   </div>
 </body>
@@ -340,10 +385,10 @@ export async function sendPasswordResetEmail(
     await transporter.sendMail({
       from,
       to,
-      subject: '\u{1F511} [ObservAI] Sifre Sifirlama Talebi',
+      subject: tpl.subject,
       html,
     });
-    console.log(`[Email] Password reset sent to ${to}`);
+    console.log(`[Email] Password reset sent to ${to} (${locale})`);
     return { success: true };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
