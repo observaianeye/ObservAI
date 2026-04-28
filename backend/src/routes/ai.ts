@@ -202,6 +202,13 @@ export async function callOllama(
     }
 
     const data: any = await res.json();
+    // Yan #48: Ollama can return 200 with an empty `response` string when
+    // the model fails silently. Treat that as a fallback trigger so the
+    // /chat handler can fall through to Gemini instead of returning "" to
+    // the user.
+    if (!data.response?.trim()) {
+      throw new Error('OLLAMA_EMPTY_RESPONSE');
+    }
     return { response: data.response, model };
   } catch (err: any) {
     if (err?.name === 'AbortError') {
