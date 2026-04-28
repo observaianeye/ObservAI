@@ -235,21 +235,32 @@ export default function CameraFeed() {
   // "connecting" states.
   useEffect(() => {
     if (isStreaming) return;
-    if (localStorage.getItem(STREAMING_ACTIVE_KEY) !== '1') return;
 
     let cancelled = false;
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    const hasStreamingFlag = localStorage.getItem(STREAMING_ACTIVE_KEY) === '1';
 
     (async () => {
       try {
         const res = await fetch(`${apiUrl}/api/python-backend/health`, { credentials: 'include' });
         const body = await res.json().catch(() => null);
         const alive = body?.status && body.status !== 'unreachable';
+        // Yan #50: also auto-restore when the pipeline is actively streaming
+        // (model_loaded + streaming=true) even if STREAMING_ACTIVE_KEY is
+        // missing. Previously a fresh login on a tenant whose Python pipeline
+        // was already live (e.g. deneme MozartHigh kept running across
+        // sessions) never flipped isStreaming, so the MJPEG <img> never
+        // mounted. Gate stays narrow — only flip when the backend reports
+        // it's actually serving frames.
+        const pipelineLive = !!(body?.streaming && body?.model_loaded);
         if (cancelled) return;
-        if (alive) {
-          console.log('[CameraFeed] Restoring stream after remount');
+        if (hasStreamingFlag && alive) {
+          console.log('[CameraFeed] Restoring stream after remount (flag)');
           setIsStreaming(true);
-        } else {
+        } else if (!hasStreamingFlag && pipelineLive) {
+          console.log('[CameraFeed] Pipeline already live, auto-attaching');
+          setIsStreaming(true);
+        } else if (hasStreamingFlag && !alive) {
           localStorage.removeItem(STREAMING_ACTIVE_KEY);
         }
       } catch {
