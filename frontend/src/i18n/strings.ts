@@ -1676,6 +1676,24 @@ export const STRINGS: Record<Lang, StringMap> = {
     'charts.empty.title': 'Veri yok',
     'charts.empty.live': 'Kamera bağlı değil veya ziyaretçi algılanmadı',
     'charts.empty.demo': 'Örnek veri için Demo moduna geçin',
+
+    // ─── Weather (Yan #11) ───────────────────────────────────────────
+    'weather.code.clear': 'Açık',
+    'weather.code.partly': 'Parçalı bulutlu',
+    'weather.code.cloudy': 'Bulutlu',
+    'weather.code.fog': 'Sisli',
+    'weather.code.rain': 'Yağmurlu',
+    'weather.code.snow': 'Karlı',
+    'weather.code.storm': 'Fırtınalı',
+    'weather.loading': 'Hava durumu yükleniyor...',
+    'weather.fetchFail': 'Hava durumu alınamadı',
+    'weather.wind': 'Rüzgar',
+    'weather.rainProbability': 'Yağış ihtimali',
+    'weather.traffic': 'Trafik',
+    'weather.traffic.low': 'Akıcı',
+    'weather.traffic.medium': 'Orta',
+    'weather.traffic.high': 'Yoğun',
+    'weather.traffic.estimate': 'tahmin',
   },
 
   en: {
@@ -3342,6 +3360,24 @@ export const STRINGS: Record<Lang, StringMap> = {
     'charts.empty.title': 'No data available',
     'charts.empty.live': 'No camera connected or no visitors detected',
     'charts.empty.demo': 'Switch to Demo mode to see sample data',
+
+    // ─── Weather (Yan #11) ───────────────────────────────────────────
+    'weather.code.clear': 'Clear',
+    'weather.code.partly': 'Partly cloudy',
+    'weather.code.cloudy': 'Cloudy',
+    'weather.code.fog': 'Foggy',
+    'weather.code.rain': 'Rainy',
+    'weather.code.snow': 'Snowy',
+    'weather.code.storm': 'Stormy',
+    'weather.loading': 'Loading weather...',
+    'weather.fetchFail': 'Failed to load weather',
+    'weather.wind': 'Wind',
+    'weather.rainProbability': 'Rain probability',
+    'weather.traffic': 'Traffic',
+    'weather.traffic.low': 'Light',
+    'weather.traffic.medium': 'Medium',
+    'weather.traffic.high': 'Heavy',
+    'weather.traffic.estimate': 'estimate',
   },
 };
 

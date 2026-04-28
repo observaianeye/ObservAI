@@ -28,25 +28,43 @@ interface TrafficData {
   branch: { id: string; name: string; city: string };
 }
 
-function weatherMeta(code: number): { label: string; Icon: LucideIcon; accent: string } {
-  if ([0, 1].includes(code)) return { label: 'Acik', Icon: Sun, accent: '#f59e0b' };
-  if ([2, 3].includes(code)) return { label: 'Parcali', Icon: Cloud, accent: '#94a3b8' };
-  if ([45, 48].includes(code)) return { label: 'Sisli', Icon: Cloud, accent: '#64748b' };
-  if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) return { label: 'Yagmurlu', Icon: CloudRain, accent: '#3b82f6' };
-  if ([71, 73, 75, 77, 85, 86].includes(code)) return { label: 'Karli', Icon: CloudSnow, accent: '#60a5fa' };
-  if ([95, 96, 99].includes(code)) return { label: 'Firtinali', Icon: CloudRain, accent: '#a855f7' };
-  return { label: 'Bulutlu', Icon: Cloud, accent: '#94a3b8' };
+type WeatherCondition = 'clear' | 'partly' | 'cloudy' | 'fog' | 'rain' | 'snow' | 'storm';
+
+// Open-Meteo weather code → semantic condition. Yan #11: caller resolves
+// the i18n string via t('weather.code.<condition>') so TR/EN both render
+// in the dashboard's active locale instead of a hardcoded TR string.
+export function weatherCodeCondition(code: number): WeatherCondition {
+  if ([0, 1].includes(code)) return 'clear';
+  if ([2, 3].includes(code)) return 'partly';
+  if ([45, 48].includes(code)) return 'fog';
+  if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) return 'rain';
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return 'snow';
+  if ([95, 96, 99].includes(code)) return 'storm';
+  return 'cloudy';
 }
 
-function trafficMeta(level: 'low' | 'medium' | 'high', lang: 'tr' | 'en'): { label: string; accent: string } {
-  if (level === 'high') return { label: lang === 'tr' ? 'Yoğun' : 'Heavy', accent: '#ef4444' };
-  if (level === 'medium') return { label: lang === 'tr' ? 'Orta' : 'Medium', accent: '#f59e0b' };
-  return { label: lang === 'tr' ? 'Akıcı' : 'Light', accent: '#22c55e' };
+function weatherMeta(condition: WeatherCondition): { Icon: LucideIcon; accent: string } {
+  switch (condition) {
+    case 'clear': return { Icon: Sun, accent: '#f59e0b' };
+    case 'partly': return { Icon: Cloud, accent: '#94a3b8' };
+    case 'fog': return { Icon: Cloud, accent: '#64748b' };
+    case 'rain': return { Icon: CloudRain, accent: '#3b82f6' };
+    case 'snow': return { Icon: CloudSnow, accent: '#60a5fa' };
+    case 'storm': return { Icon: CloudRain, accent: '#a855f7' };
+    case 'cloudy':
+    default: return { Icon: Cloud, accent: '#94a3b8' };
+  }
+}
+
+function trafficAccent(level: 'low' | 'medium' | 'high'): string {
+  if (level === 'high') return '#ef4444';
+  if (level === 'medium') return '#f59e0b';
+  return '#22c55e';
 }
 
 export function WeatherWidget() {
   const { selectedBranch } = useDashboardFilter();
-  const { lang } = useLanguage();
+  const { lang, t } = useLanguage();
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -110,9 +128,9 @@ export function WeatherWidget() {
       .catch(() => { /* traffic optional, swallow */ });
 
     Promise.all([wPromise, tPromise])
-      .catch((e) => setError(e instanceof Error ? e.message : 'Hava durumu alinamadi'))
+      .catch((e) => setError(e instanceof Error ? e.message : t('weather.fetchFail')))
       .finally(() => setLoading(false));
-  }, [selectedBranch?.id]);
+  }, [selectedBranch?.id, t]);
 
   if (!selectedBranch) return null;
 
@@ -130,7 +148,7 @@ export function WeatherWidget() {
         </motion.div>
       ) : loading ? (
         <div className="surface-card rounded-xl p-4 text-xs text-ink-3">
-          Hava durumu yukleniyor...
+          {t('weather.loading')}
         </div>
       ) : error ? (
         <div className="surface-card rounded-xl p-4 text-xs text-danger-300">
@@ -141,10 +159,13 @@ export function WeatherWidget() {
   );
 }
 
-function WeatherContent({ w, traffic, lang }: { w: WeatherData; traffic: TrafficData | null; lang: 'tr' | 'en' }) {
-  const meta = weatherMeta(w.weatherCode);
-  const { Icon, label, accent } = meta;
-  const trafficInfo = traffic ? trafficMeta(traffic.level, lang) : null;
+function WeatherContent({ w, traffic, lang: _lang }: { w: WeatherData; traffic: TrafficData | null; lang: 'tr' | 'en' }) {
+  const { t } = useLanguage();
+  const condition = weatherCodeCondition(w.weatherCode);
+  const { Icon, accent } = weatherMeta(condition);
+  const label = t(`weather.code.${condition}`);
+  const trafficLabel = traffic ? t(`weather.traffic.${traffic.level}`) : null;
+  const trafficColor = traffic ? trafficAccent(traffic.level) : null;
   const trafficPct = traffic ? Math.round(traffic.congestion * 100) : null;
 
   return (
@@ -164,12 +185,12 @@ function WeatherContent({ w, traffic, lang }: { w: WeatherData; traffic: Traffic
           </div>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-ink-3 flex-shrink-0">
-          <div className="flex items-center gap-1" title={lang === 'tr' ? 'Rüzgar' : 'Wind'}>
+          <div className="flex items-center gap-1" title={t('weather.wind')}>
             <Wind className="w-3.5 h-3.5" />
             <span className="font-mono">{Math.round(w.windSpeed)} km/s</span>
           </div>
           {typeof w.precipitation === 'number' && (
-            <div className="flex items-center gap-1" title={lang === 'tr' ? 'Yağış ihtimali' : 'Rain probability'}>
+            <div className="flex items-center gap-1" title={t('weather.rainProbability')}>
               <Droplet className="w-3.5 h-3.5" />
               <span className="font-mono">%{w.precipitation}</span>
             </div>
@@ -177,32 +198,32 @@ function WeatherContent({ w, traffic, lang }: { w: WeatherData; traffic: Traffic
         </div>
       </div>
 
-      {trafficInfo && (
+      {trafficLabel && trafficColor !== null && (
         <div className="relative mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: `${trafficInfo.accent}25` }}
+              style={{ backgroundColor: `${trafficColor}25` }}
             >
-              <Car className="w-4 h-4" style={{ color: trafficInfo.accent }} strokeWidth={1.5} />
+              <Car className="w-4 h-4" style={{ color: trafficColor }} strokeWidth={1.5} />
             </div>
             <div className="min-w-0">
               <div className="text-xs font-semibold text-ink-1">
-                {lang === 'tr' ? 'Trafik' : 'Traffic'}: <span style={{ color: trafficInfo.accent }}>{trafficInfo.label}</span>
+                {t('weather.traffic')}: <span style={{ color: trafficColor }}>{trafficLabel}</span>
               </div>
               <div className="text-[10px] text-ink-4 font-mono">
                 {trafficPct}%
                 {traffic?.currentSpeed && traffic?.freeFlowSpeed && (
                   <> · {traffic.currentSpeed}/{traffic.freeFlowSpeed} km/s</>
                 )}
-                {traffic?.source === 'heuristic' && <> · {lang === 'tr' ? 'tahmin' : 'estimate'}</>}
+                {traffic?.source === 'heuristic' && <> · {t('weather.traffic.estimate')}</>}
               </div>
             </div>
           </div>
           <div className="w-24 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
             <div
               className="h-full transition-[width] duration-500"
-              style={{ width: `${trafficPct}%`, backgroundColor: trafficInfo.accent }}
+              style={{ width: `${trafficPct}%`, backgroundColor: trafficColor }}
             />
           </div>
         </div>
