@@ -123,6 +123,15 @@ model Camera {
 }
 
 // Zone definitions (drawn on camera feed)
+// Yan #33 audit (2026-04-29): hard-delete cascade verified.
+//   - Zone.cameraId         onDelete: Cascade  ← deleting a Camera drops zones.
+//   - ZoneInsight.zoneId    onDelete: Cascade  ← deleting a Zone drops insights.
+// Out-of-cascade refs (intentional retention for analytics audit):
+//   - TableEvent.zoneId is a soft FK (no relation block); table_events rows
+//     persist after zone delete so historic occupancy reports keep working.
+//   - Insight.zoneId is nullable + no relation; insights survive zone delete
+//     so dashboard history doesn't lose context. Both are documented here so
+//     a future schema migration doesn't accidentally hard-delete that data.
 model Zone {
   id         String   @id @default(uuid())
   cameraId   String
