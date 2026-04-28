@@ -124,6 +124,12 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
     }
 });
 
+// Yan #5: in-process weather cache. Frontend already caches in localStorage
+// for 10 min, but multiple tabs / fresh sessions still hit Open-Meteo every
+// time. Backend Map cache shields the upstream provider from rate-limit risk.
+const weatherCache = new Map<string, { data: any; expiresAt: number }>();
+const WEATHER_TTL_MS = 10 * 60 * 1000;
+
 // GET /api/branches/:id/weather - Get weather for branch location
 router.get('/:id/weather', authenticate, async (req: Request, res: Response) => {
     try {
@@ -132,6 +138,13 @@ router.get('/:id/weather', authenticate, async (req: Request, res: Response) => 
         });
         if (!branch) {
             return res.status(404).json({ error: 'Branch not found' });
+        }
+
+        const cacheKey = `${branch.id}:${branch.latitude}:${branch.longitude}`;
+        const cached = weatherCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            res.setHeader('X-Weather-Cache', 'HIT');
+            return res.json(cached.data);
         }
 
         const weatherRes = await fetch(
@@ -143,15 +156,23 @@ router.get('/:id/weather', authenticate, async (req: Request, res: Response) => 
         }
 
         const weatherData = await weatherRes.json() as Record<string, unknown>;
-        res.json({
+        const payload = {
             ...weatherData,
             branch: { id: branch.id, name: branch.name, city: branch.city }
-        });
+        };
+        weatherCache.set(cacheKey, { data: payload, expiresAt: Date.now() + WEATHER_TTL_MS });
+        res.setHeader('X-Weather-Cache', 'MISS');
+        res.json(payload);
     } catch (error) {
         console.error('Weather fetch error:', error);
         res.status(500).json({ error: 'Failed to fetch weather' });
     }
 });
+
+// Test-only helper: clear in-process weather cache.
+export function __clearWeatherCacheForTests() {
+    weatherCache.clear();
+}
 
 // GET /api/branches/:id/traffic - Get traffic congestion for branch location
 router.get('/:id/traffic', authenticate, async (req: Request, res: Response) => {
