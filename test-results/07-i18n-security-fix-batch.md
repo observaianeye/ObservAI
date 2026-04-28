@@ -22,7 +22,7 @@
 |---|---|---|---|---|
 | A | #30, #34, #45, #54 | DONE | +7 | ~25 dk |
 | B | #22 | DONE_NODE_LIVE_PYTHON_PARTIAL | +3 | ~45 dk |
-| C | #1.5a, #10, #11, #41, #56, #34 yayilim | TODO | — | — |
+| C | #1.5a, #10, #11, #41, #56, #34 yayilim | DONE | +19 | ~50 dk |
 | D | #28, #36, #40, #46, #47, #48, #59 | TODO | — | — |
 | E | #38, #44, #50, #51, #57 | TODO | — | — |
 | F | (16 minor) | TODO | — | — |
@@ -162,5 +162,95 @@ gerekli.
 
 **Commit**: `988c642` (kod) + `8be63b9` (ilk rapor) + bu rapor guncel.
 
+## Batch C Detay (DONE — 2026-04-29)
+
+Pre-flight (bu batch basinda): Vitest 48 PASS / 6 expected FAIL ✓, FE/BE/PY/Ollama 200 ✓, branch partal_test ✓, 5+ Batch A+B commit gorunur.
+
+### Yan #1.5a — BranchSection 30+ hardcoded TR -> t()
+- File: `frontend/src/components/settings/BranchSection.tsx` (484 satir tam rewrite, mantigi 1:1 korundu)
+- File: `frontend/src/pages/dashboard/SettingsPage.tsx` line 520 `title="Subeler"` -> `title={t('settings.branches.title')}`
+- File: `frontend/src/i18n/strings.ts` settings.branches.* anahtarlari TR + EN (38 anahtar/locale = 76 toplam)
+- Diakritik onay: TR locale'de Subeler/sube -> Şubeler/şube (ASCII-bare yerine dogru TR)
+- EN locale'de Branches / Add branch / View on map / Set default / Default / Saving... / Update / Create / Cancel
+- Typecheck: `pnpm tsc --noEmit` exit 0
+- Commit: `b6b27f6` `fix(i18n/branches): yan #1.5a BranchSection 30+ hardcoded TR strings to t() (TR_BLEEDING fix)`
+
+### Yan #11 — Weather code TR-only mapping -> t()
+- File: `frontend/src/components/dashboard/WeatherWidget.tsx` (212 satir tam rewrite)
+- weatherMeta() Open-Meteo code'unu semantic enum'a (`'clear'|'partly'|'cloudy'|'fog'|'rain'|'snow'|'storm'`) cevirir, label `t('weather.code.<condition>')` ile resolve
+- Loading text 'Hava durumu yukleniyor...' -> `t('weather.loading')`
+- Wind/rain-prob tooltip + traffic level badge + 'tahmin'/'estimate' suffix hep `t()`
+- File: `frontend/src/i18n/strings.ts` weather.* anahtarlari TR + EN (15 key/locale)
+- Typecheck: 0 error
+- Commit: `b7d32bb` `fix(i18n/weather): yan #11 weather code TR-only mapping to t()`
+
+### Yan #10 — Password reset email TR-only -> TR/EN locale
+- File: `backend/src/services/emailService.ts`
+  - `EmailLocale` type + exported `PASSWORD_RESET_TEMPLATES` (subject, headerTitle, greetingNamed/Anon, bodyP1, cta, fallbackHint, expiryNote, footer)
+  - `sendPasswordResetEmail()` 4. param `locale: EmailLocale = 'tr'` (default 'tr' geriye uyumluluk)
+  - HTML `<html lang="${locale}">` attribute
+- File: `backend/src/routes/auth.ts:268` Accept-Language header parse -> `locale = al.startsWith('en') ? 'en' : 'tr'` -> mailer'a iletim
+- Vitest: `backend/src/__tests__/email-i18n.test.ts` (+2)
+  - tr template: subject contains 'Sifre Sifirlama', cta 'Sifirla', NOT 'password reset'
+  - en template: subject contains 'Password Reset Request', cta 'Reset Password', NOT 'sifirlama'
+- Vitest after: 50 PASS / 6 expected FAIL
+- Commit: `e25cca4` `fix(emailService): yan #10 multi-locale password reset email (TR/EN) + 2 vitest`
+
+### Yan #41 — Export CSV/PDF EN-only -> TR/EN locale + ASCII fold for PDF
+- File: `backend/src/lib/exportI18n.ts` (yeni)
+  - `EXPORT_LABELS` record (TR/EN, 26 alan/locale: CSV column header'lar + PDF basliklar + filename slug fonksiyonlari)
+  - `detectExportLocale(req)`: `?lang=tr|en` -> `req.user.locale` -> `Accept-Language` -> default 'en'
+- File: `backend/src/lib/turkishToAscii.ts` (yeni)
+  - `Map<TR-glyph, ASCII>` + `turkishToAscii(s)` regex replace (sube cedilla -> s, dotted I -> I, etc.)
+  - Sebep: pdfkit default Helvetica TR diakritiklerini drop eder; bundling custom TTF kacindi
+- File: `backend/src/routes/export.ts` (refactor — buildOwnedWhere yardimci aynen kalir)
+  - CSV: Parser fields locale-aware label, `withBOM: true` (Excel UTF-8 render), `Content-Type: text/csv; charset=utf-8`, `Content-Language: <locale>`
+  - PDF: title + section + table headers + summary + footer hep `pdfLabel(s) = locale === 'tr' ? turkishToAscii(s) : s`
+  - Filename: TR -> `analitik_raporu_<date>.csv|pdf`, EN -> `analytics_export_<date>.csv` / `analytics_report_<date>.pdf`
+- Vitest: `backend/src/__tests__/export-i18n.test.ts` (+10)
+  - detectExportLocale 4 case (?lang | user.locale | Accept-Language | default)
+  - EXPORT_LABELS catalog 2 (TR Tarih+pdfTitle / EN Timestamp+pdfTitle)
+  - turkishToAscii 2 (Sube/Cikan/Istanbul/Ogle dogru fold + ASCII passthrough)
+  - GET /api/export/csv 2 (Accept-Language tr -> Tarih, en -> Timestamp; mock prisma)
+- Vitest after: 60 PASS / 6 expected FAIL
+- Commit: `17347b2` `fix(export): yan #41 locale-aware CSV/PDF (TR/EN) + ASCII fold for PDF + 10 vitest`
+
+### Yan #56 — Chatbot markdown raw -> markdownLite
+- File: `frontend/src/lib/markdownLite.ts` (yeni, 30+ satir)
+  - HTML escape (`& < > " '`) once, sonra `**bold**` / `*italic*` / `\n\n` -> `<br/><br/>` / `\n` -> `<br/>`
+  - Regex italic'i double-asterisk gozetip atlar (`(^|[^*])\*([^*\n]+)\*(?!\*)`)
+  - **XSS guard**: input HTML escape edildigi icin `<script>` veya prompt-injection tag'leri DOM'a ulasamaz; sadece 3 marker HTML'e cevirilir
+- File: `frontend/src/components/GlobalChatbot.tsx`
+  - Assistant + non-error bubble `<p>{message.content}</p>` -> `<p dangerouslySetInnerHTML={{ __html: markdownLiteToHtml(message.content) }} />`
+  - User + error bubble degismedi (markdown trust YOK)
+- File: `.gitignore` `lib/` Python venv kuralin frontend/src/lib istisnasi eklendi (`!frontend/src/lib/**`)
+- Test: `frontend/src/lib/__tests__/markdownLite.test.ts` (3 test, node:test API — frontend vitest yok henuz)
+  - Run: `cd backend && npx tsx --test ../frontend/src/lib/__tests__/markdownLite.test.ts` -> 3/3 pass
+  - Cases: `**bold**` -> `<strong>`, XSS payload `<script>alert(1)</script>` escape edilir, mixed `**world**\n\n*italic*` mix render
+- Commit: `8345894` `fix(chatbot): yan #56 markdown lite (regex bold/italic + XSS escape) + 3 tests`
+
+### Yan #34 yayilim — utf8String 3 route'a daha uygulandi
+- File: `backend/src/routes/branches.ts` BranchSchema name -> `utf8String(1, 120)`, city -> `utf8String(1, 200)`
+- File: `backend/src/routes/staff.ts` CreateStaffBody firstName/lastName -> `utf8String(1, 60)`
+- File: `backend/src/routes/cameras.ts` CreateCameraSchema name -> `utf8String(1, 255)`
+- Sebep: bu 3 alan TopNavbar / dashboard / PDF + CSV / shift email'lerde basilir; U+FFFD bir kez DB'ye duserse geri donus YOK
+- Vitest: `backend/src/__tests__/utf8-yayilim.test.ts` (+4)
+  - branches POST `name='Sub�e'` -> 400 + "Validation error" + UTF-8 message detail
+  - branches POST `name='Şube Beşiktaş', city='İstanbul'` (TR diakritik) -> 201 (refine geciyor + Prisma create cagrilir)
+  - staff POST `firstName='A�hmet'` -> 400 + 'Invalid body' + UTF-8 issues
+  - cameras POST `name='Cam�era'` -> 400 + UTF-8 message
+- Vitest after: 64 PASS / 6 expected FAIL
+- Commit: `549a648` `fix(routes): yan #34 yayilim UTF-8 zod refine across branches/staff/cameras + 4 vitest`
+
+## Batch C Regression Gate Sonuclari (2026-04-29 00:46)
+- Vitest final: **64 PASS / 6 expected FAIL** (48 onceki + 2 email-i18n + 10 export-i18n + 4 utf8-yayilim = 64). Beklenen 6 fail: tables-ai-summary.test.ts (Yan #4.4 korunur)
+- Frontend `pnpm tsc --noEmit`: exit 0 (Yan #1.5a + #11 + #56 hepsi temiz)
+- markdownLite test (node:test via tsx): 3/3 pass
+- Yan #37 leak probe: **0** ✓ (admin secret deneme'ye sizmiyor, conv id paylasilmasi rağmen)
+- Frontend smoke (`e2e/smoke.spec.ts`): **2/2 PASS** in 7.8s (chromium headless)
+- Servisler: FE 5173 200, BE 3001 200, PY 5001 200, Ollama 11434 200
+- 6 atomic commit: `b6b27f6` (Yan #1.5a) + `b7d32bb` (Yan #11) + `e25cca4` (Yan #10) + `17347b2` (Yan #41) + `8345894` (Yan #56) + `549a648` (Yan #34 yayilim)
+- Sub-effect: `.gitignore` Python venv `lib/` kuralinin frontend/src/lib'i dislamasi giderildi (Yan #56 ile birlikte commit'lendi)
+
 ## Sonraki Batch
-Prompt 3 → Batch C (Yan #1.5a, #10, #11, #41, #56, #34 yayilim).
+Prompt 4 → Batch D (Yan #28, #36, #40, #46, #47, #48, #59 — security/audit hardening: prompt sanitization, OLLAMA_MODEL exact match, cameraId schema unification, vs.)
