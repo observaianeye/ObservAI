@@ -14,12 +14,15 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  outputDir: '../test-results/playwright-artifacts',
+  reporter: [['list'], ['html', { open: 'never', outputFolder: '../test-results/playwright-html' }]],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173',
-    trace: 'retain-on-failure',
+    trace: 'on',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
   },
   projects: [
     {
