@@ -298,11 +298,15 @@ export async function callOllamaStream(
  * Load the most recent `MAX_HISTORY_TURNS` turns for a conversation, oldest-first,
  * so we can inject them into the prompt. Best-effort: swallows DB errors and
  * returns an empty array so a missing table never breaks chat.
+ *
+ * Tenant isolation (Yan #37): the userId filter prevents one tenant from
+ * injecting another tenant's chat history into their prompt by guessing or
+ * reusing a conversationId belonging to a different user.
  */
-async function loadConversationHistory(conversationId: string): Promise<Array<{ role: string; content: string }>> {
+export async function loadConversationHistory(conversationId: string, userId: string): Promise<Array<{ role: string; content: string }>> {
   try {
     const rows = await (prisma as any).chatMessage.findMany({
-      where: { conversationId },
+      where: { conversationId, userId },
       orderBy: { createdAt: 'desc' },
       take: MAX_HISTORY_TURNS,
       select: { role: true, content: true },
@@ -379,7 +383,7 @@ router.post('/chat', authenticate, async (req: Request, res: Response) => {
     const recentAnalytics = await getRecentAnalyticsContext(cameraId);
 
     // Pull the last N turns so follow-up questions work ("peki cinsiyet dağılımı?").
-    const history = conversationId ? await loadConversationHistory(conversationId) : [];
+    const history = conversationId ? await loadConversationHistory(conversationId, req.user.id) : [];
     const analyticsWithHistory = recentAnalytics + renderHistoryForPrompt(history);
 
     // Build context prompt
@@ -547,7 +551,7 @@ router.post('/chat/stream', authenticate, async (req: Request, res: Response) =>
 
   try {
     const recentAnalytics = await getRecentAnalyticsContext(cameraId);
-    const history = conversationId ? await loadConversationHistory(conversationId) : [];
+    const history = conversationId ? await loadConversationHistory(conversationId, req.user.id) : [];
     const contextPrompt = buildContextPrompt(message, recentAnalytics + renderHistoryForPrompt(history), lang);
 
     if (conversationId) {
