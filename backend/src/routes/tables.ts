@@ -243,7 +243,7 @@ router.patch('/:zoneId/status', authenticate, async (req: Request, res: Response
   }
 
   const zone = await prisma.zone.findFirst({
-    where: { id: zoneId, cameraId, type: 'table', isActive: true },
+    where: { id: zoneId, cameraId, type: 'TABLE', isActive: true },
   });
   if (!zone) {
     return res.status(404).json({ error: 'Table zone not found' });
