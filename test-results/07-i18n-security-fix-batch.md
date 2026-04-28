@@ -364,5 +364,70 @@ curl -s http://localhost:3001/api/ai/status | grep -o 'model[^,]*'
 # (live yarat, 48h sonra test, manuel)
 ```
 
+## Batch E Detay (DONE — 2026-04-29)
+
+Pre-flight: Vitest 88 PASS / 6 expected FAIL ✓, FE/BE/PY/Ollama 200 ✓, branch partal_test, 31 commit (Batch D + report).
+
+### Yan #44 — Insights cron setInterval 6h + idempotency upsert
+- File: `backend/src/services/insightsCron.ts` (yeni). `INSIGHT_CRON_ENABLED=true` env-gated, 30s startup delay sonra setInterval 6h. Per-camera success/fail aggregation, error path her cam'i izole eder (bir cam patlarsa diğerleri devam eder).
+- File: `backend/src/services/insightEngine.ts` saveInsights() upsert refactor: dateKey = today's UTC YYYY-MM-DD, `INSERT ... ON CONFLICT(cameraId, type, dateKey) DO UPDATE`. 6h tick aynı gün tekrar firelarsa eski row UPDATE eder, dup oluşturmaz.
+- File: `backend/prisma/schema.prisma` Insight modeline `dateKey String?` + `@@unique([cameraId, type, dateKey])`. Migration: `20260430000000_yan_44_insight_idempotency` ALTER TABLE + UNIQUE INDEX.
+- File: `backend/src/index.ts` ensureInsightsTable() raw SQL ALTER TABLE idempotent (try/catch column-exists), startInsightsCron() server.listen sonrası, stopInsightsCron() SIGTERM/SIGINT shutdown handler.
+- Vitest: `insights-cron-idempotency.test.ts` (+2): SQL'in ON CONFLICT clause + dateKey içerdiğini, dateKey değerinin today's UTC YYYY-MM-DD olduğunu kontrol.
+- Commit: `8694ad0` `feat(services/insightsCron): yan #44 setInterval 6h + idempotency upsert + 2 vitest`
+
+### Yan #57 — Insights dismiss endpoint + dismissedAt schema
+- File: `backend/prisma/schema.prisma` Insight modeline `dismissedAt DateTime?`. Migration: `20260430010000_yan_57_insight_dismiss` ALTER TABLE.
+- File: `backend/src/index.ts` ensureInsightsTable() ALTER TABLE idempotent.
+- File: `backend/src/routes/insights.ts` PATCH /:id/dismiss endpoint: tenant-scoped (ownedCameraIdsForUser → 404 cross-tenant), raw SQL UPDATE dismissedAt = now(), `{ success, id, dismissedAt }` döner. GET /api/insights default filter `dismissedAt IS NULL` (`?includeDismissed=true` audit view).
+- Vitest: `insights-dismiss.test.ts` (+2): happy path 200 + UPDATE SQL dismissedAt içeriyor; cross-tenant 404 + executeRaw çağrılmaz.
+- Commit: `26e5999` `feat(routes/insights): yan #57 dismiss endpoint + dismissedAt schema + 2 vitest`
+
+### Yan #38 — DashboardFilterContext dateRange persist localStorage
+- File: `frontend/src/contexts/DashboardFilterContext.tsx` `DashboardDateRange` type ('1h'|'1d'|'1w'|'1m'|'3m') + `dateRange`/`setDateRange` context'e eklendi. `readStoredRange()` localStorage validation + fallback '1d'. Set sırasında localStorage 'dashboardDateRange' anahtarına yazılır.
+- File: `frontend/src/pages/dashboard/AnalyticsPage.tsx` lokal `useState<Range>('1d')` → `useDashboardFilter().dateRange` + `setDateRange`. Diğer dashboard pages henüz range selector yok (HistoricalPage/TablesPage mevcut DEĞİL — AnalyticsPage merge edilmiş, plan varsayımı yanılttı).
+- Frontend tsc: 0 error
+- Commit: `5c82a62` `feat(contexts/DashboardFilter): yan #38 dateRange persist localStorage`
+
+### Yan #50 — MJPEG eligibility auto-attach (BUG_CANDIDATE_DENEME → PASS)
+- Audit (CameraFeed.tsx lines 236-261, 1490): `isStreaming` defaultu false, remount-restore SADECE `STREAMING_ACTIVE_KEY === '1'` localStorage flag varsa flip ediyordu. Fresh login'de flag yok → MozartHigh server-side live olsa bile MJPEG `<img>` mount olmuyordu.
+- Fix: aynı useEffect'i genişlet — `python-backend/health` endpoint'inden `streaming=true && model_loaded=true` dönerse flag yokken bile auto-attach. Gate dar tutuldu (sadece aktif frame serve durumunda flip; idle pipeline'da ghost stream olmaz).
+- E2E: `pnpm exec playwright test e2e/retroactive/faz2/2.2_mjpeg_dashboard.spec.ts` → **PASS** (BUG_CANDIDATE_DENEME → PASS, 1.2 dk)
+- Commit: `7bd60d6` `fix(camera/CameraFeed): yan #50 MJPEG eligibility auto-attach when pipeline live`
+
+### Yan #51 — ZoneCanvas DrawMode audit (no gate, e2e mismatch)
+- Audit (ZoneCanvas.tsx 565-571 + ZoneLabelingPage.tsx): DrawModeButton x3 toolbar motion.div içinde KOSULSUZ render ediliyor. Snapshot/backgroundImage gate YOK, enableDrawing prop YOK, mountState guard YOK. Parent ZoneLabelingPage `<ZoneCanvas/>` zero props ile mount ediyor.
+- OBSERVATIONAL e2e verdict (4.1a/b/c) yanlış endpoint kontrol ediyordu: drag-end commitRect/Polygon/Freehand SADECE local `setZones([...])` çağırır, persistence ayrı "Save All" buton (POST /api/zones/batch). Test drag sonrası POST /api/zones bekliyordu — yanlış flow.
+- Source change: e2e maintainability (Yan #61) için `data-testid="zone-draw-toolbar|rect|polygon|freehand|zone-save-all"` eklendi + audit comment kalıcı dökümantasyon.
+- E2E: 4.1a/b/c hepsi **PASS** (zone create + save all flow tutarlı).
+- Commit: `d134ba0` `fix(camera/ZoneCanvas): yan #51 DrawMode audit (no gate exists) + data-testid`
+
+## Batch E Regression Gate Sonuclari (2026-04-29)
+- Vitest final: **92 PASS / 6 expected FAIL** (88 onceki + 2 #44 + 2 #57 = +4, plan +2 hedefi asildi). Beklenen 6 fail: tables-ai-summary.test.ts (Yan #4.4 korunur)
+- Backend `npx tsc --noEmit`: exit 0
+- Frontend `pnpm tsc --noEmit`: exit 0
+- Yan #37 leak probe (production): **0** ✓ (LEAK_COUNT=0 reproduced)
+- Smoke 2/2: **PASS** in 4.1s
+- E2E 2.2 MJPEG (Yan #50 fix verify): **PASS** (BUG_CANDIDATE → PASS)
+- E2E 4.1a/b/c zone create+save: **PASS** (3/3, OBSERVATIONAL → PASS)
+- E2E 6.4b insight dismiss/delete: **PASS** (Yan #57 endpoint compat)
+- 5 atomic commit: `8694ad0` (#44) + `26e5999` (#57) + `5c82a62` (#38) + `7bd60d6` (#50) + `d134ba0` (#51)
+- `git push origin partal_test`: `a870a75..d134ba0` ✓
+
+## Batch E Live Verify Durumu — VERIFIED_LIVE
+Backend hot-reload tetiklendi (services 200 sırasında patch'ler etkili oldu) → Yan #50 fix gercek browser test'te dogrulandı (2.2 PASS). Yan #44/57 endpoint patch path'i restart bekliyor (cron startup logic + dismissedAt UPDATE production'a tam yansıması için node restart). User restart sonrası live verification:
+```bash
+# Yan #44 cron — opt-in
+INSIGHT_CRON_ENABLED=true npm start
+# beklenen log: [insights-cron] enabled, every 6h
+
+# Yan #57 dismiss
+curl -s -b admin.txt -X PATCH http://localhost:3001/api/insights/<id>/dismiss
+# beklenen: { success: true, id, dismissedAt: "2026-04-29T..." }
+
+# DB cross-check
+sqlite3 backend/prisma/dev.db "SELECT id, dismissedAt FROM insights WHERE id='<id>'"
+```
+
 ## Sonraki Batch
-Prompt 5 → Batch E (Yan #38 DashboardFilterContext date persist, #44 Insights cron, #50, #51 ZoneCanvas DrawMode, #57 Insights dismiss UX)
+Prompt 6 → Batch F (16 minor — i18n stragglers + LOW severity yan'lar). Yan #61 (data-testid yayilim) + Yan #58 (CLAUDE.md doc temizlik) + Yan #60 (Staffing AI summary kararı).
