@@ -142,6 +142,11 @@ test-results/screenshots/
 # Vite hot-reload timestamp files
 frontend/vite.config.ts.timestamp-*
 
+# Local helper scripts (per-developer, not shared)
+_partal_test_setup.ps1
+_partal_test_finalize.ps1
+kisalik
+
 # Shell-typo 0-byte artifacts (from misinterpreted commands;
 # delete manually on Windows: `Get-ChildItem -File | Where-Object {$_.Length -eq 0} | Remove-Item -Force`)
 /2
