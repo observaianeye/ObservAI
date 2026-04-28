@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import type { Lang } from '../../i18n/strings';
 import NotificationCenter from '../NotificationCenter';
 
@@ -40,6 +40,18 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
     navigate('/login');
   };
 
+  // Yan #19: debounce branch switch — rapid back-to-back swaps caused the
+  // Playwright context to detach in faz2 (and a flicker/stall in dev). 300ms
+  // matches the typical reaction time between two intentional clicks while
+  // collapsing accidental double-fires.
+  const debouncedSelectBranch = useMemo(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    return (branch: typeof branches[number]) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setSelectedBranch(branch), 300);
+    };
+  }, [setSelectedBranch]);
+
   const handleBranchChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     if (value === '__add__') {
@@ -47,7 +59,7 @@ export default function TopNavbar({ onMenuClick }: TopNavbarProps) {
       return;
     }
     const branch = branches.find((b) => b.id === value);
-    if (branch) setSelectedBranch(branch);
+    if (branch) debouncedSelectBranch(branch);
   };
 
   const handleLangChange = (next: Lang) => {
