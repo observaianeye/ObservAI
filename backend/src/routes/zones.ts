@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { requireManager } from '../middleware/roleCheck';
 import { authenticate } from '../middleware/authMiddleware';
 import { requireCameraOwnership, requireZoneOwnership, userOwnsCamera } from '../middleware/tenantScope';
+import { utf8String } from '../lib/utf8Validator';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ function findOverlaps(
 
 const CreateZoneSchema = z.object({
   cameraId: z.string().uuid(),
-  name: z.string().min(1).max(255),
+  name: utf8String(1, 100),
   type: z.enum(['ENTRANCE', 'EXIT', 'QUEUE', 'TABLE', 'CUSTOM']),
   coordinates: z.array(z.object({
     x: z.number().min(0).max(1),
