@@ -125,6 +125,10 @@ async function ensureInsightsTable() {
     await prisma.$executeRawUnsafe(`
       CREATE UNIQUE INDEX IF NOT EXISTS "insights_cameraId_type_dateKey_key" ON "insights"("cameraId", "type", "dateKey")
     `);
+    // Yan #57: soft-dismiss column, idempotent ALTER.
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "insights" ADD COLUMN "dismissedAt" DATETIME`);
+    } catch { /* column already exists */ }
     console.log('✅ insights tablosu hazır');
   } catch (err) {
     console.warn('⚠️  insights tablosu oluşturulamadı:', err);

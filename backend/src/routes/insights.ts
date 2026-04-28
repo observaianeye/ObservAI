@@ -91,7 +91,7 @@ const GenerateSchema = z.object({
 
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const { cameraId, branchId, type, severity, isRead, limit: limitStr, startDate, endDate } = req.query;
+    const { cameraId, branchId, type, severity, isRead, limit: limitStr, startDate, endDate, includeDismissed } = req.query;
     const limit = limitStr ? Math.min(parseInt(limitStr as string), 200) : 50;
 
     const ownedIds = await ownedCameraIdsForUser(req.user.id);
@@ -117,6 +117,9 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     if (isRead !== undefined) conditions.push(`"isRead" = ${isRead === 'true' ? 1 : 0}`);
     if (startDate) conditions.push(`"createdAt" >= ${sqlQuote(new Date(startDate as string).toISOString())}`);
     if (endDate) conditions.push(`"createdAt" <= ${sqlQuote(new Date(endDate as string).toISOString())}`);
+    // Yan #57: hide dismissed rows by default. Pass ?includeDismissed=true
+    // for an admin/audit view.
+    if (includeDismissed !== 'true') conditions.push('"dismissedAt" IS NULL');
 
     const whereClause = conditions.join(' AND ');
 
@@ -310,6 +313,33 @@ router.patch('/:id/read', authenticate, async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Insights] Mark read error:', error);
     res.status(500).json({ error: 'Failed to mark insight as read' });
+  }
+});
+
+// ─── PATCH /api/insights/:id/dismiss ─────────────────────────────────────────
+// Yan #57: soft-dismiss UX. Sets dismissedAt to now; the row stays in the
+// DB for audit, but the default list filter (`dismissedAt IS NULL`) hides it.
+// Tenant-scoped via ownedCameraIdsForUser → 404 if the caller does not own
+// the camera the insight belongs to.
+
+router.patch('/:id/dismiss', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const ownedIds = await ownedCameraIdsForUser(req.user.id);
+    if (ownedIds.length === 0) return res.status(404).json({ error: 'Insight not found' });
+
+    const owned = await prisma.$queryRawUnsafe<InsightRow[]>(
+      `SELECT id FROM insights WHERE id = ${sqlQuote(id)} AND "cameraId" IN (${ownedIds.map(sqlQuote).join(',')})`
+    );
+    if (owned.length === 0) return res.status(404).json({ error: 'Insight not found' });
+
+    const now = new Date().toISOString();
+    await prisma.$executeRaw`UPDATE insights SET "dismissedAt" = ${now} WHERE id = ${id}`;
+    res.json({ success: true, id, dismissedAt: now });
+  } catch (error) {
+    console.error('[Insights] Dismiss error:', error);
+    res.status(500).json({ error: 'Failed to dismiss insight' });
   }
 });
 

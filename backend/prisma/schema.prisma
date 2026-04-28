@@ -220,6 +220,9 @@ model Insight {
   // Yan #44: YYYY-MM-DD UTC bucket so a 6h cron re-runs on the same day
   // upsert into the same row instead of duplicating it.
   dateKey   String?
+  // Yan #57: soft-dismiss UX — list endpoint hides dismissed rows, but the
+  // row stays for analytics/audit. Default filter: dismissedAt IS NULL.
+  dismissedAt DateTime?
   expiresAt DateTime?
   createdAt DateTime @default(now())
 
