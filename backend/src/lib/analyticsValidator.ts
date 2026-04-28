@@ -88,17 +88,25 @@ export function validateAnalyticsPayload(raw: unknown, now: Date = new Date()): 
 
   let timestamp: Date | undefined;
   if (p.timestamp !== undefined && p.timestamp !== null) {
-    const parsed = p.timestamp instanceof Date ? p.timestamp : new Date(p.timestamp as string);
-    if (Number.isNaN(parsed.getTime())) {
-      reasons.push('timestamp is not a valid date');
+    // Yan #28: reject seconds-cinsinden numeric timestamps explicitly. Any
+    // integer below 10^12 is too small to be a recent ms epoch (10^12 ms =
+    // 2001-09-09); this catches Python clients that sent time.time() instead
+    // of int(time.time() * 1000).
+    if (typeof p.timestamp === 'number' && Number.isFinite(p.timestamp) && p.timestamp < 1_000_000_000_000) {
+      reasons.push('timestamp appears to be in seconds, expected milliseconds (>= 1e12)');
     } else {
-      const delta = parsed.getTime() - now.getTime();
-      if (delta > MAX_FUTURE_SKEW_MS) {
-        reasons.push(`timestamp is in the future by ${Math.round(delta / 1000)}s`);
-      } else if (-delta > MAX_PAST_AGE_MS) {
-        reasons.push(`timestamp is older than ${MAX_PAST_AGE_MS / 1000}s`);
+      const parsed = p.timestamp instanceof Date ? p.timestamp : new Date(p.timestamp as string);
+      if (Number.isNaN(parsed.getTime())) {
+        reasons.push('timestamp is not a valid date');
       } else {
-        timestamp = parsed;
+        const delta = parsed.getTime() - now.getTime();
+        if (delta > MAX_FUTURE_SKEW_MS) {
+          reasons.push(`timestamp is in the future by ${Math.round(delta / 1000)}s`);
+        } else if (-delta > MAX_PAST_AGE_MS) {
+          reasons.push(`timestamp is older than ${MAX_PAST_AGE_MS / 1000}s`);
+        } else {
+          timestamp = parsed;
+        }
       }
     }
   }
