@@ -1,5 +1,9 @@
 /**
- * Export Routes - PDF/CSV generation for analytics data
+ * Export Routes - PDF/CSV generation for analytics data.
+ *
+ * Yan #41: locale-aware. CSV uses native UTF-8 (TR diacritics preserved);
+ * PDF passes labels through turkishToAscii() because pdfkit's default
+ * Helvetica drops glyphs outside Latin-1.
  */
 
 import { Router, Request, Response } from 'express';
@@ -8,7 +12,8 @@ import { Parser } from 'json2csv';
 import PDFDocument from 'pdfkit';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authMiddleware';
-import { userOwnsCamera } from '../middleware/tenantScope';
+import { EXPORT_LABELS, detectExportLocale } from '../lib/exportI18n';
+import { turkishToAscii } from '../lib/turkishToAscii';
 
 const router = Router();
 
@@ -56,6 +61,9 @@ router.get('/csv', authenticate, async (req: Request, res: Response) => {
       limit: req.query.limit ? parseInt(req.query.limit as string) : 1000
     });
 
+    const locale = detectExportLocale(req);
+    const labels = EXPORT_LABELS[locale];
+
     const where = await buildOwnedWhere(req.user.id, params);
     if (where === null) return res.status(404).json({ error: 'Camera not found' });
     if ((where as any).__empty) return res.status(404).json({ error: 'No data found for the specified criteria' });
@@ -99,27 +107,30 @@ router.get('/csv', authenticate, async (req: Request, res: Response) => {
       fps: log.fps || 0
     }));
 
-    // Generate CSV
+    // Generate CSV with locale-aware headers
     const parser = new Parser({
       fields: [
-        { label: 'Timestamp', value: 'timestamp' },
-        { label: 'Camera', value: 'camera' },
-        { label: 'People In', value: 'peopleIn' },
-        { label: 'People Out', value: 'peopleOut' },
-        { label: 'Current Count', value: 'currentCount' },
-        { label: 'Queue Count', value: 'queueCount' },
-        { label: 'Avg Wait Time (s)', value: 'avgWaitTime' },
-        { label: 'Longest Wait Time (s)', value: 'longestWaitTime' },
-        { label: 'FPS', value: 'fps' }
-      ]
+        { label: labels.timestamp, value: 'timestamp' },
+        { label: labels.camera, value: 'camera' },
+        { label: labels.peopleIn, value: 'peopleIn' },
+        { label: labels.peopleOut, value: 'peopleOut' },
+        { label: labels.currentCount, value: 'currentCount' },
+        { label: labels.queueCount, value: 'queueCount' },
+        { label: labels.avgWaitTime, value: 'avgWaitTime' },
+        { label: labels.longestWaitTime, value: 'longestWaitTime' },
+        { label: labels.fps, value: 'fps' }
+      ],
+      withBOM: true, // Excel needs UTF-8 BOM to render TR diacritics correctly
     });
 
     const csv = parser.parse(csvData);
 
     // Set headers for file download
-    const filename = `analytics_export_${new Date().toISOString().split('T')[0]}.csv`;
-    res.setHeader('Content-Type', 'text/csv');
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = labels.csvFilename(dateStr);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Language', locale);
     res.send(csv);
 
   } catch (error) {
@@ -142,6 +153,11 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
       endDate: req.query.endDate,
       limit: req.query.limit ? parseInt(req.query.limit as string) : 1000
     });
+
+    const locale = detectExportLocale(req);
+    const labels = EXPORT_LABELS[locale];
+    // PDF labels: ASCII-fold so Helvetica renders Turkish without missing-glyph boxes.
+    const pdfLabel = (s: string) => locale === 'tr' ? turkishToAscii(s) : s;
 
     const where = await buildOwnedWhere(req.user.id, params);
     if (where === null) return res.status(404).json({ error: 'Camera not found' });
@@ -192,36 +208,38 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
 
     // Set headers for file download
-    const filename = `analytics_report_${new Date().toISOString().split('T')[0]}.pdf`;
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = labels.pdfFilename(dateStr);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Language', locale);
 
     // Pipe PDF to response
     doc.pipe(res);
 
     // Add title
-    doc.fontSize(20).text('ObservAI Analytics Report', { align: 'center' });
+    doc.fontSize(20).text(pdfLabel(labels.pdfTitle), { align: 'center' });
     doc.moveDown();
 
     // Add report metadata
-    doc.fontSize(10).text(`Generated: ${new Date().toLocaleString()}`, { align: 'right' });
-    doc.text(`Camera: ${logs[0].camera?.name || params.cameraId || 'All Cameras'}`, { align: 'right' });
-    doc.text(`Period: ${params.startDate || 'All Time'} to ${params.endDate || 'Now'}`, { align: 'right' });
-    doc.text(`Total Records: ${logs.length}`, { align: 'right' });
+    doc.fontSize(10).text(`${pdfLabel(labels.generatedDate)}: ${new Date().toLocaleString()}`, { align: 'right' });
+    doc.text(`${pdfLabel(labels.cameraField)}: ${pdfLabel(logs[0].camera?.name || params.cameraId || labels.allCameras)}`, { align: 'right' });
+    doc.text(`${pdfLabel(labels.periodField)}: ${params.startDate || pdfLabel(labels.allTime)} - ${params.endDate || pdfLabel(labels.now)}`, { align: 'right' });
+    doc.text(`${pdfLabel(labels.totalRecordsField)}: ${logs.length}`, { align: 'right' });
     doc.moveDown(2);
 
     // Add summary section
-    doc.fontSize(14).text('Summary Statistics', { underline: true });
+    doc.fontSize(14).text(pdfLabel(labels.summarySection), { underline: true });
     doc.moveDown();
     doc.fontSize(10);
-    doc.text(`Total People Entered: ${totalPeopleIn}`);
-    doc.text(`Total People Exited: ${totalPeopleOut}`);
-    doc.text(`Average Current Count: ${avgCurrentCount}`);
-    doc.text(`Average Queue Count: ${avgQueueCount}`);
+    doc.text(`${pdfLabel(labels.totalEntered)}: ${totalPeopleIn}`);
+    doc.text(`${pdfLabel(labels.totalExited)}: ${totalPeopleOut}`);
+    doc.text(`${pdfLabel(labels.avgCurrent)}: ${avgCurrentCount}`);
+    doc.text(`${pdfLabel(labels.avgQueue)}: ${avgQueueCount}`);
     doc.moveDown(2);
 
     // Add data table header
-    doc.fontSize(12).text('Detailed Analytics', { underline: true });
+    doc.fontSize(12).text(pdfLabel(labels.detailSection), { underline: true });
     doc.moveDown();
 
     // Table headers
@@ -236,14 +254,14 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
     const col7 = 460;
     const col8 = 520;
 
-    doc.text('Timestamp', col1, tableTop);
-    doc.text('People In', col2, tableTop);
-    doc.text('People Out', col3, tableTop);
-    doc.text('Current', col4, tableTop);
-    doc.text('Queue', col5, tableTop);
-    doc.text('Avg Wait', col6, tableTop);
-    doc.text('Max Wait', col7, tableTop);
-    doc.text('FPS', col8, tableTop);
+    doc.text(pdfLabel(labels.detailTimestamp), col1, tableTop);
+    doc.text(pdfLabel(labels.detailPeopleIn), col2, tableTop);
+    doc.text(pdfLabel(labels.detailPeopleOut), col3, tableTop);
+    doc.text(pdfLabel(labels.detailCurrent), col4, tableTop);
+    doc.text(pdfLabel(labels.detailQueue), col5, tableTop);
+    doc.text(pdfLabel(labels.detailAvgWait), col6, tableTop);
+    doc.text(pdfLabel(labels.detailMaxWait), col7, tableTop);
+    doc.text(pdfLabel(labels.detailFps), col8, tableTop);
 
     doc.moveTo(col1, doc.y + 5).lineTo(570, doc.y + 5).stroke();
     doc.moveDown();
@@ -274,12 +292,12 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
 
     if (logs.length > displayLimit) {
       doc.moveDown();
-      doc.fontSize(10).text(`... and ${logs.length - displayLimit} more records`, { align: 'center' });
+      doc.fontSize(10).text(pdfLabel(labels.moreRecords(logs.length - displayLimit)), { align: 'center' });
     }
 
     // Add footer
     doc.fontSize(8).text(
-      'Generated by ObservAI - Real-time Camera Analytics Platform',
+      pdfLabel(labels.footer),
       50,
       doc.page.height - 50,
       { align: 'center' }
