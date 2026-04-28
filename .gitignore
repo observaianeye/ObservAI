@@ -124,3 +124,11 @@ YAS_KATEGORILERI_GUNCELLENDI.md
 # Shell scripts (to be organized)
 start_camera.sh
 start_camera_websocket.sh
+
+# MCP plugin paketi — gömülü API key içerir, repo'ya gitmemeli
+observai-mcp-bundle.plugin
+observai-mcp-bundle/
+
+# MCP setup dosyalari (gomulu API key icerir, lokal kalsin)
+set-magic-key.bat
+KURULUM-MCP.md
