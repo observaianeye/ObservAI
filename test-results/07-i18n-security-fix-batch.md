@@ -242,6 +242,32 @@ Pre-flight (bu batch basinda): Vitest 48 PASS / 6 expected FAIL ✓, FE/BE/PY/Ol
 - Vitest after: 64 PASS / 6 expected FAIL
 - Commit: `549a648` `fix(routes): yan #34 yayilim UTF-8 zod refine across branches/staff/cameras + 4 vitest`
 
+## Batch C Live Verify Durumu — PATCH_PENDING_RESTART
+
+Direct curl probe (Batch B precedent) ile dogrulandiginda:
+```
+GET /api/export/csv?cameraId=...  Accept-Language: tr-TR,tr  -> first line: '"Timestamp","Camera","People In",...'  (EN HEADERS, stale)
+GET /api/export/csv?cameraId=...  Accept-Language: en-US,en  -> first line: '"Timestamp","Camera","People In",...'  (EN HEADERS)
+```
+
+Yorum: Vitest 10/10 PASS, kod path TR `Tarih`/`Giren` dondurmek icin dogru
+yazilmis (label catalog + Parser fields locale-dynamic), ancak live service
+**eski export.ts**'i sirtinda calistiriyor. Batch B Yan #22 ile ayni durum:
+kod live'a almak icin user'in `stop-all.bat` + `start-all.bat` yapmasi gerek
+(Auto mode "shared system" guard, restart sorulmadan tetiklenmedi).
+
+USER ACTION ITEM: backend node restart sonrasi:
+```bash
+curl -s -b admin.txt -H "Accept-Language: tr-TR,tr" "http://localhost:3001/api/export/csv?cameraId=...&limit=2" | head -1
+# bekle: "Tarih","Kamera","Giren","Cikan",...
+curl -s -b admin.txt -H "Accept-Language: en-US,en" "http://localhost:3001/api/export/csv?cameraId=...&limit=2" | head -1
+# bekle: "Timestamp","Camera","People In",...
+```
+
+Diger Batch C yan'lari (frontend-side: #1.5a, #11, #56) Vite hot-reload ile
+otomatik yansir; sadece backend Yan #10 (email locale) + Yan #41 (export i18n)
++ Yan #34 yayilim (zod refine) backend restart bekliyor.
+
 ## Batch C Regression Gate Sonuclari (2026-04-29 00:46)
 - Vitest final: **64 PASS / 6 expected FAIL** (48 onceki + 2 email-i18n + 10 export-i18n + 4 utf8-yayilim = 64). Beklenen 6 fail: tables-ai-summary.test.ts (Yan #4.4 korunur)
 - Frontend `pnpm tsc --noEmit`: exit 0 (Yan #1.5a + #11 + #56 hepsi temiz)
