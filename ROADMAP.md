@@ -34,7 +34,7 @@ Kullanici 11 maddelik kapsamli sistem raporu verdi (ekran ekran gezdi, ag loglar
 - **ADIM 24** — Camera Selection UX + health metrics (rapor #4)
 - **ADIM 6** — Branch wizard + hava durumu (rapor #11, mevcut TODO detaylandi)
 
-### Faz 4 — Dokumantasyon / dil tamamlama
+### Faz 4 — Dokumantasyon / dil tamamlama (Test audit Faz 4: Zones+Dashboard+Tables — DONE 2026-04-28; Test audit Faz 5: Historical+Export+AIChat+DateFilter — IN PROGRESS 2026-04-28)
 - **ADIM 12** — i18next tam setup (UTF-8 temizlik ADIM 25'te bitmis olacak)
 - **ADIM 10** — Export PDF/CSV rafinasyon
 - **ADIM 8** — Dwell Time metrikleri zenginlestirme
