@@ -10,14 +10,16 @@ import { z } from 'zod';
 import { GEMINI_MODEL_CANDIDATES, OLLAMA_MODEL_PRIORITY, isGeminiFallbackError } from '../lib/aiConfig';
 import { authenticate } from '../middleware/authMiddleware';
 import { userOwnsCamera } from '../middleware/tenantScope';
+import { CameraIdOptionalSchema } from '../lib/schemas';
 
 const router = Router();
 
 // Validation schema
 const ChatRequestSchema = z.object({
   message: z.string().min(1),
-  // UUID zorunluluğu kaldırıldı — 'sample-camera-1' gibi non-uuid ID'leri destekler
-  cameraId: z.string().min(1).optional(),
+  // Yan #40: cameraId now uses the shared UUID schema so /chat and /export
+  // share one contract.
+  cameraId: CameraIdOptionalSchema,
   // Frontend dil tercihi — yoksa heuristic devreye girer (geriye doğru uyumlu)
   lang: z.enum(['tr', 'en']).optional(),
   // Conversation history anchor — frontend persists this in localStorage so

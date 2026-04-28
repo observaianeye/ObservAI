@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authMiddleware';
 import { EXPORT_LABELS, detectExportLocale } from '../lib/exportI18n';
 import { turkishToAscii } from '../lib/turkishToAscii';
+import { CameraIdOptionalSchema } from '../lib/schemas';
 
 const router = Router();
 
@@ -43,7 +44,7 @@ async function buildOwnedWhere(userId: string, params: { cameraId?: string; star
 
 // Validation schema for export requests
 const ExportRequestSchema = z.object({
-  cameraId: z.string().uuid().optional(),
+  cameraId: CameraIdOptionalSchema,
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   limit: z.number().int().positive().max(10000).optional().default(1000)
