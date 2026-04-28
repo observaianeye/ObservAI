@@ -132,3 +132,44 @@ observai-mcp-bundle/
 # MCP setup dosyalari (gomulu API key icerir, lokal kalsin)
 set-magic-key.bat
 KURULUM-MCP.md
+
+
+# Test artifacts (large, regenerated each run; keep .md reports only)
+test-results/playwright-artifacts/
+test-results/playwright-html/
+test-results/screenshots/
+
+# Vite hot-reload timestamp files
+frontend/vite.config.ts.timestamp-*
+
+# Shell-typo 0-byte artifacts (from misinterpreted commands;
+# delete manually on Windows: `Get-ChildItem -File | Where-Object {$_.Length -eq 0} | Remove-Item -Force`)
+/2
+/80%
+/daily
+/{const
+/{,
+/x.id)
+/typeof
+/strftime('%s'
+frontend/0
+frontend/24h
+frontend/{const
+frontend/{,
+frontend/typeof
+frontend/null)
+frontend/false)
+frontend/undefined)
+frontend/m[1])
+frontend/process.exit(1))
+frontend/''))
+frontend/el.className.includes('active')
+backend/'
+backend/HTTP
+backend/typeof
+backend/x.type
+backend/x.name)))
+backend/{const
+backend/{console.error(e)
+backend/process.exit(1))
+backend/strftime(%27%25s%27
