@@ -9,13 +9,16 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { authenticate } from '../middleware/authMiddleware';
+import { utf8String } from '../lib/utf8Validator';
 
 const router = Router();
 
+// Yan #34 yayilim: staff names land in dashboards + shift emails. UTF-8
+// refine prevents U+FFFD/lone-surrogate names from ever being persisted.
 const CreateStaffBody = z.object({
   branchId: z.string().optional(),
-  firstName: z.string().min(1).max(60),
-  lastName: z.string().min(1).max(60),
+  firstName: utf8String(1, 60),
+  lastName: utf8String(1, 60),
   email: z.string().email().optional().or(z.literal('').transform(() => undefined)),
   phone: z.string().max(32).optional().or(z.literal('').transform(() => undefined)),
   role: z.enum(['server', 'chef', 'cashier', 'host', 'manager']).optional(),

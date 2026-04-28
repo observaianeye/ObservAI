@@ -8,11 +8,14 @@ import { z } from 'zod';
 import { requireManager } from '../middleware/roleCheck';
 import { authenticate } from '../middleware/authMiddleware';
 import { requireCameraOwnership, userOwnsCamera } from '../middleware/tenantScope';
+import { utf8String } from '../lib/utf8Validator';
 
 const router = Router();
 
+// Yan #34 yayilim: camera name renders in TopNavbar, dashboard cards,
+// and PDF/CSV exports. UTF-8 refine guards against U+FFFD ingest.
 const CreateCameraSchema = z.object({
-  name: z.string().min(1).max(255),
+  name: utf8String(1, 255),
   description: z.string().optional(),
   sourceType: z.enum(['WEBCAM', 'FILE', 'RTSP', 'RTMP', 'HTTP', 'YOUTUBE', 'SCREEN_CAPTURE', 'PHONE']),
   sourceValue: z.string().min(1),

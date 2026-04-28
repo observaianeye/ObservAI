@@ -2,12 +2,16 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authMiddleware';
+import { utf8String } from '../lib/utf8Validator';
 
 const router = Router();
 
+// Yan #34 yayilim: branch name + city are user-rendered everywhere (top
+// nav, weather widget, exports). utf8String rejects U+FFFD and lone
+// surrogates so a once-corrupted ingest can't put garbage on the screen.
 const BranchSchema = z.object({
-    name: z.string().min(1),
-    city: z.string().min(1),
+    name: utf8String(1, 120),
+    city: utf8String(1, 200),
     latitude: z.number(),
     longitude: z.number(),
     timezone: z.string().optional(),
