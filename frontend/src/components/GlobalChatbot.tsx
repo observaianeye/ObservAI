@@ -3,6 +3,7 @@ import { X, Send, Sparkles, Wifi, WifiOff, RotateCcw, ChevronDown, ChevronUp } f
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useLocation } from 'react-router-dom';
+import { markdownLiteToHtml } from '../lib/markdownLite';
 
 interface Message {
   id: string;
@@ -399,6 +400,14 @@ export default function GlobalChatbot() {
                           </span>
                           <span className="text-xs">{t('chatbot.thinking')} {thinkingSeconds}s</span>
                         </span>
+                      ) : message.type === 'assistant' && !message.isError ? (
+                        // Yan #56: assistant replies often contain **bold** / *italic* /
+                        // line breaks. markdownLiteToHtml HTML-escapes the content first
+                        // (XSS guard) and then promotes only those three markers.
+                        <p
+                          className="markdown-lite"
+                          dangerouslySetInnerHTML={{ __html: markdownLiteToHtml(message.content) }}
+                        />
                       ) : (
                         <p>{message.content}</p>
                       )}
