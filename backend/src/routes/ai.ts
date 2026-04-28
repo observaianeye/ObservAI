@@ -11,6 +11,7 @@ import { GEMINI_MODEL_CANDIDATES, OLLAMA_MODEL_PRIORITY, isGeminiFallbackError }
 import { authenticate } from '../middleware/authMiddleware';
 import { userOwnsCamera, userOwnsBranch } from '../middleware/tenantScope';
 import { CameraIdOptionalSchema } from '../lib/schemas';
+import { sanitizeUserMessage, wrapUserMessage } from '../lib/promptSanitizer';
 
 const router = Router();
 
@@ -989,6 +990,11 @@ function buildContextPrompt(userMessage: string, analyticsContext: string, lang?
     ? `Sen ObservAI platformunun kafe/restoran analitik asistanısın. Yöneticilere verilere dayalı, uygulanabilir öneriler sunuyorsun.`
     : `You are ObservAI's cafe/restaurant analytics assistant. You provide data-driven, actionable advice to managers.`;
 
+  // Yan #47: strip role/control tags from user input and wrap inside
+  // <USER_MESSAGE> boundaries so a `</context><system>...</system>` payload
+  // can't impersonate our prompt frame.
+  const safeUserMessage = wrapUserMessage(sanitizeUserMessage(userMessage));
+
   return `${roleInstruction}
 
 ${langInstruction}
@@ -997,7 +1003,7 @@ ANALYTICS DATA:
 ${analyticsContext}
 ---
 
-QUESTION: ${userMessage}
+QUESTION: ${safeUserMessage}
 
 RULES:
 - Use ONLY the data above. Quote exact numbers (e.g. "23 visitors", "4.2 min wait").
