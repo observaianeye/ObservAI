@@ -108,30 +108,41 @@ function categorizeGeminiError(error: unknown): { code: GeminiErrorCode; message
 }
 
 // Ollama integration
-async function getAvailableOllamaModel(ollamaUrl: string): Promise<string | null> {
+//
+// Yan #36: env model selection used `startsWith` which non-deterministically
+// resolved `OLLAMA_MODEL=llama3.1:8b` to `llama3.1:8b-8k` because the 8K
+// variant happened to come first in `/api/tags`. Use exact match first, then
+// fall back to the `:latest` tag, then the prefix form (so `qwen3` still
+// matches `qwen3:14b` if the env value is unqualified).
+export async function getAvailableOllamaModel(ollamaUrl: string): Promise<string | null> {
   try {
-    // If a specific model is configured via env, check if it exists
     const envModel = process.env.OLLAMA_MODEL;
 
     const res = await fetch(`${ollamaUrl}/api/tags`);
     if (!res.ok) return null;
     const data: any = await res.json();
-    const models = data.models?.map((m: any) => m.name) || [];
+    const models: string[] = data.models?.map((m: any) => m.name) || [];
 
-    // If OLLAMA_MODEL is set, prefer it
     if (envModel) {
-      const found = models.find((m: string) => m.startsWith(envModel));
-      if (found) return found;
+      const exact = models.find((m: string) => m === envModel);
+      if (exact) return exact;
+      const latest = models.find((m: string) => m === `${envModel}:latest`);
+      if (latest) return latest;
+      const tagged = models.find((m: string) => m.startsWith(`${envModel}:`));
+      if (tagged) return tagged;
       console.warn(`[AI] OLLAMA_MODEL=${envModel} not found, falling back to priority list`);
     }
 
     // Priority list is defined in lib/aiConfig so the insight engine and
     // the chat route share the same preference order.
     for (const p of OLLAMA_MODEL_PRIORITY) {
-      const found = models.find((m: string) => m.startsWith(p));
-      if (found) return found;
+      const exact = models.find((m: string) => m === p);
+      if (exact) return exact;
+      const latest = models.find((m: string) => m === `${p}:latest`);
+      if (latest) return latest;
+      const tagged = models.find((m: string) => m.startsWith(`${p}:`));
+      if (tagged) return tagged;
     }
-    // Return first available model if none in preferred list
     return models[0] || null;
   } catch {
     return null;
