@@ -298,13 +298,6 @@ async function backfillOneCamera(
     const weatherMod = weatherMultiplier(weather.get(dayKey));
     const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
-    const dailyTotals = { entries: 0, exits: 0, peakOccupancy: 0, avgOccupancySum: 0 };
-    const mergedDemographics = {
-      gender: { male: 0, female: 0 },
-      age: {} as Record<string, number>,
-      samples: 0,
-    };
-
     // Hourly rows. For today, only emit hours up to the current real hour so
     // the page doesn't show 23:00 traffic at 14:00.
     const lastHour = dayOffset === 0 ? Math.min(23, nowHour) : 23;
@@ -317,31 +310,49 @@ async function backfillOneCamera(
         update: { ...row },
       });
       written++;
-
-      dailyTotals.entries += row.totalEntries;
-      dailyTotals.exits += row.totalExits;
-      dailyTotals.peakOccupancy = Math.max(dailyTotals.peakOccupancy, row.peakOccupancy);
-      dailyTotals.avgOccupancySum += row.avgOccupancy;
-
-      const demo = JSON.parse(row.demographics);
-      mergedDemographics.gender.male += demo.gender.male ?? 0;
-      mergedDemographics.gender.female += demo.gender.female ?? 0;
-      for (const [bucket, count] of Object.entries(demo.age as Record<string, number>)) {
-        mergedDemographics.age[bucket] = (mergedDemographics.age[bucket] ?? 0) + count;
-      }
-      mergedDemographics.samples += demo.samples ?? 0;
     }
 
-    // Daily rollup (hour=null). Avg occupancy averaged across active hours
-    // only — averaging across 24 including 8 closed hours of 0 understates it.
-    const activeHours = Math.max(1, lastHour + 1 - 8); // 08..lastHour
+    // Yan #25: daily rollup = SUM(hourly) recomputed from the persisted rows
+    // so the daily totals are byte-identical to summing the same hourlies in
+    // an analytics query. Closes the drift gap where the daily synthetic
+    // values were generated with their own RNG and could disagree with the
+    // hour-level chart by a few percent.
+    const hourlies = await prisma.analyticsSummary.findMany({
+      where: { cameraId, date: day, hour: { not: null } },
+    });
+    const dailyTotals = { entries: 0, exits: 0, peakOccupancy: 0, avgOccupancySum: 0, queueSum: 0, waitSum: 0, queueWaitCount: 0 };
+    const mergedDemographics = { gender: { male: 0, female: 0 }, age: {} as Record<string, number>, samples: 0 };
+    let activeHours = 0;
+    for (const h of hourlies) {
+      dailyTotals.entries += h.totalEntries;
+      dailyTotals.exits += h.totalExits;
+      dailyTotals.peakOccupancy = Math.max(dailyTotals.peakOccupancy, h.peakOccupancy);
+      if (h.totalEntries > 0 || h.peakOccupancy > 0) {
+        dailyTotals.avgOccupancySum += h.avgOccupancy;
+        activeHours++;
+        if (h.avgQueueLength > 0 || h.avgWaitTime > 0) {
+          dailyTotals.queueSum += h.avgQueueLength;
+          dailyTotals.waitSum += h.avgWaitTime;
+          dailyTotals.queueWaitCount++;
+        }
+      }
+      try {
+        const demo = JSON.parse(h.demographics ?? '{}');
+        mergedDemographics.gender.male += demo?.gender?.male ?? 0;
+        mergedDemographics.gender.female += demo?.gender?.female ?? 0;
+        for (const [bucket, count] of Object.entries((demo?.age ?? {}) as Record<string, number>)) {
+          mergedDemographics.age[bucket] = (mergedDemographics.age[bucket] ?? 0) + count;
+        }
+        mergedDemographics.samples += demo?.samples ?? 0;
+      } catch { /* skip malformed demographics */ }
+    }
     const dailyData = {
       totalEntries: dailyTotals.entries,
       totalExits: dailyTotals.exits,
       peakOccupancy: dailyTotals.peakOccupancy,
-      avgOccupancy: dailyTotals.avgOccupancySum / activeHours,
-      avgQueueLength: randFloat(0.4, 2.2),
-      avgWaitTime: randFloat(45, 130),
+      avgOccupancy: activeHours > 0 ? dailyTotals.avgOccupancySum / activeHours : 0,
+      avgQueueLength: dailyTotals.queueWaitCount > 0 ? dailyTotals.queueSum / dailyTotals.queueWaitCount : 0,
+      avgWaitTime: dailyTotals.queueWaitCount > 0 ? dailyTotals.waitSum / dailyTotals.queueWaitCount : 0,
       demographics: JSON.stringify({ ...mergedDemographics, _synthetic: true }),
     };
 
