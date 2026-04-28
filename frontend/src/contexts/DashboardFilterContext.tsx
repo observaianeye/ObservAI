@@ -12,10 +12,31 @@ interface Branch {
   cameras?: { id: string; name: string; isActive: boolean }[];
 }
 
+// Yan #38: date range survives page navigation. Previously each dashboard
+// page held its own `useState<Range>('1d')`, so jumping Analytics → Tables →
+// back to Analytics dropped the user's choice. Persist into localStorage so
+// it also survives reload.
+export type DashboardDateRange = '1h' | '1d' | '1w' | '1m' | '3m';
+
+const DATE_RANGE_KEY = 'dashboardDateRange';
+const VALID_RANGES: ReadonlyArray<DashboardDateRange> = ['1h', '1d', '1w', '1m', '3m'];
+
+function readStoredRange(): DashboardDateRange {
+  try {
+    const stored = localStorage.getItem(DATE_RANGE_KEY);
+    if (stored && (VALID_RANGES as readonly string[]).includes(stored)) {
+      return stored as DashboardDateRange;
+    }
+  } catch { /* SSR / privacy mode */ }
+  return '1d';
+}
+
 interface DashboardFilterContextType {
   branches: Branch[];
   selectedBranch: Branch | null;
   setSelectedBranch: (branch: Branch | null) => void;
+  dateRange: DashboardDateRange;
+  setDateRange: (range: DashboardDateRange) => void;
   fetchBranches: () => Promise<void>;
   isLoading: boolean;
 }
@@ -26,6 +47,7 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
   const { user, isAuthReady } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranchState] = useState<Branch | null>(null);
+  const [dateRange, setDateRangeState] = useState<DashboardDateRange>(readStoredRange);
   const [isLoading, setIsLoading] = useState(false);
 
   // Re-resolves branches from server. Picks the previously-saved branch when
@@ -84,12 +106,19 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const setDateRange = (range: DashboardDateRange) => {
+    setDateRangeState(range);
+    try { localStorage.setItem(DATE_RANGE_KEY, range); } catch { /* ignore */ }
+  };
+
   return (
     <DashboardFilterContext.Provider
       value={{
         branches,
         selectedBranch,
         setSelectedBranch,
+        dateRange,
+        setDateRange,
         fetchBranches,
         isLoading,
       }}

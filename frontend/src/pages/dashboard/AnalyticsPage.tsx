@@ -163,9 +163,10 @@ function EmptyState({ title, hint, icon }: { title: string; hint: string; icon: 
 
 export default function AnalyticsPage() {
   const { t, lang } = useLanguage();
-  const { selectedBranch } = useDashboardFilter();
+  // Yan #38: dateRange now lives in DashboardFilterContext + localStorage so
+  // navigating away and back preserves the selection.
+  const { selectedBranch, dateRange: range, setDateRange: setRange } = useDashboardFilter();
 
-  const [range, setRange] = useState<Range>('1d');
   const [cameraId, setCameraId] = useState('');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [aiSummary, setAiSummary] = useState<AISummary | null>(null);
