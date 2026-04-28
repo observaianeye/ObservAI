@@ -23,7 +23,7 @@
 | A | #30, #34, #45, #54 | DONE | +7 | ~25 dk |
 | B | #22 | DONE_NODE_LIVE_PYTHON_PARTIAL | +3 | ~45 dk |
 | C | #1.5a, #10, #11, #41, #56, #34 yayilim | DONE | +19 | ~50 dk |
-| D | #28, #36, #40, #46, #47, #48, #59 | TODO | — | — |
+| D | #28, #36, #40, #46, #47, #48, #59 | DONE_PATCH_PENDING_RESTART | +24 | ~50 dk |
 | E | #38, #44, #50, #51, #57 | TODO | — | — |
 | F | (16 minor) | TODO | — | — |
 
@@ -278,5 +278,91 @@ otomatik yansir; sadece backend Yan #10 (email locale) + Yan #41 (export i18n)
 - 6 atomic commit: `b6b27f6` (Yan #1.5a) + `b7d32bb` (Yan #11) + `e25cca4` (Yan #10) + `17347b2` (Yan #41) + `8345894` (Yan #56) + `549a648` (Yan #34 yayilim)
 - Sub-effect: `.gitignore` Python venv `lib/` kuralinin frontend/src/lib'i dislamasi giderildi (Yan #56 ile birlikte commit'lendi)
 
+## Batch D Detay (DONE — 2026-04-29)
+
+Pre-flight (bu batch basinda): Vitest 64 PASS / 6 expected FAIL ✓, FE/BE/PY/Ollama 200 ✓, branch partal_test, 23 commit gorunur (Batch C sonu).
+
+### Yan #36 — OLLAMA_MODEL exact match (yan #29 root cause closed)
+- File: `backend/src/routes/ai.ts:111-148` `getAvailableOllamaModel`
+- Fix: `startsWith` → exact match → `:latest` fallback → prefix-only fallback
+- Sebep: `OLLAMA_MODEL=llama3.1:8b` env'i `llama3.1:8b-8k`'i alıyordu cunku `/api/tags` siralamasi 8K varyantı önce listeliyordu
+- Vitest: `ai-model-selection.test.ts` (+3): exact match, `:latest` fallback, env-not-found → priority list
+- Function exported (`getAvailableOllamaModel`) for unit testability
+- Commit: `3cae06c` `fix(routes/ai): yan #36 OLLAMA_MODEL exact match (yan #29 root cause closed) + 3 vitest`
+
+### Yan #40 — cameraId schema unify
+- File: `backend/src/lib/schemas.ts` (yeni, 12 satir): `CameraIdSchema` + `CameraIdOptionalSchema` (zod UUID)
+- File: `backend/src/routes/export.ts:46` ve `routes/ai.ts:20` ortak `CameraIdOptionalSchema` kullanir
+- Etki: `/chat` artik UUID-only (eski `z.string().min(1)` esnek hali iptal); `/export` davranisi degismedi
+- Vitest yok (refactor only), full vitest 67 PASS / 6 FAIL preserved
+- Commit: `af6112b` `fix(lib/schemas): yan #40 unify cameraId schema across routes`
+
+### Yan #46 — Chat branchId multi-cam aggregate
+- File: `backend/src/routes/ai.ts` ChatRequestSchema'a `branchId: z.string().uuid().optional()` eklendi
+- File: `backend/src/routes/ai.ts` `getRecentAnalyticsContext(cameraId?, branchId?)` — branchId set ise `where.camera = { branchId }`, multi-cam aggregate
+- Tenant scope: `userOwnsBranch(userId, branchId)` mismatch'te 404 Branch not found
+- Vitest: `ai-branchid.test.ts` (+3): branchId scope, cameraId precedence, branch ownership 404
+- Commit: `ca9d91e` `feat(routes/ai): yan #46 chat branchId param multi-cam aggregate + 3 vitest`
+
+### Yan #47 — Prompt injection sanitizer + USER_MESSAGE boundaries
+- File: `backend/src/lib/promptSanitizer.ts` (yeni)
+  - `FORBIDDEN_TAGS = /<\/?(system|context|user_message|assistant)>/gi` strip
+  - `TRIPLE_BACKTICK = /```/g` → `'''` (fenced block escape)
+  - `MAX_LEN = 4000` truncate
+  - `wrapUserMessage(s)` → `<USER_MESSAGE>\n${s}\n</USER_MESSAGE>` boundaries
+- File: `backend/src/routes/ai.ts` `buildContextPrompt` icine wire (`safeUserMessage = wrapUserMessage(sanitizeUserMessage(userMessage))`)
+- Tasarim notu: `<div>` veya `<h1>` gibi sıradan HTML strip edilmiyor (sadece bizim kullandigimiz role tag'leri)
+- Vitest: `prompt-sanitizer.test.ts` (+7): payload strip, opening tags, backtick escape, 4000 char trunc, benign HTML left alone, full pipeline + boundaries
+- Commit: `14eedc9` `feat(lib/promptSanitizer): yan #47 prompt injection escape + USER_MESSAGE boundaries + 7 vitest`
+
+### Yan #48 — callOllama empty response throws
+- File: `backend/src/routes/ai.ts` `callOllama` `data.response?.trim()` bos ise `throw new Error('OLLAMA_EMPTY_RESPONSE')`
+- Caller path: `OLLAMA_EMPTY_RESPONSE` `OLLAMA_NO_MODEL`/`ECONNREFUSED` guard'larina match etmedigi icin Gemini fallback'e dogal olarak duser
+- Vitest: `ai-empty-response.test.ts` (+4): bos string, whitespace-only, missing field, valid response
+- Commit: `4724f03` `fix(routes/ai): yan #48 callOllama empty response throw + Gemini fallback + 4 vitest`
+
+### Yan #28 — Timestamp birim audit + normalize
+- DB audit: 8066 satir `< 1e10` raw INTEGER cast ile gozuktu, ama Prisma DateTime SQLite'ta ISO TEXT olarak saklandigi icin cast artifact (string "2026..." → 2026 < 1e10). Gercek seconds-cinsinden satir SAYISI: **0**
+- File: `backend/src/lib/analyticsValidator.ts` numeric `timestamp < 1e12` icin acık reject ekledi: `"timestamp appears to be in seconds, expected milliseconds (>= 1e12)"`. `IngestEntrySchema` (analytics.ts:156) zaten ms-only — Yan #22 ile uyumlu
+- File: `backend/scripts/normalize-timestamp.ts` (yeni, idempotent): seconds-cinsinden satir bulursa `* 1000` ile ms'ye cevirir. Calistirildi → 0 row affected (audit dogru, drift yok)
+- Vitest: `timestamp-validator.test.ts` (+3): seconds rejection (1700000000 → 400 + clear error), valid ms accept, ISO string old → freshness rejection (different code path)
+- Commit: `ff536ed` `fix(scripts/timestamp): yan #28 audit + normalize seconds to ms + 3 vitest`
+
+### Yan #59 — acceptToken expiry/acceptedAt + idempotent accept/decline
+- Schema: `backend/prisma/schema.prisma` StaffAssignment'a `acceptedAt DateTime?` + `acceptTokenExpires DateTime?` eklendi
+- Migration: `prisma/migrations/20260429000000_yan_59_accept_token_expiry/migration.sql` (sade `ALTER TABLE ADD COLUMN` 2 stn)
+- `prisma migrate deploy` ile applied; `prisma generate` types refresh (DLL EPERM'a ragmen index.d.ts guncellendi)
+- File: `backend/src/routes/staff-assignments.ts`
+  - Create: `acceptTokenExpires = now + 48h` stamping
+  - Accept: `404` (yok/yanlis token) → `410` (TTL bitti) → `200 idempotent` (acceptedAt zaten set) → `200 happy` (acceptedAt = now, status='accepted')
+  - Decline: aynı semantik, status='declined'
+  - `renderHtml(status, title, color, icon, body)` shared helper — tek chrome
+- Vitest: `staff-assignments-accept-token.test.ts` (+4): happy / replay-idempotent / expired-410 / wrong-token-404
+- Commit: `f940593` `fix(routes/staff-assignments): yan #59 acceptToken expiry/acceptedAt + 4 vitest`
+
+## Batch D Regression Gate Sonuclari (2026-04-29)
+- Vitest final: **88 PASS / 6 expected FAIL** (64 onceki + 3 #36 + 0 #40 + 3 #46 + 7 #47 + 4 #48 + 3 #28 + 4 #59 = +24, plan +9 hedefi asildi). Beklenen 6 fail: tables-ai-summary.test.ts (Yan #4.4 korunur)
+- Backend `npx tsc --noEmit`: exit 0
+- Frontend `pnpm tsc --noEmit`: exit 0 (Batch D backend-only — frontend dokunulmadi)
+- Yan #37 leak probe: **0** ✓ (admin secret deneme'ye sizmiyor, conv id paylasilmasi rağmen — production live verified)
+- Frontend smoke (`e2e/smoke.spec.ts`): **2/2 PASS** in 9.0s (chromium headless)
+- Servisler: FE 5173 200, BE 3001 200, PY 5001 200, Ollama 11434 200
+- 7 atomic commit: `3cae06c` (#36) + `af6112b` (#40) + `ca9d91e` (#46) + `14eedc9` (#47) + `4724f03` (#48) + `ff536ed` (#28) + `f940593` (#59)
+- `git push origin partal_test` pending end-of-batch
+
+## Batch D Live Verify Durumu — PATCH_PENDING_RESTART
+Backend service hala eski kod uzerinde calisiyor (port 3001 PID 33632). Vitest 88/6 yesil + Yan #37 leak probe 0 + smoke 2/2 → kod path dogru. Live'da Yan #36 (OLLAMA_MODEL exact), Yan #46 (branchId chat), Yan #47 (prompt injection), Yan #48 (Ollama empty fallback), Yan #28 (timestamp validator), Yan #59 (accept token TTL) gercekten yansimak icin user `stop-all.bat` + `start-all.bat` yapmasi gerek (Auto mode "shared system" guard, restart sorulmadan tetiklenmedi).
+
+USER ACTION ITEM: backend node restart sonrasi:
+```bash
+# Yan #36 OLLAMA_MODEL exact match
+# .env OLLAMA_MODEL=llama3.1:8b iken
+curl -s http://localhost:3001/api/ai/status | grep -o 'model[^,]*'
+# bekle: "model":"llama3.1:8b" (8b-8k DEGIL)
+
+# Yan #59 acceptToken TTL — yeni assignment yarat → 48h sonra 410
+# (live yarat, 48h sonra test, manuel)
+```
+
 ## Sonraki Batch
-Prompt 4 → Batch D (Yan #28, #36, #40, #46, #47, #48, #59 — security/audit hardening: prompt sanitization, OLLAMA_MODEL exact match, cameraId schema unification, vs.)
+Prompt 5 → Batch E (Yan #38 DashboardFilterContext date persist, #44 Insights cron, #50, #51 ZoneCanvas DrawMode, #57 Insights dismiss UX)
