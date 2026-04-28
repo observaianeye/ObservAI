@@ -855,17 +855,29 @@ Return ONLY a JSON object with this exact shape (no extra text, no code fences):
 /**
  * Save generated insights to the database.
  * Uses raw SQL to work without regenerated Prisma client.
+ *
+ * Yan #44: Idempotent on (cameraId, type, dateKey). A 6h cron tick that
+ * re-fires on the same UTC day overwrites the prior row instead of stacking
+ * duplicates. dateKey defaults to today's UTC date (YYYY-MM-DD).
  */
 export async function saveInsights(insights: InsightResult[]): Promise<number> {
   if (insights.length === 0) return 0;
 
+  const dateKey = new Date().toISOString().slice(0, 10);
   let saved = 0;
   for (const i of insights) {
     const id = crypto.randomUUID();
     const context = i.context ? JSON.stringify(i.context) : null;
+    const now = new Date().toISOString();
     await prisma.$executeRaw`
-      INSERT INTO insights (id, "cameraId", "zoneId", type, severity, title, message, context, "isRead", "createdAt")
-      VALUES (${id}, ${i.cameraId}, ${i.zoneId || null}, ${i.type}, ${i.severity}, ${i.title}, ${i.message}, ${context}, false, ${new Date().toISOString()})
+      INSERT INTO insights (id, "cameraId", "zoneId", type, severity, title, message, context, "isRead", "dateKey", "createdAt")
+      VALUES (${id}, ${i.cameraId}, ${i.zoneId || null}, ${i.type}, ${i.severity}, ${i.title}, ${i.message}, ${context}, false, ${dateKey}, ${now})
+      ON CONFLICT("cameraId", "type", "dateKey") DO UPDATE SET
+        severity = excluded.severity,
+        title = excluded.title,
+        message = excluded.message,
+        context = excluded.context,
+        "createdAt" = excluded."createdAt"
     `;
     saved++;
   }

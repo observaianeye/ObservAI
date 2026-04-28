@@ -31,6 +31,7 @@ import tablesRouter from './routes/tables';
 import { pythonBackendManager } from './lib/pythonBackendManager';
 import { getKafkaConsumer } from './lib/kafkaConsumer';
 import { startAnalyticsAggregator, stopAnalyticsAggregator } from './services/analyticsAggregator';
+import { startInsightsCron, stopInsightsCron } from './services/insightsCron';
 import cookieParser from 'cookie-parser';
 import authRouter from './routes/auth';
 import { checkOllamaHealth } from './routes/ai';
@@ -116,6 +117,14 @@ async function ensureInsightsTable() {
     await prisma.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "insights_type_severity_idx" ON "insights"("type", "severity")
     `);
+    // Yan #44: dateKey + unique compound for cron idempotency. ALTER fails
+    // if the column already exists, swallow that path quietly.
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "insights" ADD COLUMN "dateKey" TEXT`);
+    } catch { /* column already exists */ }
+    await prisma.$executeRawUnsafe(`
+      CREATE UNIQUE INDEX IF NOT EXISTS "insights_cameraId_type_dateKey_key" ON "insights"("cameraId", "type", "dateKey")
+    `);
     console.log('✅ insights tablosu hazır');
   } catch (err) {
     console.warn('⚠️  insights tablosu oluşturulamadı:', err);
@@ -190,6 +199,13 @@ async function startServer() {
         console.error('⚠️ Failed to start analytics aggregator:', aggError);
       }
     }
+    // Yan #44: insights cron (gated by INSIGHT_CRON_ENABLED env, default off)
+    try {
+      startInsightsCron();
+    } catch (cronError) {
+      console.error('⚠️ Failed to start insights cron:', cronError);
+    }
+
     if (process.env.DISABLE_PYTHON_HEALTH_MONITOR !== 'true') {
       try {
         const wsPort = Number(process.env.PYTHON_WS_PORT || 5001);
@@ -231,6 +247,7 @@ async function startServer() {
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   stopAnalyticsAggregator();
+  stopInsightsCron();
   pythonBackendManager.stopHealthMonitor();
   await pythonBackendManager.stop();
   const kafkaConsumer = getKafkaConsumer();
@@ -242,6 +259,7 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
   stopAnalyticsAggregator();
+  stopInsightsCron();
   pythonBackendManager.stopHealthMonitor();
   await pythonBackendManager.stop();
   const kafkaConsumer = getKafkaConsumer();

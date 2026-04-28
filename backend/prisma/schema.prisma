@@ -217,9 +217,13 @@ model Insight {
   message   String
   context   String?  // JSON string with raw data context
   isRead    Boolean  @default(false)
+  // Yan #44: YYYY-MM-DD UTC bucket so a 6h cron re-runs on the same day
+  // upsert into the same row instead of duplicating it.
+  dateKey   String?
   expiresAt DateTime?
   createdAt DateTime @default(now())
 
+  @@unique([cameraId, type, dateKey])
   @@index([cameraId, createdAt])
   @@index([type, severity])
   @@map("insights")
