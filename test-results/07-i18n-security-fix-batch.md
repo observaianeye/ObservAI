@@ -21,7 +21,7 @@
 | Batch | Yan'lar | Durum | Yeni vitest | Sure |
 |---|---|---|---|---|
 | A | #30, #34, #45, #54 | DONE | +7 | ~25 dk |
-| B | #22 | DONE_PATCH_PENDING_RESTART | +3 | ~30 dk |
+| B | #22 | DONE_NODE_LIVE_PYTHON_PARTIAL | +3 | ~45 dk |
 | C | #1.5a, #10, #11, #41, #56, #34 yayilim | TODO | — | — |
 | D | #28, #36, #40, #46, #47, #48, #59 | TODO | — | — |
 | E | #38, #44, #50, #51, #57 | TODO | — | — |
@@ -117,24 +117,50 @@
 - Yan #37 leak probe: **0** ✓ (admin secret deneme'ye sizmiyor, conv id paylasilmasi rağmen).
 - Frontend smoke (`e2e/smoke.spec.ts`): **2/2 PASS** in 7.3s (chromium headless).
 
-**Live verify**: PATCH_PENDING_RESTART. Persister yeni env var ile Python
-yeniden spawn edilince aktif olur. start-all.bat zaten env vari export
-ediyor, ama mevcut Python process'i (start-all'in oncesinden) yeni env'i
-gormez. Restart icin USER ONAY:
+**Live verify (post-restart)**:
 
-1. `./stop-all.bat` (Python + Node + Frontend + Prisma Studio durur)
-2. `./start-all.bat` (yeni env var ile re-spawn)
-3. ~30-60s wait (TRT engine cache + Ollama warmup)
-4. `curl -s http://localhost:5001/health` → `status=ready`
-5. SQL probe MozartHigh delta>0 son 60s — beklenen: > 0 satir → LIVE_VERIFIED
+- **Node side LIVE_VERIFIED** — kullanici servisleri restart etti. Endpoint
+  prod'a gecti:
+  - `POST /api/analytics/ingest` valid batch + `X-Ingest-Key:
+    dev-ingest-caccc142` → `{"accepted":1,"total":1}` 200.
+  - Wrong key → 401 ✓; missing key → 401 ✓.
+  - Invalid UUID → 400 + zod issues array ✓; empty batch → 400 ✓.
+  - DB probe: MozartHigh `f1fd68f7-...` analytics_logs'a 1 row insert
+    confirmed (id=9b49bb26-..., timestamp=2026-04-28T21:20:46.501Z, all
+    fields translated correctly: peopleIn=5, peopleOut=2, currentCount=3,
+    queueCount=1, fps=18.5).
+- **Python persister INERT_BY_DESIGN** — `logs/camera-ai.log` line:
+  `[NodePersister] WARN: OBSERVAI_NODE_URL+KEY set but
+  OBSERVAI_CAMERA_ID is empty — persister disabled.` start-all.bat
+  `OBSERVAI_CAMERA_ID` bos export ediyor (webcam --source 0 ile boot;
+  spesifik camera UUID yok), persister aktif olmuyor. NODE_URL+KEY env
+  vars dogru propagate (warning'in iceriginden anlasiliyor).
+- **e2e/retroactive/faz4/4.2a_live_dashboard PASS** (1.2 min, frontend-
+  bagimli yol — dashboard acik iken cameraBackendService.persistAnalytics
+  Socket.IO listener uzerinden /api/analytics POST ediyor ve DB'ye
+  yaziyor; faz3'te FAIL idi). Bu Yan #22'nin ana rotasini direkt prov
+  etmiyor, ama mevcut frontend-bagimli yolu validate ediyor.
 
-NOT: `OBSERVAI_CAMERA_ID` start-all.bat'ta bos. Live verify icin user
-dashboard'dan MozartHigh kamerasini secmeli (pythonBackendManager spawn
-yolu ile cameraId env enjekte olur). Alternatif manuel: `set
-OBSERVAI_CAMERA_ID=f1fd68f7-91be-4c01-8242-82baf69715dd` start-all.bat
-oncesi shell'de export.
+**Python persister tam aktivasyon icin follow-up gerekli (Batch B disinda)**:
 
-**Commit**: `988c642` `feat(persist): yan #22 Python OBSERVAI_NODE_URL + Node POST /api/analytics/ingest endpoint + 3 vitest`
+Mevcut durum: `pythonBackendManager.start({ ..., cameraId })` external
+Python detected oldugunda erken donuyor → spawn yapmiyor → cameraId env
+Python'a gecmiyor. Tam Yan #22 E2E icin secenekler (sonraki batch):
+
+A) `pythonBackendManager` external Python tespit ederse + `config.cameraId`
+   set ise: external Python'i durdur (port 5001 PID kill) + yeni env ile
+   re-spawn. Process Kill Safety memory'sini ihlal etmemek icin port-
+   bazli, PID-bazli surgical kill.
+B) Python'a runtime `set_camera_id` WS event ekle. Backend external Python
+   tespit ettiginde WS uzerinden cam_id push eder. Process kill yok.
+C) Manuel kullanici yolu: kullanici `set OBSERVAI_CAMERA_ID=<uuid>` shell
+   export edip Python'i elle launch eder. start-all.bat'tan bagimsiz.
+
+Ayrica `python-backend.ts` /start + /restart endpoint'leri `cameraId`
+field'i kabul etmiyor — frontend'in cameraId iletmesi icin route extension
+gerekli.
+
+**Commit**: `988c642` (kod) + `8be63b9` (ilk rapor) + bu rapor guncel.
 
 ## Sonraki Batch
 Prompt 3 → Batch C (Yan #1.5a, #10, #11, #41, #56, #34 yayilim).
