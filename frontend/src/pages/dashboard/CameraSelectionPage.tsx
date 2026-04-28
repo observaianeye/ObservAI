@@ -378,8 +378,9 @@ export default function CameraSelectionPage() {
             whileTap={{ scale: 0.98 }}
             data-testid="new-camera-submit"
             onClick={handleAddSource}
-            disabled={isSaving}
-            className="w-full px-4 py-3 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-semibold hover:shadow-glow-brand transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            disabled={isSaving || !selectedBranch}
+            title={!selectedBranch ? t('cameraSelection.requireBranch') : undefined}
+            className="w-full px-4 py-3 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-semibold hover:shadow-glow-brand transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" strokeWidth={2} />}
             {isSaving ? t('cameraSelection.saving') : t('cameraSelection.addSource')}
