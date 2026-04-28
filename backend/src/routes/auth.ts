@@ -6,6 +6,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { authenticate } from '../middleware/authMiddleware';
 import { sendPasswordResetEmail } from '../services/emailService';
+import { appendNotificationAudit } from '../services/notificationDispatcher';
 
 const router = Router();
 
@@ -277,6 +278,19 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
         const acceptLang = String(req.headers['accept-language'] ?? '').toLowerCase();
         const locale: 'tr' | 'en' = acceptLang.startsWith('en') ? 'en' : 'tr';
         const sendResult = await sendPasswordResetEmail(user.email, resetUrl, userName, locale);
+
+        // Yan #6: append password-reset dispatch to the audit log file. Until
+        // now, only staff_shift events showed up in notification-dispatch.log,
+        // so password reset deliveries were invisible to ops.
+        appendNotificationAudit({
+            event: 'password_reset',
+            channel: 'email',
+            userId: user.id,
+            target: user.email,
+            locale,
+            success: sendResult.success,
+            error: sendResult.error ?? null,
+        });
 
         if (sendResult.success) {
           console.log(`[auth] Password reset email sent to ${user.email}`);

@@ -41,6 +41,20 @@ function writeAudit(entry: Record<string, unknown>): void {
   }
 }
 
+// Yan #6: shared audit hook for non-staff-shift dispatch paths (password
+// reset email, daily summary, etc.). The file log used to only contain
+// staff_shift entries; non-staff dispatches were invisible to ops.
+export function appendNotificationAudit(entry: {
+  event: string;
+  channel: 'email';
+  target?: string | null;
+  success: boolean;
+  error?: string | null;
+  [k: string]: unknown;
+}): void {
+  writeAudit(entry);
+}
+
 interface NotificationLogEntry {
   userId?: string | null;
   staffId?: string | null;
@@ -162,6 +176,18 @@ export async function dispatchNotification(insight: InsightPayload): Promise<Dis
           success: emailResult.success,
           error: emailResult.error,
           payload: { title: insight.title, severity: insight.severity, cameraName: insight.cameraName },
+        });
+        // Yan #6: alert path now also appends to the file audit log
+        // (previously only staff_shift events showed up in the log file).
+        writeAudit({
+          event: 'alert',
+          channel: 'email',
+          userId: user.id,
+          target: user.email,
+          success: emailResult.success,
+          error: emailResult.error ?? null,
+          severity: insight.severity,
+          title: insight.title,
         });
       }
     }
