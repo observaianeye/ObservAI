@@ -298,6 +298,11 @@ model StaffAssignment {
   notifiedViaEmail    Boolean   @default(false)
   notifiedAt          DateTime?
   acceptToken         String?   @unique
+  // Yan #59: track when the link was actually used + when it expires so the
+  // accept/decline flow can return 410 Gone after TTL and stay idempotent on
+  // repeat clicks instead of letting a leaked token toggle status forever.
+  acceptedAt          DateTime?
+  acceptTokenExpires  DateTime?
   notes               String?
   createdBy           String
   createdAt           DateTime  @default(now())

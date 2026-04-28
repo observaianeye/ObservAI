@@ -83,6 +83,8 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   if (!staff) return res.status(404).json({ error: 'Staff not found' });
 
   const acceptToken = crypto.randomBytes(24).toString('hex');
+  // Yan #59: 48h TTL on the public accept/decline link.
+  const acceptTokenExpires = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
   const created = await prisma.staffAssignment.create({
     data: {
@@ -94,6 +96,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       role: parsed.data.role ?? null,
       notes: parsed.data.notes ?? null,
       acceptToken,
+      acceptTokenExpires,
       createdBy: userId,
     },
     include: { staff: true },
@@ -178,9 +181,21 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   return res.json({ ok: true });
 });
 
+// Yan #59: shared HTML helpers so accept/decline render identical chrome.
+function renderHtml(res: Response, status: number, title: string, color: string, icon: string, body: string) {
+  res.status(status).setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+<style>body{background:#0f0f14;color:#e5e5e5;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
+.card{background:#1a1a24;padding:32px;border-radius:12px;max-width:420px;text-align:center;border:1px solid #2a2a3a;}</style></head>
+<body><div class="card"><h2 style="color:${color};margin:0 0 12px;">${icon} ${title}</h2>
+<p style="color:#a0a0b0;">${body}</p></div></body></html>`);
+}
+
 /**
  * GET /api/staff-assignments/:id/accept?token=...
- * PUBLIC endpoint (no auth) — staff clicks link from email/telegram.
+ * PUBLIC endpoint (no auth) — staff clicks link from email.
+ *
+ * Yan #59: 410 Gone after acceptTokenExpires; idempotent on replay.
  */
 router.get('/:id/accept', async (req: Request, res: Response) => {
   const { token } = req.query as { token?: string };
@@ -190,24 +205,35 @@ router.get('/:id/accept', async (req: Request, res: Response) => {
     where: { id: req.params.id },
   });
   if (!assignment || assignment.acceptToken !== token) {
-    return res.status(404).send('Gecersiz veya sona ermis bir baglanti.');
+    return renderHtml(res, 404, 'Gecersiz Baglanti', '#ef4444', '&#x274C;',
+      'Gecersiz veya sona ermis bir baglanti.');
+  }
+
+  // Expired token → 410 Gone.
+  if (assignment.acceptTokenExpires && assignment.acceptTokenExpires < new Date()) {
+    return renderHtml(res, 410, 'Bu Link Sona Ermis', '#ef4444', '&#x23F0;',
+      'Bu onay baglantisi sona ermis. Yoneticinizden yeni link isteyin.');
+  }
+
+  // Already accepted → idempotent OK.
+  if (assignment.acceptedAt) {
+    return renderHtml(res, 200, 'Vardiya Zaten Onaylanmis', '#22c55e', '&#x2705;',
+      'Bu vardiya daha onceden onaylanmis. Pencereyi kapatabilirsiniz.');
   }
 
   await prisma.staffAssignment.update({
     where: { id: assignment.id },
-    data: { status: 'accepted' },
+    data: { status: 'accepted', acceptedAt: new Date() },
   });
 
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Vardiya Onaylandi</title>
-<style>body{background:#0f0f14;color:#e5e5e5;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
-.card{background:#1a1a24;padding:32px;border-radius:12px;max-width:420px;text-align:center;border:1px solid #2a2a3a;}</style></head>
-<body><div class="card"><h2 style="color:#22c55e;margin:0 0 12px;">&#x2705; Vardiya Onaylandi</h2>
-<p style="color:#a0a0b0;">Bu pencereyi kapatabilirsiniz. Vardiya planindasiniz.</p></div></body></html>`);
+  return renderHtml(res, 200, 'Vardiya Onaylandi', '#22c55e', '&#x2705;',
+    'Bu pencereyi kapatabilirsiniz. Vardiya planindasiniz.');
 });
 
 /**
  * GET /api/staff-assignments/:id/decline?token=...
+ *
+ * Yan #59: same expiry/idempotent semantics as accept.
  */
 router.get('/:id/decline', async (req: Request, res: Response) => {
   const { token } = req.query as { token?: string };
@@ -217,20 +243,28 @@ router.get('/:id/decline', async (req: Request, res: Response) => {
     where: { id: req.params.id },
   });
   if (!assignment || assignment.acceptToken !== token) {
-    return res.status(404).send('Gecersiz veya sona ermis bir baglanti.');
+    return renderHtml(res, 404, 'Gecersiz Baglanti', '#ef4444', '&#x274C;',
+      'Gecersiz veya sona ermis bir baglanti.');
+  }
+
+  if (assignment.acceptTokenExpires && assignment.acceptTokenExpires < new Date()) {
+    return renderHtml(res, 410, 'Bu Link Sona Ermis', '#ef4444', '&#x23F0;',
+      'Bu onay baglantisi sona ermis. Yoneticinizden yeni link isteyin.');
+  }
+
+  // Already responded (accept or prior decline) → idempotent OK.
+  if (assignment.acceptedAt || assignment.status === 'declined') {
+    return renderHtml(res, 200, 'Vardiya Zaten Yanitlandi', '#a0a0b0', '&#x2139;',
+      'Bu vardiya icin zaten bir yanit verilmis.');
   }
 
   await prisma.staffAssignment.update({
     where: { id: assignment.id },
-    data: { status: 'declined' },
+    data: { status: 'declined', acceptedAt: new Date() },
   });
 
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  return res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Vardiya Reddedildi</title>
-<style>body{background:#0f0f14;color:#e5e5e5;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
-.card{background:#1a1a24;padding:32px;border-radius:12px;max-width:420px;text-align:center;border:1px solid #2a2a3a;}</style></head>
-<body><div class="card"><h2 style="color:#ef4444;margin:0 0 12px;">&#x274C; Vardiya Reddedildi</h2>
-<p style="color:#a0a0b0;">Yoneticiniz bilgilendirilecek.</p></div></body></html>`);
+  return renderHtml(res, 200, 'Vardiya Reddedildi', '#ef4444', '&#x274C;',
+    'Yoneticiniz bilgilendirilecek.');
 });
 
 export default router;
