@@ -177,8 +177,11 @@ router.post('/logout', async (req: Request, res: Response) => {
 
     if (token) {
         try {
-            await prisma.session.delete({
-                where: { token }
+            // Yan #3: soft-revoke instead of hard delete so the row stays
+            // auditable; authenticate() filters revokedAt IS NULL.
+            await prisma.session.updateMany({
+                where: { token, revokedAt: null },
+                data: { revokedAt: new Date() }
             });
         } catch (ignore) {
             // Session might already be missing

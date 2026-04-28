@@ -50,11 +50,12 @@ model User {
 
 // User session management
 model Session {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  token     String   @unique
+  token     String    @unique
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

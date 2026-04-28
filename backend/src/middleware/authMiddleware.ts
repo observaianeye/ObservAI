@@ -30,6 +30,12 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
             return res.status(401).json({ error: 'Unauthorized: Invalid session' });
         }
 
+        // Yan #3: soft-revoked sessions reject without DB delete (audit trail).
+        if (session.revokedAt) {
+            res.clearCookie('session_token');
+            return res.status(401).json({ error: 'Unauthorized: Session revoked' });
+        }
+
         if (session.expiresAt < new Date()) {
             // Session expired
             await prisma.session.delete({ where: { id: session.id } });
