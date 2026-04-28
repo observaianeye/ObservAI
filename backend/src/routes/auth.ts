@@ -14,7 +14,10 @@ const RegisterSchema = z.object({
     email: z.string().email(),
     password: z.string().min(8),
     name: z.string().optional(),
-    company: z.string().optional()
+    company: z.string().optional(),
+    firstName: z.string().max(50).optional(),
+    lastName: z.string().max(50).optional(),
+    companyName: z.string().max(100).optional()
 });
 
 const LoginSchema = z.object({
@@ -76,10 +79,10 @@ router.post('/register', async (req: Request, res: Response) => {
 
         const passwordHash = await bcrypt.hash(data.password, 10);
 
-        // Split name into first and last if provided
-        let firstName = '';
-        let lastName = '';
-        if (data.name) {
+        // Prefer explicit firstName/lastName, fallback to name split
+        let firstName = data.firstName ?? '';
+        let lastName = data.lastName ?? '';
+        if (!firstName && !lastName && data.name) {
             const parts = data.name.split(' ');
             firstName = parts[0];
             lastName = parts.slice(1).join(' ');
@@ -97,7 +100,7 @@ router.post('/register', async (req: Request, res: Response) => {
                 role: 'MANAGER',
                 accountType: 'TRIAL',
                 trialExpiresAt,
-                companyName: data.company || null
+                companyName: data.companyName ?? data.company ?? null
             }
         });
 
