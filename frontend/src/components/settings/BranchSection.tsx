@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, Plus, Pencil, Trash2, Star, MapPin, Loader2, X, Search, ExternalLink } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -19,6 +20,7 @@ interface Branch {
 
 export function BranchSection() {
   const { showToast } = useToast();
+  const { t } = useLanguage();
   const { fetchBranches: refreshGlobalBranches } = useDashboardFilter();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,10 +47,10 @@ export function BranchSection() {
   }, [load, refreshGlobalBranches]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Bu subeyi silmek istediginizden emin misiniz?')) return;
+    if (!confirm(t('settings.branches.confirmDelete'))) return;
     const res = await fetch(`${API_URL}/api/branches/${id}`, { method: 'DELETE', credentials: 'include' });
     if (res.ok) {
-      showToast('success', 'Sube silindi');
+      showToast('success', t('settings.branches.deleted'));
       reloadAll();
     }
   };
@@ -59,7 +61,7 @@ export function BranchSection() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isDefault: true }),
     });
-    if (res.ok) { showToast('success', 'Varsayilan sube guncellendi'); reloadAll(); }
+    if (res.ok) { showToast('success', t('settings.branches.defaultUpdated')); reloadAll(); }
   };
 
   const handleSubmit = async (data: Partial<Branch>) => {
@@ -77,9 +79,9 @@ export function BranchSection() {
       // error" — saves a debug round-trip.
       const detail = err.details?.[0];
       const fieldMsg = detail ? `${detail.path?.join('.') ?? 'field'}: ${detail.message ?? 'invalid'}` : null;
-      throw new Error(fieldMsg ?? err.error ?? 'Kaydetme basarisiz');
+      throw new Error(fieldMsg ?? err.error ?? t('settings.branches.saveFail'));
     }
-    showToast('success', editing ? 'Sube guncellendi' : 'Sube eklendi');
+    showToast('success', editing ? t('settings.branches.updated') : t('settings.branches.added'));
     setFormOpen(false); setEditing(null);
     reloadAll();
   };
@@ -88,14 +90,14 @@ export function BranchSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-ink-3">
-          Subelerinizi yonetin. Hava durumu, Trends ve Insights bu subenin konumuna gore hesaplanir.
+          {t('settings.branches.subtitle')}
         </p>
         <motion.button
           whileTap={{ scale: 0.97 }}
           onClick={() => { setEditing(null); setFormOpen(true); }}
           className="px-3 py-1.5 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-lg font-medium text-sm flex items-center gap-1.5 hover:shadow-glow-brand"
         >
-          <Plus className="w-4 h-4" /> Yeni sube
+          <Plus className="w-4 h-4" /> {t('settings.branches.addBranchCta')}
         </motion.button>
       </div>
 
@@ -104,8 +106,8 @@ export function BranchSection() {
       ) : branches.length === 0 ? (
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-8 text-center">
           <Building2 className="w-10 h-10 text-brand-300 mx-auto mb-3" strokeWidth={1.5} />
-          <p className="text-ink-2 font-medium">Henuz sube eklenmedi</p>
-          <p className="text-xs text-ink-4 mt-1">"Yeni sube" butonu ile baslayin.</p>
+          <p className="text-ink-2 font-medium">{t('settings.branches.emptyTitle')}</p>
+          <p className="text-xs text-ink-4 mt-1">{t('settings.branches.emptyHint')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -123,7 +125,7 @@ export function BranchSection() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h4 className="font-semibold text-ink-0">{b.name}</h4>
-                      {b.isDefault && <span className="text-[10px] uppercase tracking-wide font-bold text-brand-300 flex items-center gap-0.5"><Star className="w-3 h-3 fill-brand-300" /> Varsayilan</span>}
+                      {b.isDefault && <span className="text-[10px] uppercase tracking-wide font-bold text-brand-300 flex items-center gap-0.5"><Star className="w-3 h-3 fill-brand-300" /> {t('settings.branches.defaultBadge')}</span>}
                     </div>
                     <div className="text-xs text-ink-3 mt-0.5 flex items-center gap-1">
                       <MapPin className="w-3 h-3" /> {b.city}
@@ -131,7 +133,7 @@ export function BranchSection() {
                   </div>
                   <div className="flex items-center gap-1">
                     {!b.isDefault && (
-                      <button onClick={() => handleSetDefault(b.id)} title="Varsayilan yap" className="p-1.5 rounded-lg text-ink-3 hover:text-brand-300 hover:bg-brand-500/10">
+                      <button onClick={() => handleSetDefault(b.id)} title={t('settings.branches.setDefault')} className="p-1.5 rounded-lg text-ink-3 hover:text-brand-300 hover:bg-brand-500/10">
                         <Star className="w-3.5 h-3.5" />
                       </button>
                     )}
@@ -152,11 +154,11 @@ export function BranchSection() {
                   rel="noreferrer"
                   className="mt-2 inline-flex items-center gap-1 text-[11px] text-brand-300 hover:text-brand-200"
                 >
-                  Haritada gor <ExternalLink className="w-3 h-3" />
+                  {t('settings.branches.viewMap')} <ExternalLink className="w-3 h-3" />
                 </a>
                 {b.cameras && b.cameras.length > 0 && (
                   <div className="mt-2 text-[11px] text-ink-3">
-                    {b.cameras.length} kamera &middot; {b.cameras.filter((c) => c.isActive).length} aktif
+                    {t('settings.branches.cameraSummary', { count: b.cameras.length, active: b.cameras.filter((c) => c.isActive).length })}
                   </div>
                 )}
               </motion.div>
@@ -192,6 +194,7 @@ function BranchForm({
   onClose: () => void;
   onSubmit: (data: Partial<Branch>) => Promise<void>;
 }) {
+  const { t } = useLanguage();
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
   const [lat, setLat] = useState('');
@@ -290,19 +293,19 @@ function BranchForm({
     const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityQuery)}&limit=1`, {
       headers: { 'Accept-Language': 'tr' },
     });
-    if (!res.ok) throw new Error('Geocoding servisi ulasilamaz');
+    if (!res.ok) throw new Error(t('settings.branches.geocodeUnreachable'));
     const data = await res.json() as Array<{ lat: string; lon: string; display_name: string }>;
-    if (!data.length) throw new Error('Konum bulunamadi — lutfen daha acik yazin');
+    if (!data.length) throw new Error(t('settings.branches.geocodeNotFound'));
     const latNum = parseFloat(data[0].lat);
     const lonNum = parseFloat(data[0].lon);
     if (Number.isNaN(latNum) || Number.isNaN(lonNum)) {
-      throw new Error('Geocoding gecersiz koordinat dondurdu');
+      throw new Error(t('settings.branches.geocodeInvalid'));
     }
     return { lat: latNum, lon: lonNum };
   };
 
   const geocode = async () => {
-    if (!city.trim()) { setErr('Once sehir girin'); return; }
+    if (!city.trim()) { setErr(t('settings.branches.cityRequired')); return; }
     setGeocoding(true); setErr(null);
     try {
       const { lat: la, lon: lo } = await geocodeCity(city.trim());
@@ -311,7 +314,7 @@ function BranchForm({
       setLon(lo.toFixed(6));
       setShowSuggestions(false);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Geocoding hatasi');
+      setErr(e instanceof Error ? e.message : t('settings.branches.geocodeFail'));
     } finally {
       setGeocoding(false);
     }
@@ -319,7 +322,7 @@ function BranchForm({
 
   const submit = async () => {
     setErr(null);
-    if (!name.trim() || !city.trim()) { setErr('Ad ve sehir zorunlu'); return; }
+    if (!name.trim() || !city.trim()) { setErr(t('settings.branches.nameCityRequired')); return; }
 
     let latNum = parseFloat(lat);
     let lonNum = parseFloat(lon);
@@ -338,8 +341,8 @@ function BranchForm({
       } catch (e) {
         setGeocoding(false);
         setErr(e instanceof Error
-          ? `${e.message}. Koordinatlari manuel girin.`
-          : 'Koordinatlar cozulemedi — manuel girin');
+          ? `${e.message}. ${t('settings.branches.coordsManualSuffix')}`
+          : t('settings.branches.coordsResolveFail'));
         return;
       }
       setGeocoding(false);
@@ -356,7 +359,7 @@ function BranchForm({
         isDefault,
       });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Kaydetme basarisiz');
+      setErr(e instanceof Error ? e.message : t('settings.branches.saveFail'));
     } finally {
       setSaving(false);
     }
@@ -372,21 +375,21 @@ function BranchForm({
       >
         <div className="flex items-start justify-between mb-4">
           <div>
-            <p className="text-[11px] uppercase tracking-wider text-ink-4 font-medium">Sube</p>
-            <h3 className="text-lg font-bold text-ink-0">{initial ? 'Sube duzenle' : 'Yeni sube'}</h3>
+            <p className="text-[11px] uppercase tracking-wider text-ink-4 font-medium">{t('settings.branches.formLabel')}</p>
+            <h3 className="text-lg font-bold text-ink-0">{initial ? t('settings.branches.editTitle') : t('settings.branches.addBranchCta')}</h3>
           </div>
           <button onClick={onClose} className="p-1 rounded text-ink-3 hover:text-ink-0"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">Sube adi</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Mozart Cafe"
+            <label className="block text-xs font-medium text-ink-2 mb-1">{t('settings.branches.nameLabel')}</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('settings.branches.namePlaceholder')}
               className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">Sehir / adres</label>
+            <label className="block text-xs font-medium text-ink-2 mb-1">{t('settings.branches.cityLabel')}</label>
             <div className="relative">
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -396,7 +399,7 @@ function BranchForm({
                     onChange={(e) => { setCity(e.target.value); setShowSuggestions(true); }}
                     onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
                     onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                    placeholder="Istanbul Besiktas Barbaros Bulvari..."
+                    placeholder={t('settings.branches.cityPlaceholder')}
                     autoComplete="off"
                     className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
                   />
@@ -407,11 +410,11 @@ function BranchForm({
                 <button
                   onClick={geocode}
                   disabled={geocoding || !city}
-                  title="Koordinat otomatik bul"
+                  title={t('settings.branches.findBtnTitle')}
                   className="px-3 py-2 bg-brand-500/15 text-brand-200 border border-brand-500/30 rounded-lg flex items-center gap-1 hover:bg-brand-500/25 disabled:opacity-50"
                 >
                   {geocoding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                  <span className="text-xs">Bul</span>
+                  <span className="text-xs">{t('settings.branches.findBtn')}</span>
                 </button>
               </div>
               {showSuggestions && suggestions.length > 0 && (
@@ -434,24 +437,23 @@ function BranchForm({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-ink-2 mb-1">Enlem</label>
+              <label className="block text-xs font-medium text-ink-2 mb-1">{t('settings.branches.latLabel')}</label>
               <input type="number" step="any" value={lat} onChange={(e) => setLat(e.target.value)} placeholder="41.0082"
                 className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40 font-mono text-sm" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-ink-2 mb-1">Boylam</label>
+              <label className="block text-xs font-medium text-ink-2 mb-1">{t('settings.branches.lonLabel')}</label>
               <input type="number" step="any" value={lon} onChange={(e) => setLon(e.target.value)} placeholder="28.9784"
                 className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40 font-mono text-sm" />
             </div>
           </div>
 
           <p className="text-[10px] text-ink-4 leading-relaxed">
-            Yazdikca OpenStreetMap onerisi cikar; secince enlem/boylam otomatik dolar. Manuel
-            koordinat icin Google Maps&apos;te sag tiklayip &ldquo;ne var burada?&rdquo; kullanabilirsiniz.
+            {t('settings.branches.coordsHint')}
           </p>
 
           <div>
-            <label className="block text-xs font-medium text-ink-2 mb-1">Zaman dilimi</label>
+            <label className="block text-xs font-medium text-ink-2 mb-1">{t('settings.branches.timezoneLabel')}</label>
             <select value={timezone} onChange={(e) => setTimezone(e.target.value)}
               className="w-full px-3 py-2 bg-surface-2/70 border border-white/[0.08] rounded-lg text-ink-0 focus:outline-none focus:ring-2 focus:ring-brand-500/40">
               <option>Europe/Istanbul</option>
@@ -459,23 +461,24 @@ function BranchForm({
               <option>Europe/Berlin</option>
               <option>America/New_York</option>
               <option>Asia/Dubai</option>
+              <option>Africa/Johannesburg</option>
             </select>
           </div>
 
           <label className="flex items-center gap-2 text-sm text-ink-2 cursor-pointer">
             <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="accent-brand-500" />
-            Varsayilan sube (dashboard filtresi bu subeye oturur)
+            {t('settings.branches.defaultCheckbox')}
           </label>
 
           {err && <div className="text-sm text-danger-300 bg-danger-500/10 border border-danger-500/30 rounded-lg px-3 py-2">{err}</div>}
         </div>
 
         <div className="sticky bottom-0 -mx-6 -mb-6 mt-4 px-6 py-3 bg-surface-1/95 backdrop-blur border-t border-white/[0.06] rounded-b-2xl flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-ink-2 hover:text-ink-0 rounded-lg">Iptal</button>
+          <button onClick={onClose} className="px-4 py-2 text-ink-2 hover:text-ink-0 rounded-lg">{t('settings.branches.cancel')}</button>
           <motion.button whileTap={{ scale: 0.97 }} onClick={submit} disabled={saving}
             className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-lg font-semibold flex items-center gap-2 disabled:opacity-60">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            {saving ? 'Kaydediliyor...' : (initial ? 'Guncelle' : 'Olustur')}
+            {saving ? t('settings.branches.saving') : (initial ? t('settings.branches.update') : t('settings.branches.create'))}
           </motion.button>
         </div>
       </motion.div>

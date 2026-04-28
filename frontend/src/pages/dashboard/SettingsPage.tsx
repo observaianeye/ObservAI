@@ -517,7 +517,7 @@ export default function SettingsPage() {
 
       {/* Branches */}
       <SettingsSection
-        title="Subeler"
+        title={t('settings.branches.title')}
         icon={Building2}
         iconBg="bg-violet-500/10"
         iconColor="text-violet-300"
