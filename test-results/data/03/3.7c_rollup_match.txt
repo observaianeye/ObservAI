@@ -1,0 +1,11 @@
+=== 3.7c rollup match check (hourly sum vs daily) for last 5 cam-day pairs ===
+cam=04ac241f-3101-4799 date=1777237200000  daily(in=412,out=388,peak=32)  hourlySum(in=412,out=388,peakMax=32)  match=True
+cam=1102a0c8-f343-4fbd date=1777237200000  daily(in=269,out=223,peak=23)  hourlySum(in=587,out=544,peakMax=65)  match=False
+cam=1788a315-b5ad-4a1c date=1777237200000  daily(in=602,out=567,peak=49)  hourlySum(in=602,out=567,peakMax=49)  match=True
+cam=586a323e-c092-4c85 date=1777237200000  daily(in=5,out=4,peak=14)  hourlySum(in=337,out=326,peakMax=31)  match=False
+cam=d14ed993-018b-4281 date=1777237200000  daily(in=494,out=463,peak=43)  hourlySum(in=494,out=463,peakMax=43)  match=True
+cam=d94a2f0c-4087-4f84 date=1777237200000  daily(in=541,out=508,peak=42)  hourlySum(in=541,out=508,peakMax=42)  match=True
+cam=dbe7e545-e5db-42ea date=1777237200000  daily(in=626,out=592,peak=54)  hourlySum(in=626,out=592,peakMax=54)  match=True
+cam=e01a8c50-f997-4857 date=1777237200000  daily(in=669,out=622,peak=50)  hourlySum(in=669,out=622,peakMax=50)  match=True
+cam=f1fd68f7-91be-4c01 date=1777237200000  daily(in=480,out=445,peak=51)  hourlySum(in=480,out=445,peakMax=51)  match=True
+cam=sample-camera-1    date=1777237200000  daily(in=31289,out=30493,peak=32)  hourlySum(in=22021,out=21865,peakMax=58)  match=False

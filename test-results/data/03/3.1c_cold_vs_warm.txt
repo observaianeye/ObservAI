@@ -1,0 +1,8 @@
+Latency-bearing lines total: 42110
+First 10 (cold): [(29, 16, 92), (28, 17, 83), (31, 13, 62), (29, 12, 58), (37, 14, 57), (34, 14, 60), (30, 18, 77), (40, 17, 80), (27, 13, 51), (31, 14, 58)]
+Last 10 (warm): [(25, 14, 43), (28, 12, 36), (27, 13, 35), (28, 12, 40), (37, 14, 56), (36, 14, 43), (31, 13, 42), (35, 15, 42), (31, 14, 51), (28, 17, 66)]
+YOLO: cold YOLO mean=31.6 max=40 | warm YOLO mean=30.6 max=37
+Face: cold Face mean=14.8 max=18 | warm Face mean=13.8 max=17
+MiVOLO: cold MiVOLO mean=67.8 max=92 | warm MiVOLO mean=45.4 max=66
+TOTAL: cold mean=114.2ms | warm mean=89.8ms
+Ratio cold/warm = 1.27x

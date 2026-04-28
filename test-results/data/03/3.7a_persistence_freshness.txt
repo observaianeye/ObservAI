@@ -1,0 +1,20 @@
+=== Live persistence freshness ===
+Now: 2026-04-28T15:13:47
+Active cameras: 8
+  Test Cam Zone              cid=04ac241f-310  logs=4033  last_ts=2026-04-25T20:55:00.000Z
+  Test Hist Cam              cid=1788a315-b5a  logs=4033  last_ts=2026-04-25T20:55:00.000Z
+  Hist Cam                   cid=d94a2f0c-408  logs=4033  last_ts=1777150500000
+  MozartHigh                 cid=f1fd68f7-91b  logs=0  last_ts=None
+  Cmd Webcam                 cid=2618a065-dc4  logs=0  last_ts=None
+  Cmd File                   cid=69810440-ca3  logs=0  last_ts=None
+  Cmd RTSP                   cid=5151d5c1-e35  logs=0  last_ts=None
+  Cmd YT                     cid=a1b58d9f-37e  logs=0  last_ts=None
+
+All cameras log activity:
+  04ac241f-3101-4799-b3a8-  count=  4033  last_ts=2026-04-25T20:55:00.000Z
+  1788a315-b5ad-4a1c-b993-  count=  4033  last_ts=2026-04-25T20:55:00.000Z
+  sample-camera-1           count= 10818  last_ts=1777378421134
+  586a323e-c092-4c85-91fb-  count=     7  last_ts=1777292029003
+  1102a0c8-f343-4fbd-abd3-  count=  1759  last_ts=1777278768047
+  d94a2f0c-4087-4f84-8317-  count=  4033  last_ts=1777150500000
+  d14ed993-018b-4281-90af-  count=    15  last_ts=1775748729778
