@@ -553,6 +553,7 @@ export default function ZoneCanvas() {
           <button
             onClick={saveZones}
             disabled={loading}
+            data-testid="zone-save-all"
             className={`px-4 py-2 bg-success-500/20 text-success-200 border border-success-500/40 rounded-xl font-medium text-sm hover:bg-success-500/30 transition-colors flex items-center space-x-2 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <Save strokeWidth={1.5} className="w-4 h-4" />
@@ -561,14 +562,24 @@ export default function ZoneCanvas() {
         </div>
       </div>
 
-      {/* Drawing mode toolbar */}
+      {/* Drawing mode toolbar.
+       * Yan #51 audit: previous OBSERVATIONAL e2e runs (4.1a/b/c rect/poly/freehand)
+       * suspected the toolbar was hidden behind a snapshot/backgroundImage gate.
+       * Source review confirms there is NO such gate — DrawModeButtons render
+       * unconditionally inside this motion.div. The OBSERVATIONAL result came
+       * from e2e expecting a POST /api/zones after a canvas drag, but drag-end
+       * only commits to local state via setZones(); persistence happens in the
+       * separate "Save All" button which calls POST /api/zones/batch. Adding
+       * data-testid attrs so future specs can target the buttons + Save All
+       * deterministically without relying on framer-motion class names. */}
       <motion.div
         layout
+        data-testid="zone-draw-toolbar"
         className="inline-flex items-center gap-2 p-1.5 rounded-xl bg-surface-1/60 backdrop-blur border border-white/[0.08]"
       >
-        <DrawModeButton active={drawMode === 'rect'} onClick={() => setDrawMode(drawMode === 'rect' ? null : 'rect')} icon={<Square className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawRect') || 'Rectangle'} />
-        <DrawModeButton active={drawMode === 'polygon'} onClick={() => setDrawMode(drawMode === 'polygon' ? null : 'polygon')} icon={<Hexagon className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawPolygon') || 'Polygon'} />
-        <DrawModeButton active={drawMode === 'freehand'} onClick={() => setDrawMode(drawMode === 'freehand' ? null : 'freehand')} icon={<Eraser className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawFreehand') || 'Freehand'} />
+        <DrawModeButton testId="zone-draw-rect" active={drawMode === 'rect'} onClick={() => setDrawMode(drawMode === 'rect' ? null : 'rect')} icon={<Square className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawRect') || 'Rectangle'} />
+        <DrawModeButton testId="zone-draw-polygon" active={drawMode === 'polygon'} onClick={() => setDrawMode(drawMode === 'polygon' ? null : 'polygon')} icon={<Hexagon className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawPolygon') || 'Polygon'} />
+        <DrawModeButton testId="zone-draw-freehand" active={drawMode === 'freehand'} onClick={() => setDrawMode(drawMode === 'freehand' ? null : 'freehand')} icon={<Eraser className="w-4 h-4" strokeWidth={1.5} />} label={t('zones.canvas.drawFreehand') || 'Freehand'} />
         <div className="w-px h-6 bg-white/[0.08] mx-1"></div>
         {drawMode === 'polygon' && polygonPoints.length >= 3 && (
           <button
@@ -843,11 +854,12 @@ export default function ZoneCanvas() {
   );
 }
 
-function DrawModeButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+function DrawModeButton({ active, onClick, icon, label, testId }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; testId?: string }) {
   return (
     <motion.button
       whileTap={{ scale: 0.96 }}
       onClick={onClick}
+      data-testid={testId}
       className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
         active
           ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white shadow-glow-brand'
