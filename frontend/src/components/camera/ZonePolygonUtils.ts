@@ -86,6 +86,54 @@ export function rectsOverlap(
   return !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
 }
 
+// Yan #31: real polygon-polygon overlap (mirrors backend lib/polygonOverlap.ts).
+// Used by ZoneCanvas for the live overlap warning so the frontend agrees with
+// the backend's 409 verdict before the user clicks Save.
+function bboxOverlap(a: NormPoint[], b: NormPoint[]): boolean {
+  const ba = polygonBounds(a), bb = polygonBounds(b);
+  return !(ba.x + ba.width <= bb.x || bb.x + bb.width <= ba.x || ba.y + ba.height <= bb.y || bb.y + bb.height <= ba.y);
+}
+
+function cross3(p1: NormPoint, p2: NormPoint, p3: NormPoint): number {
+  return (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
+}
+
+function segmentsCross(p1: NormPoint, p2: NormPoint, p3: NormPoint, p4: NormPoint): boolean {
+  const d1 = cross3(p3, p4, p1);
+  const d2 = cross3(p3, p4, p2);
+  const d3 = cross3(p1, p2, p3);
+  const d4 = cross3(p1, p2, p4);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+         ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+function pointInPoly(p: NormPoint, poly: NormPoint[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y;
+    const xj = poly[j].x, yj = poly[j].y;
+    const hits = ((yi > p.y) !== (yj > p.y)) &&
+      (p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi);
+    if (hits) inside = !inside;
+  }
+  return inside;
+}
+
+export function polygonsOverlap(a: NormPoint[], b: NormPoint[]): boolean {
+  if (a.length < 3 || b.length < 3) return false;
+  if (!bboxOverlap(a, b)) return false;
+  for (let i = 0; i < a.length; i++) {
+    const p1 = a[i], p2 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      const p3 = b[j], p4 = b[(j + 1) % b.length];
+      if (segmentsCross(p1, p2, p3, p4)) return true;
+    }
+  }
+  if (pointInPoly(a[0], b)) return true;
+  if (pointInPoly(b[0], a)) return true;
+  return false;
+}
+
 /**
  * Serialize polygon points into SVG "points" string (percentage-based).
  */

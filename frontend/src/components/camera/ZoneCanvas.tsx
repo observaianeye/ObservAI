@@ -10,7 +10,7 @@ import {
   polygonArea,
   rectToPolygon,
   simplifyPolygon,
-  rectsOverlap,
+  polygonsOverlap,
   pointsToSvgString,
 } from './ZonePolygonUtils';
 
@@ -160,10 +160,19 @@ export default function ZoneCanvas() {
     return { x: z.x, y: z.y, width: z.width, height: z.height };
   };
 
-  const checkOverlap = (candidate: { x: number; y: number; width: number; height: number }, excludeId?: string): boolean => {
+  // Yan #31: real polygon-polygon overlap. Existing zones expose either an
+  // explicit `points` array (polygon/freehand) or just (x, y, width, height)
+  // for rect — normalise both into a 4-vertex polygon so polygonsOverlap can
+  // run a real edge/containment check instead of a bbox heuristic.
+  const zoneToPolygon = (z: Zone): NormPoint[] => {
+    if (z.shape === 'polygon' && z.points && z.points.length >= 3) return z.points;
+    return rectToPolygon(z.x, z.y, z.width, z.height);
+  };
+
+  const checkOverlap = (candidatePolygon: NormPoint[], excludeId?: string): boolean => {
     return zones.some((z) => {
       if (z.id === excludeId) return false;
-      return rectsOverlap(candidate, zoneBoundsRect(z));
+      return polygonsOverlap(candidatePolygon, zoneToPolygon(z));
     });
   };
 
@@ -179,7 +188,7 @@ export default function ZoneCanvas() {
       setRectStart(null);
       return;
     }
-    if (checkOverlap(tempRect)) {
+    if (checkOverlap(rectToPolygon(tempRect.x, tempRect.y, tempRect.width, tempRect.height))) {
       setOverlapError(t('zones.canvas.overlapMsg') || 'Zone overlaps with an existing zone.');
       setTimeout(() => setOverlapError(''), 3200);
       setTempRect(null);
@@ -209,7 +218,7 @@ export default function ZoneCanvas() {
       setPolygonPoints([]);
       return;
     }
-    if (checkOverlap(bounds)) {
+    if (checkOverlap(polygonPoints)) {
       setOverlapError(t('zones.canvas.overlapMsg') || 'Zone overlaps with an existing zone.');
       setTimeout(() => setOverlapError(''), 3200);
       setPolygonPoints([]);
@@ -250,7 +259,7 @@ export default function ZoneCanvas() {
       setFreehandActive(false);
       return;
     }
-    if (checkOverlap(bounds)) {
+    if (checkOverlap(simplified)) {
       setOverlapError(t('zones.canvas.overlapMsg') || 'Zone overlaps with an existing zone.');
       setTimeout(() => setOverlapError(''), 3200);
       setFreehandPoints([]);
@@ -313,7 +322,7 @@ export default function ZoneCanvas() {
       const w = Math.abs(pt.x - rectStart.x);
       const h = Math.abs(pt.y - rectStart.y);
       setTempRect({ x, y, width: w, height: h });
-      setTempZoneOverlaps(checkOverlap({ x, y, width: w, height: h }));
+      setTempZoneOverlaps(w > 0 && h > 0 ? checkOverlap(rectToPolygon(x, y, w, h)) : false);
       return;
     }
     if (drawMode === 'polygon' && polygonPoints.length > 0) {
