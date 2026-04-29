@@ -9,34 +9,25 @@ import { requireManager } from '../middleware/roleCheck';
 import { authenticate } from '../middleware/authMiddleware';
 import { requireCameraOwnership, requireZoneOwnership, userOwnsCamera } from '../middleware/tenantScope';
 import { utf8String } from '../lib/utf8Validator';
+import { polygonsOverlap } from '../lib/polygonOverlap';
 
 const router = Router();
 
-function coordsToBBox(coordinates: Array<{ x: number; y: number }>): { x: number; y: number; width: number; height: number } {
-  const xs = coordinates.map(c => c.x);
-  const ys = coordinates.map(c => c.y);
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-  return { x: minX, y: minY, width: Math.max(...xs) - minX, height: Math.max(...ys) - minY };
-}
-
-function rectsOverlap(
-  r1: { x: number; y: number; width: number; height: number },
-  r2: { x: number; y: number; width: number; height: number }
-): boolean {
-  return !(r1.x + r1.width <= r2.x || r2.x + r2.width <= r1.x || r1.y + r1.height <= r2.y || r2.y + r2.height <= r1.y);
-}
-
+// Yan #31: switched from bbox-only AABB (rectsOverlap) to real polygon-polygon
+// intersection (polygonsOverlap in lib/polygonOverlap.ts). Bbox-only flagged
+// non-overlapping U-shapes whose bboxes happened to share area; real users
+// rejected legitimate adjacent zone layouts. polygonsOverlap fast-rejects via
+// bbox first, then runs proper edge-edge + containment so neighbouring zones
+// with a touching edge still pass.
 function findOverlaps(
   newCoords: Array<{ x: number; y: number }>,
   existingZones: Array<{ coordinates: string | Array<{ x: number; y: number }> }>,
   excludeId?: string
 ): boolean {
-  const newBBox = coordsToBBox(newCoords);
   for (const ez of existingZones) {
     if (excludeId && (ez as any).id === excludeId) continue;
     const coords = typeof ez.coordinates === 'string' ? JSON.parse(ez.coordinates) : ez.coordinates;
-    if (rectsOverlap(newBBox, coordsToBBox(coords))) return true;
+    if (polygonsOverlap(newCoords, coords)) return true;
   }
   return false;
 }
@@ -163,7 +154,7 @@ router.post('/batch', requireManager, async (req: Request, res: Response) => {
       for (let j = i + 1; j < zones.length; j++) {
         const coordsI = zones[i].coordinates || [];
         const coordsJ = zones[j].coordinates || [];
-        if (coordsI.length > 0 && coordsJ.length > 0 && rectsOverlap(coordsToBBox(coordsI), coordsToBBox(coordsJ))) {
+        if (coordsI.length >= 3 && coordsJ.length >= 3 && polygonsOverlap(coordsI, coordsJ)) {
           return res.status(409).json({ error: `Zone "${zones[i].name}" overlaps with "${zones[j].name}"` });
         }
       }
