@@ -140,6 +140,10 @@ KURULUM-MCP.md
 test-results/playwright-artifacts/
 test-results/playwright-html/
 test-results/screenshots/
+# Cookie jars / curl session files (may contain auth tokens)
+test-results/*-cookies.txt
+test-results/qa-tmp-fix.txt
+*.cookies.txt
 
 # Vite hot-reload timestamp files
 frontend/vite.config.ts.timestamp-*

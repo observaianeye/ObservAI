@@ -16,6 +16,7 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "seed:history": "tsx scripts/backfill-analytics-summary.ts",
+    "reset:today": "tsx scripts/reset-today-analytics.ts",
     "db:reset": "prisma migrate reset",
     "test": "vitest run",
     "test:watch": "vitest",

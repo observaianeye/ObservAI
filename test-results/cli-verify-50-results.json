@@ -1,0 +1,355 @@
+{
+  "runAt": "2026-04-29T06:23:45.323Z",
+  "results": [
+    {
+      "id": 1,
+      "cat": "Auth",
+      "name": "Landing Page Render",
+      "result": "Pass",
+      "note": "title=\"ObservAI - AI-Powered Restaurant Management System\""
+    },
+    {
+      "id": 2,
+      "cat": "Auth",
+      "name": "Register TRIAL",
+      "result": "Pass",
+      "note": "HTTP 201 accountType=TRIAL"
+    },
+    {
+      "id": 3,
+      "cat": "Auth",
+      "name": "Login + RememberMe 30d",
+      "result": "Pass",
+      "note": "HTTP 200 expires=30d"
+    },
+    {
+      "id": 4,
+      "cat": "Auth",
+      "name": "Logout invalidates server session",
+      "result": "Pass",
+      "note": "logout=200 me-after=401"
+    },
+    {
+      "id": 5,
+      "cat": "Auth",
+      "name": "Session persists after refresh",
+      "result": "Pass",
+      "note": "url=http://localhost:5173/dashboard"
+    },
+    {
+      "id": 6,
+      "cat": "Branch",
+      "name": "Branch create",
+      "result": "Pass",
+      "note": "id=462b0cc2-3dff-46ef-b71b-c04b57802c1a"
+    },
+    {
+      "id": 7,
+      "cat": "Branch",
+      "name": "Branch update lat/lng",
+      "result": "Pass",
+      "note": "HTTP 200"
+    },
+    {
+      "id": 8,
+      "cat": "Branch",
+      "name": "Multi-branch switch",
+      "result": "Pass",
+      "note": "count=7"
+    },
+    {
+      "id": 9,
+      "cat": "Branch",
+      "name": "Weather Open-Meteo fetch",
+      "result": "Pass",
+      "note": "HTTP 200 temp=12.5"
+    },
+    {
+      "id": 10,
+      "cat": "Camera",
+      "name": "Webcam add",
+      "result": "Pass",
+      "note": "HTTP 201"
+    },
+    {
+      "id": 11,
+      "cat": "Camera",
+      "name": "File source add (MozartHigh.MOV)",
+      "result": "Pass",
+      "note": "id=e2fba34f-b14f-490a-8560-4ebb5f1c205f"
+    },
+    {
+      "id": 12,
+      "cat": "Camera",
+      "name": "Rename",
+      "result": "Pass",
+      "note": "HTTP 200"
+    },
+    {
+      "id": 13,
+      "cat": "Camera",
+      "name": "Delete",
+      "result": "Pass",
+      "note": "HTTP 204"
+    },
+    {
+      "id": 14,
+      "cat": "Camera",
+      "name": "MJPEG content-type",
+      "result": "Partial",
+      "note": "status=0 ct=\"(timeout: apiRequestContext.get: Timeout)\""
+    },
+    {
+      "id": 15,
+      "cat": "Camera",
+      "name": "Python /health shape+fps",
+      "result": "Pass",
+      "note": "fps=17.6 count=13 status=ready"
+    },
+    {
+      "id": 16,
+      "cat": "Analytics",
+      "name": "Live visitor count via /health",
+      "result": "Pass",
+      "note": "count=13"
+    },
+    {
+      "id": 17,
+      "cat": "Analytics",
+      "name": "Camera analytics summary (incl. demo)",
+      "result": "Pass",
+      "note": "HTTP 200 keys="
+    },
+    {
+      "id": 18,
+      "cat": "Analytics",
+      "name": "Trends weekly endpoint",
+      "result": "Pass",
+      "note": "HTTP 200"
+    },
+    {
+      "id": 19,
+      "cat": "Analytics",
+      "name": "Peak hours endpoint",
+      "result": "Pass",
+      "note": "HTTP 200"
+    },
+    {
+      "id": 20,
+      "cat": "Zone",
+      "name": "Rect ENTRANCE",
+      "result": "Pass",
+      "note": "id=fe0c9def-7ce4-44d9-8a3d-581c897df8b2"
+    },
+    {
+      "id": 21,
+      "cat": "Zone",
+      "name": "Polygon QUEUE 8-vertex",
+      "result": "Pass",
+      "note": "HTTP 201"
+    },
+    {
+      "id": 22,
+      "cat": "Zone",
+      "name": "Rect shape preserved (4 corners)",
+      "result": "Pass",
+      "note": "corners=4"
+    },
+    {
+      "id": 23,
+      "cat": "Zone",
+      "name": "Overlap rejected",
+      "result": "Pass",
+      "note": "HTTP 409"
+    },
+    {
+      "id": 24,
+      "cat": "Zone",
+      "name": "Zone delete",
+      "result": "Pass",
+      "note": "HTTP 204"
+    },
+    {
+      "id": 25,
+      "cat": "Table",
+      "name": "TABLE zone created (listing case-mismatch in tables.ts:160)",
+      "result": "Partial",
+      "note": "created=201 listed=false count=0"
+    },
+    {
+      "id": 26,
+      "cat": "Table",
+      "name": "Empty→Occupied 60s",
+      "result": "Manual",
+      "note": "requires live cam + person 60s; cannot automate"
+    },
+    {
+      "id": 27,
+      "cat": "Table",
+      "name": "Manual status override → empty",
+      "result": "Pass",
+      "note": "HTTP 200"
+    },
+    {
+      "id": 28,
+      "cat": "Analytics",
+      "name": "Date range 4 chips (post-Faz11)",
+      "result": "Pass",
+      "note": "1d=200 1w=200 1m=200 3m=200"
+    },
+    {
+      "id": 29,
+      "cat": "Analytics",
+      "name": "Custom date range",
+      "result": "Pass",
+      "note": "HTTP 200 from=2026-04-24 to=2026-04-29"
+    },
+    {
+      "id": 30,
+      "cat": "Export",
+      "name": "CSV export",
+      "result": "Pass",
+      "note": "HTTP 200 ct=\"text/csv; charset=utf-8\""
+    },
+    {
+      "id": 31,
+      "cat": "Export",
+      "name": "PDF export",
+      "result": "Pass",
+      "note": "HTTP 200 ct=\"application/pdf\""
+    },
+    {
+      "id": 32,
+      "cat": "Analytics",
+      "name": "Prediction chart",
+      "result": "Pass",
+      "note": "HTTP 200 conf=0"
+    },
+    {
+      "id": 33,
+      "cat": "Chat",
+      "name": "Chatbot dialog open",
+      "result": "Pass",
+      "note": "visual selector heuristic"
+    },
+    {
+      "id": 34,
+      "cat": "Chat",
+      "name": "TR chat response",
+      "result": "Pass",
+      "note": "HTTP 200 sample=\"Su anki 7 ziyaretçiniz var.\""
+    },
+    {
+      "id": 35,
+      "cat": "Chat",
+      "name": "EN chat response",
+      "result": "Pass",
+      "note": "HTTP 200 sample=\"The total number of visitors today is 569. The current numbe\""
+    },
+    {
+      "id": 36,
+      "cat": "Chat",
+      "name": "Live count anchor",
+      "result": "Pass",
+      "note": "live=4 sample=\"Şu anki ziyaretçi sayısı 4.\""
+    },
+    {
+      "id": 37,
+      "cat": "Chat",
+      "name": "Follow-up endpoint completes 2 turns",
+      "result": "Pass",
+      "note": "r1=200 r2=200 t2len=87 sample=\"Son 100 örnekte toplam 569 ziyaretçi geldiğini söylemiştim. \""
+    },
+    {
+      "id": 38,
+      "cat": "Insight",
+      "name": "Manual generate insights",
+      "result": "Pass",
+      "note": "HTTP 200 alerts=1 throttled=false"
+    },
+    {
+      "id": 39,
+      "cat": "Insight",
+      "name": "Mark read",
+      "result": "Pass",
+      "note": "HTTP 200"
+    },
+    {
+      "id": 40,
+      "cat": "Notify",
+      "name": "Notifications page render",
+      "result": "Partial",
+      "note": "cardsLike=0"
+    },
+    {
+      "id": 41,
+      "cat": "Notify",
+      "name": "Severity filter visible",
+      "result": "Pass",
+      "note": "selectVisible=true"
+    },
+    {
+      "id": 42,
+      "cat": "Staff",
+      "name": "Staff create",
+      "result": "Pass",
+      "note": "id=f3151dde-8137-4170-aa53-bd7fd1fb568d"
+    },
+    {
+      "id": 43,
+      "cat": "Staff",
+      "name": "Role update",
+      "result": "Pass",
+      "note": "HTTP 200"
+    },
+    {
+      "id": 44,
+      "cat": "Staff",
+      "name": "Soft delete",
+      "result": "Pass",
+      "note": "HTTP 200"
+    },
+    {
+      "id": 45,
+      "cat": "Staff",
+      "name": "ShiftCalendar grid render",
+      "result": "Pass",
+      "note": "gridVisible=true"
+    },
+    {
+      "id": 46,
+      "cat": "Settings",
+      "name": "Settings sections render",
+      "result": "Pass",
+      "note": "sectionsLike=6"
+    },
+    {
+      "id": 47,
+      "cat": "Settings",
+      "name": "Language toggle changes UI text",
+      "result": "Pass",
+      "note": "enHints=true trHints=false sameLen=true"
+    },
+    {
+      "id": 48,
+      "cat": "Settings",
+      "name": "Change-password rejects bad current pw",
+      "result": "Pass",
+      "note": "HTTP 401"
+    },
+    {
+      "id": 49,
+      "cat": "System",
+      "name": "Branch delete cascade + /weather 404",
+      "result": "Pass",
+      "note": "delete=200 weather=404"
+    },
+    {
+      "id": 50,
+      "cat": "System",
+      "name": "4 services up (HTTP probe)",
+      "result": "Pass",
+      "note": "Frontend=200 Backend=401 Python=200 Ollama=200"
+    }
+  ]
+}

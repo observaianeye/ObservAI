@@ -1,0 +1,47 @@
+{
+  "T1": {
+    "title": "ObservAI - AI-Powered Restaurant Management System",
+    "htmlBytes": 200540,
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "T5": {
+    "urlBefore": "http://localhost:5173/dashboard",
+    "urlAfter": "http://localhost:5173/dashboard",
+    "stillLoggedIn": true
+  },
+  "T14": {
+    "mediaElements": 3
+  },
+  "T17": {
+    "hasDemoKeywords": true,
+    "bodyTextLen": 993
+  },
+  "T33": {
+    "chatBtnVisible": true,
+    "dialogOpened": false
+  },
+  "T46": {
+    "sections": {
+      "branches": true,
+      "notifications": true,
+      "language": true,
+      "profile": true,
+      "security": true
+    },
+    "sectionsCount": 5
+  },
+  "T47": {
+    "langSelectCount": 3,
+    "beforeLang": null,
+    "afterLang": "en",
+    "enHasBranches": true,
+    "trHasSube": false
+  },
+  "T26": {
+    "tableCount": 0,
+    "statuses": []
+  }
+}
