@@ -926,6 +926,34 @@ services:
 - [ ] API key rotation
 - [ ] Log monitoring
 
+### v1.0.0 Production Notları (Faz 9 release)
+
+**Zorunlu Environment Variables:**
+- `JWT_SECRET` — uzun random hex (en az 32 byte)
+- `DATABASE_URL` — production Postgres connection string
+- `OBSERVAI_INGEST_KEY` — Python→Node analytics ingest paylasilan secret (Yan #22 NodePersister)
+- `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` — email dispatch (Telegram pasif: Yan #58)
+- `OLLAMA_URL` (default `http://localhost:11434`) ve `OLLAMA_MODEL` (Yan #36 exact match — varyant suffix'lerini secmez)
+- `GEMINI_API_KEY` — Ollama yoksa fallback
+
+**Opt-in:**
+- `INSIGHT_CRON_ENABLED=true` — 6h insights cron (Yan #44, idempotent dateKey upsert)
+- `OBSERVAI_MJPEG_MODE=smooth` — 60 FPS interpolated overlay default (Stage 2 / ADIM 14)
+
+**Deployment hazirlik:**
+1. `npm run db:migrate` — Faz 7 + 8'den 4 migration var (yan #59 acceptToken, #44 insight idempotency, #57 dismiss, #3 revokedAt)
+2. `pnpm build` (frontend) + `npm run build` (backend)
+3. Production CSP + cookie `Secure` flag aktif (auth flow demokrasi-mode degil)
+4. Yan #37 chat tenant leak rejection production'da CLOSED — 7 ardisik leak probe sifir; herhangi bir AI chat regression release oncesi `LEAK_COUNT=0` ile dogrulanmasi gerek
+
+**Bilinen kalintilar (Faz 10 backlog):**
+- Yan #4.4 tables-ai-summary 6/6 expected FAIL (mock fixture, prod davranisi etkilemiyor)
+- 4K kaynak performans optimizasyonu (1080p prod-ready; 4K perf opt sirada)
+- Staff.telegramChatId legacy kolon migration drop (Yan #58 followup)
+- Test fixture infrastructure (Yan #21 — mozart_cafe_short.mp4 + ground_truth.json hic landed degil)
+
+Detayli changelog: `CHANGELOG.md`. Master rapor: `test-results/_MASTER-final-report.md`.
+
 ---
 
 ## 📄 Lisans
