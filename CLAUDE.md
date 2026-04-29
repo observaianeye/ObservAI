@@ -118,7 +118,7 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 - `src/services/notificationDispatcher.ts` — Severity bazli dispatch (CRITICAL/HIGH/MEDIUM/LOW), email-only
 
 #### Staff & Table Tracking (ADIM 5)
-- `src/routes/staffing.ts` — Vardiya bazli personel plani, peak saat + demografi verisine dayali
+- `src/routes/staffing.ts` — Vardiya bazli personel plani, peak saat + demografi verisine dayali. **Yan #60 (Faz 9):** `POST /api/staffing/summary` (Ollama brifi 30sn throttle) Faz 6 prompt beklentisinde vardı ama implement edilmedi; staffing su an SADECE algorithmic `/recommendations` (10 musteri/staff target, 7-23 saat grid) + `/current` + `/history` doner. AI brifi tables.ts'de mevcut (`POST /api/tables/ai-summary`); staffing'e benzer endpoint ister: Faz 10 backlog.
 - `src/routes/staff.ts` — Staff CRUD (Prisma Staff modeli: firstName, lastName, email, phone, role; `telegramChatId` legacy alan, dispatch'te kullanilmaz — Yan #58)
 - `src/routes/staff-assignments.ts` — StaffAssignment CRUD + POST /:id/notify + GET /:id/accept|decline (JWT token'li public link)
 - `src/routes/tables.ts` — POST /ai-summary (Ollama brifi 30sn throttle), GET /:cameraId (zone+status), PATCH /:zoneId/status (manuel temizleme override → Python pipeline)
