@@ -7,6 +7,7 @@ import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 import { StaffForm, type StaffRecord } from '../../components/staffing/StaffForm';
 import { StaffList } from '../../components/staffing/StaffList';
 import { ShiftCalendar, type Assignment } from '../../components/staffing/ShiftCalendar';
+import { extractFieldErrors } from '../../lib/api/errors';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const FETCH_TIMEOUT_MS = 8000;
@@ -115,7 +116,13 @@ export default function StaffingPage() {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || t('staffing.error.staffSaveFailed'));
+      // Yan #1.4 follow-up: when the backend returns Zod issues, surface the
+      // first field-level message instead of the generic "Invalid body" so the
+      // user sees something actionable like "First name must contain at least
+      // 1 character" rather than a meaningless toast.
+      const fieldErrors = extractFieldErrors(data);
+      const firstFieldMessage = fieldErrors ? Object.values(fieldErrors)[0] : null;
+      throw new Error(firstFieldMessage || data.error || t('staffing.error.staffSaveFailed'));
     }
     showToast('success', editing ? t('staffing.toast.staffUpdated') : t('staffing.toast.staffSaved'));
     setFormOpen(false);
