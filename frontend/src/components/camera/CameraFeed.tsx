@@ -1031,9 +1031,6 @@ export default function CameraFeed() {
       case 'FILE':
         handleSourceChange('videolink', { url: value });
         break;
-      case 'SCREEN_CAPTURE':
-        handleSourceChange('videolink', { url: 'screen' });
-        break;
       default:
         handleSourceChange('videolink', { url: value });
     }

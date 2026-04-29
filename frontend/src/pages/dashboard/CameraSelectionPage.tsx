@@ -1,4 +1,4 @@
-import { Camera, Circle, Monitor, Wifi, Upload, Trash2, Loader2, Smartphone, Play, Youtube, Plus, Check, Pencil, X, Building2 } from 'lucide-react';
+import { Camera, Circle, Wifi, Upload, Trash2, Loader2, Smartphone, Play, Youtube, Plus, Check, Pencil, X, Building2 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -6,7 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 
-type SourceType = 'webcam' | 'file' | 'rtsp' | 'screen' | 'youtube' | 'phone';
+type SourceType = 'webcam' | 'file' | 'rtsp' | 'youtube' | 'phone';
 
 interface SavedCamera {
   id: string;
@@ -24,7 +24,6 @@ const SOURCE_TYPE_META: Record<SourceType, { gradient: string; accentColor: stri
   phone: { gradient: 'from-violet-500/25 via-violet-500/10 to-transparent', accentColor: '#8b5cf6' },
   file: { gradient: 'from-cyan-500/25 via-cyan-500/10 to-transparent', accentColor: '#06b6d4' },
   rtsp: { gradient: 'from-accent-500/25 via-accent-500/10 to-transparent', accentColor: '#12bcff' },
-  screen: { gradient: 'from-amber-500/25 via-amber-500/10 to-transparent', accentColor: '#f59e0b' },
   youtube: { gradient: 'from-danger-500/25 via-danger-500/10 to-transparent', accentColor: '#ef4444' },
 };
 
@@ -88,7 +87,6 @@ export default function CameraSelectionPage() {
     { value: 'phone' as SourceType, label: t('cameraSelection.type.phone.label'), icon: Smartphone, description: t('cameraSelection.type.phone.desc') },
     { value: 'file' as SourceType, label: t('cameraSelection.type.file.label'), icon: Upload, description: t('cameraSelection.type.file.desc') },
     { value: 'rtsp' as SourceType, label: t('cameraSelection.type.rtsp.label'), icon: Wifi, description: t('cameraSelection.type.rtsp.desc') },
-    { value: 'screen' as SourceType, label: t('cameraSelection.type.screen.label'), icon: Monitor, description: t('cameraSelection.type.screen.desc') },
     { value: 'youtube' as SourceType, label: t('cameraSelection.type.youtube.label'), icon: Youtube, description: t('cameraSelection.type.youtube.desc') },
   ];
 
@@ -218,7 +216,6 @@ export default function CameraSelectionPage() {
       case 'phone': return 'http://192.168.1.100:4747/video';
       case 'file': return '/path/to/video.mp4';
       case 'rtsp': return 'rtsp://username:password@192.168.1.100:554/stream';
-      case 'screen': return 'screen';
       case 'youtube': return 'https://www.youtube.com/watch?v=...';
       default: return '';
     }
@@ -290,7 +287,7 @@ export default function CameraSelectionPage() {
                   whileTap={{ scale: 0.97 }}
                   onClick={() => {
                     setSourceType(st.value);
-                    setSourceValue(st.value === 'webcam' ? '0' : st.value === 'screen' ? 'screen' : st.value === 'phone' ? 'http://' : '');
+                    setSourceValue(st.value === 'webcam' ? '0' : st.value === 'phone' ? 'http://' : '');
                   }}
                   className={`relative p-4 rounded-xl border-2 transition-colors text-left overflow-hidden ${
                     active

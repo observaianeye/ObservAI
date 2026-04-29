@@ -1,6 +1,7 @@
 """
 Unified input source handling using Factory Pattern.
-Supports webcams, RTSP streams, MP4 files, YouTube Live, and screen capture.
+Supports webcams (incl. iVCam virtual webcam), RTSP streams, MP4 files, and
+YouTube/HTTP live links. Screen capture removed in Faz 10 (Issue #2).
 """
 
 from __future__ import annotations
@@ -31,12 +32,6 @@ def _get_ytdlp_executable() -> str:
     # Fallback: hope it's on PATH
     return "yt-dlp"
 
-try:
-    from mss import mss
-except ImportError:
-    mss = None
-
-
 def _get_camera_backend():
     """Get platform-specific OpenCV camera backend.
     
@@ -62,7 +57,6 @@ class SourceType:
     RTMP = "rtmp"
     HTTP = "http"
     YOUTUBE = "youtube"
-    SCREEN_CAPTURE = "screen_capture"
 
 
 class VideoSource(ABC):
@@ -469,78 +463,6 @@ class VideoLinkSource(VideoSource):
 
 
 
-class ScreenCaptureWrapper:
-    """
-    OpenCV-compatible wrapper for screen capture using mss.
-    Provides read(), isOpened(), release() methods.
-    """
-    def __init__(self, monitor_idx: int = 1):
-        if mss is None:
-            raise ImportError("mss library is required for screen capture. Install with: pip install mss")
-        self.sct = mss()
-        self.monitors = self.sct.monitors
-        # mss monitor 0 is all monitors combined, 1 is primary
-        self.monitor_idx = monitor_idx if monitor_idx < len(self.monitors) else 1
-        self.monitor = self.monitors[self.monitor_idx]
-        self._is_opened = True
-
-    def isOpened(self) -> bool:
-        return self._is_opened
-
-    def read(self) -> tuple[bool, Optional[np.ndarray]]:
-        if not self._is_opened:
-            return False, None
-        
-        try:
-            # Capture screen
-            screenshot = self.sct.grab(self.monitor)
-            # Convert to numpy array (BGRA)
-            img = np.array(screenshot)
-            # Convert BGRA to BGR for OpenCV
-            frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            return True, frame
-        except Exception as e:
-            print(f"[ERROR] Screen capture failed: {e}")
-            return False, None
-
-    def release(self) -> None:
-        self._is_opened = False
-        if hasattr(self, 'sct'):
-            self.sct.close()
-
-class ScreenCaptureSource(VideoSource):
-
-    def get_source(self) -> Union[str, int]:
-        system = platform.system()
-        
-        if system == "Darwin":  # macOS
-            # Use AVFoundation screen capture
-            # Usually index 1 is the screen if 0 is webcam
-            # But OpenCV on Mac often maps '0' to webcam and '1' to screen capture if configured?
-            # Actually, for YOLO/OpenCV on Mac, 'screen' is not natively supported as a keyword like in some other tools.
-            # However, Ultralytics YOLO supports 'screen' as a source which internally handles MSS or similar.
-            # If we want to use OpenCV VideoCapture directly:
-            # return "avfoundation:1" # This is specific to ffmpeg backend
-            
-            # If we are using Ultralytics YOLO 'track' mode, it supports 'screen' source directly via MSS.
-            return "screen" 
-
-        elif system == "Linux":
-            return "screen" # Ultralytics handles this
-
-        elif system == "Windows":
-            return "screen" # Ultralytics handles this
-
-        return "screen"
-
-    def validate(self) -> bool:
-        return True
-
-    @property
-    def vid_stride(self) -> int:
-        return 2
-
-
 class SourceFactory:
     @staticmethod
     def create_source(source_input: Union[str, int]) -> VideoSource:
@@ -559,10 +481,6 @@ class SourceFactory:
             # Use unified VideoLinkSource for all HTTP/HTTPS URLs
             # It will detect YouTube, HLS, direct video files, etc.
             return VideoLinkSource(source_input)
-
-        # Check for screen capture
-        if source_str == "screen" or source_str.startswith("screen:"):
-            return ScreenCaptureSource(source_input)
 
         # Check if it's a file
         path = Path(source_input)
@@ -600,5 +518,4 @@ def detect_source_type(source: Union[str, int]) -> str:
     if isinstance(video_source, RTSPSource): return SourceType.RTSP
     if isinstance(video_source, YouTubeSource): return SourceType.YOUTUBE
     if isinstance(video_source, VideoLinkSource): return SourceType.HTTP  # Unified video link
-    if isinstance(video_source, ScreenCaptureSource): return SourceType.SCREEN_CAPTURE
     return SourceType.FILE

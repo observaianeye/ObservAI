@@ -17,7 +17,10 @@ const router = Router();
 const CreateCameraSchema = z.object({
   name: utf8String(1, 255),
   description: z.string().optional(),
-  sourceType: z.enum(['WEBCAM', 'FILE', 'RTSP', 'RTMP', 'HTTP', 'YOUTUBE', 'SCREEN_CAPTURE', 'PHONE']),
+  // Issue #2: SCREEN_CAPTURE removed from accepted source types — was a leftover
+  // dev affordance, never used in production, and the desktop screen-grab path
+  // adds maintenance surface (mss dep, Ultralytics 'screen' magic) we don't want.
+  sourceType: z.enum(['WEBCAM', 'FILE', 'RTSP', 'RTMP', 'HTTP', 'YOUTUBE', 'PHONE']),
   sourceValue: z.string().min(1),
   config: z.record(z.any()).optional(),
   branchId: z.string().uuid().optional(),
