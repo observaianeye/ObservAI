@@ -73,16 +73,26 @@ Kullanici 11 maddelik kapsamli sistem raporu verdi (ekran ekran gezdi, ag loglar
 
 **Sonuc:** Yan #31 + #39 (Faz 7'den DEFER edilen 2 HIGH yan) closed. 4 design polish batch (echarts, api/errors, markdownLite, relativeTime) infra/util commit'lendi; full UX rework (Settings UI grid + InsightCard component) Faz 9'a hand-off (Magic MCP ile brainstorming gerektirir). Yan #37 leak probe 6. kez 0.
 
-## Faz 9 — Doc-only buffer + deferred UX rework + final dokuman (READY TO START)
-**Durum:** READY (Faz 8 exit kapisi PASS)
+## Faz 9 — Doc-only buffer + deferred UX rework + final dokuman (IN PROGRESS 2026-04-29)
+**Durum:** IN PROGRESS
 **Kapsam (Faz 8'den devren):**
 - BranchSection card grid + accordion chevron + Bildirimler+Kanallar merge (Yan #1.4)
 - InsightCard component (animated dismiss + dateKey badge + relative time)
 
 **Kapsam (orijinal Faz 9):**
-- #20 MiroFish doc, #21 test fixture infra, #58 CLAUDE.md telegram cleanup, #60 staffing AI summary karar
-- 3.7c daily idempotency, 3.8 InsightFace+MiVOLO doc
+- #20 MiroFish doc ✓, #21 test fixture aspirational note ✓, #58 CLAUDE.md telegram cleanup ✓
+- #60 staffing AI summary karar (option B doc cleanup)
+- 3.7c daily idempotency closure note, 3.8 InsightFace+MiVOLO doc
 - Tum faz raporlarini birlestir + PR + surum notu
+
+## Faz 10 — Backlog (gelecek release)
+**Durum:** BACKLOG
+**Kapsam:**
+- Yan #21 — Test fixture infrastructure: `tests/fixtures/mozart_cafe_{1,2}_short.mp4` + `ground_truth.json` annotation, InsightFace t1-t4 sample'lar gercek dosya olarak commit + LFS karari
+- Yan #60 — Staffing AI summary endpoint (eger product tekrar isterse): `POST /api/staffing/summary` Ollama brifi 30sn throttle, tables.ts pattern
+- Yan #4.4 — tables-ai-summary 6/6 expected FAIL closure (mock parser fixture / live Ollama)
+- 4K kaynak performans optimizasyonu (FPS / latency / bandwidth Faz 2 retroactive notlar)
+- `Staff.telegramChatId` legacy kolon Prisma migration drop (Yan #58 followup)
 
 ---
 

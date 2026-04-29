@@ -302,7 +302,7 @@ Her sonraki degisikligi olculebilir yapmak icin uc kanal test:
 ### Python (packages/camera-analytics)
 - **pytest** + pytest-benchmark + pytest-timeout
 - Markers: `@pytest.mark.gpu` (CI GPU'suz runner'da atlar), `@pytest.mark.slow`
-- Fixtures: `tests/fixtures/mozart_cafe_{1,2}_short.mp4`, `ground_truth.json`, InsightFace t1-t4 sample'lari
+- Fixtures: `tests/fixtures/mozart_cafe_{1,2}_short.mp4`, `ground_truth.json`, InsightFace t1-t4 sample'lari — **ASPIRATIONAL (Yan #21):** Bu fixture'lar Faz 3 raporundan beri planlandi ama henuz infrastrukture commit edilmedi (kaynak video + ground truth annotation mevcut degil). Faz 10 backlog'unda. Su an pytest dosyalari `@pytest.mark.skip` veya manuel "fixture missing" check ile atliyor; CI gercekte bu spec'leri kosturmuyor.
 - Harness: `python -m camera_analytics.run --benchmark-mode --duration-s 30` → JSON rapor
 - Metrikler: `fps_mean`, `fps_p95`, `id_churn_rate`, `zone_count_delta`, gender F1, age MAE
 - Calistirma: `cd packages/camera-analytics && pytest -v`
