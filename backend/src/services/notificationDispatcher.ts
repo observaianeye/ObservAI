@@ -102,8 +102,128 @@ const SEVERITY_RANK: Record<string, number> = {
   critical: 3,
 };
 
+// Faz 11 anti-spam pillars
+//
+//  1. Default severity gate is HIGH (was MEDIUM). Low/medium alerts stay in
+//     the in-app inbox only. The previous default emailed routine signals
+//     like "Peak Hour Approaching" every cron tick, which was the loudest
+//     spam contributor on the user's inbox.
+//  2. Per-(userId, cameraId, type) cooldown. We query NotificationLog for a
+//     prior successful dispatch within COOLDOWN_HOURS and skip if found —
+//     stops every cron tick / Notifications-refresh from refiring the same
+//     "Analytics Engine Offline" / "High Occupancy Alert" pair.
+//  3. Owner-scoped recipients. Old dispatcher fanned out to every active
+//     user in the DB, which means any seeded test account
+//     (smoke-…@observai.test, retro_…@observai.test, etc.) received every
+//     production alert. Now we only email the user who owns the camera
+//     (camera.createdBy → User).
+//  4. Synthetic-target blocklist. Even when the owner row points at a fake
+//     domain (.test/.example/etc.) or a tagged username (smoke-, retro_,
+//     sweep+, test_, faz_), we refuse to dispatch. Defensive — these
+//     accounts shouldn't have real inboxes.
+const DEFAULT_MIN_SEVERITY = SEVERITY_RANK.high;
+const COOLDOWN_HOURS = Number(process.env.ALERT_COOLDOWN_HOURS || 6);
+const BLOCKED_EMAIL_DEFAULT = [
+  /\.test$/i,                     // any .test TLD
+  /@(?:test|example)\.(?:com|org|net)$/i,
+  /@observai\.test$/i,
+  /^(?:smoke|retro_|retro-|sweep|test_|faz_|e2e|deneme|dev_)[^@]*@/i,
+];
+
+function compileBlocklist(): RegExp[] {
+  const env = process.env.EMAIL_BLOCKLIST_PATTERNS;
+  if (!env) return BLOCKED_EMAIL_DEFAULT;
+  const parts = env.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return BLOCKED_EMAIL_DEFAULT;
+  try {
+    return parts.map((p) => new RegExp(p, 'i'));
+  } catch (err) {
+    console.warn('[Dispatcher] Invalid EMAIL_BLOCKLIST_PATTERNS, using defaults:', err instanceof Error ? err.message : err);
+    return BLOCKED_EMAIL_DEFAULT;
+  }
+}
+
+const BLOCKED_EMAIL_PATTERNS = compileBlocklist();
+
+function isBlockedRecipient(email: string): boolean {
+  return BLOCKED_EMAIL_PATTERNS.some((rx) => rx.test(email));
+}
+
+/**
+ * Look up the most recent successful alert email sent to this user for
+ * (cameraId, type) within the cooldown window. Returns true when one exists
+ * — caller skips the dispatch.
+ *
+ * The lookup uses NotificationLog.payload (a JSON string) and matches on the
+ * cooldownKey we embed at write time. SQLite doesn't have JSON ops, so this
+ * is a `LIKE %"cooldownKey":"<key>"%` substring scan — bounded by the
+ * createdAt index and per-user filter, the row count stays small.
+ */
+async function isWithinCooldown(userId: string, cameraId: string, type: string): Promise<boolean> {
+  if (COOLDOWN_HOURS <= 0) return false;
+  const since = new Date(Date.now() - COOLDOWN_HOURS * 60 * 60 * 1000);
+  const cooldownKey = `${cameraId}:${type}`;
+  try {
+    const recent = await prisma.notificationLog.findFirst({
+      where: {
+        userId,
+        event: 'alert',
+        channel: 'email',
+        success: true,
+        createdAt: { gte: since },
+        payload: { contains: `"cooldownKey":"${cooldownKey}"` },
+      },
+      select: { id: true },
+    });
+    return !!recent;
+  } catch (err) {
+    console.warn('[Dispatcher] cooldown lookup failed (allowing send):', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+/**
+ * Resolve the owner User for a camera. Returns null when the camera or its
+ * owner row is missing — caller treats that as "no eligible recipient".
+ */
+async function findCameraOwner(cameraId: string): Promise<{
+  id: string;
+  email: string | null;
+  emailNotifications: boolean;
+  notifySeverity: string;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+} | null> {
+  try {
+    const cam = await prisma.camera.findUnique({
+      where: { id: cameraId },
+      select: { createdBy: true },
+    });
+    if (!cam?.createdBy) return null;
+    const user = await prisma.user.findUnique({
+      where: { id: cam.createdBy },
+      select: {
+        id: true,
+        email: true,
+        emailNotifications: true,
+        notifySeverity: true,
+        quietHoursEnabled: true,
+        quietHoursStart: true,
+        quietHoursEnd: true,
+        isActive: true,
+      },
+    });
+    if (!user || !user.isActive) return null;
+    return user;
+  } catch (err) {
+    console.warn('[Dispatcher] owner lookup failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 interface DispatchResult {
-  email: { sent: number; failed: number };
+  email: { sent: number; failed: number; skipped: number };
 }
 
 interface InsightPayload {
@@ -116,89 +236,126 @@ interface InsightPayload {
 }
 
 /**
- * Dispatch a notification to all eligible users for a given insight.
+ * Dispatch a notification to the owner of the camera, subject to severity
+ * gate, cooldown window, blocklist filter, and quiet hours. Email-only.
  */
 export async function dispatchNotification(insight: InsightPayload): Promise<DispatchResult> {
   const result: DispatchResult = {
-    email: { sent: 0, failed: 0 },
+    email: { sent: 0, failed: 0, skipped: 0 },
   };
 
-  // Only dispatch for severity >= medium (low = info only, saved to DB)
   const insightRank = SEVERITY_RANK[insight.severity] ?? 0;
+  // Hard floor: low alerts never leave the in-app inbox.
   if (insightRank < SEVERITY_RANK.medium) {
     return result;
   }
 
   try {
-    // Get all active users with notification settings
-    const users = await prisma.user.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        email: true,
-        emailNotifications: true,
-        notifySeverity: true,
-        quietHoursEnabled: true,
-        quietHoursStart: true,
-        quietHoursEnd: true,
+    const owner = await findCameraOwner(insight.cameraId);
+    if (!owner) {
+      return result; // no eligible recipient
+    }
+
+    // User-level severity threshold. notifySeverity defaults to 'high' on
+    // new accounts; legacy rows that explicitly opted into 'medium' still
+    // get those alerts — the global default below only governs unset users.
+    const userMinRank = SEVERITY_RANK[owner.notifySeverity] ?? DEFAULT_MIN_SEVERITY;
+    if (insightRank < userMinRank) {
+      result.email.skipped++;
+      return result;
+    }
+
+    // Quiet hours
+    if (owner.quietHoursEnabled && isInQuietHours(owner.quietHoursStart, owner.quietHoursEnd)) {
+      result.email.skipped++;
+      return result;
+    }
+
+    if (!owner.emailNotifications || !owner.email) {
+      return result;
+    }
+
+    if (isBlockedRecipient(owner.email)) {
+      result.email.skipped++;
+      writeAudit({
+        event: 'alert',
+        channel: 'email',
+        userId: owner.id,
+        target: owner.email,
+        success: false,
+        error: 'blocked_synthetic_recipient',
+        severity: insight.severity,
+        title: insight.title,
+      });
+      return result;
+    }
+
+    if (await isWithinCooldown(owner.id, insight.cameraId, insight.type)) {
+      result.email.skipped++;
+      writeAudit({
+        event: 'alert',
+        channel: 'email',
+        userId: owner.id,
+        target: owner.email,
+        success: false,
+        error: 'cooldown',
+        severity: insight.severity,
+        title: insight.title,
+        cameraId: insight.cameraId,
+        type: insight.type,
+      });
+      return result;
+    }
+
+    const emailResult = await sendAlertEmail(
+      owner.email,
+      insight.title,
+      insight.message,
+      insight.severity,
+      insight.cameraName
+    );
+    if (emailResult.success) {
+      result.email.sent++;
+    } else {
+      result.email.failed++;
+    }
+    const cooldownKey = `${insight.cameraId}:${insight.type}`;
+    await writeNotificationLog({
+      userId: owner.id,
+      event: 'alert',
+      channel: 'email',
+      target: owner.email,
+      success: emailResult.success,
+      error: emailResult.error,
+      payload: {
+        title: insight.title,
+        severity: insight.severity,
+        cameraName: insight.cameraName,
+        cameraId: insight.cameraId,
+        type: insight.type,
+        cooldownKey,
       },
     });
-
-    for (const user of users) {
-      // Check if insight severity meets user's minimum threshold
-      const userMinRank = SEVERITY_RANK[user.notifySeverity] ?? SEVERITY_RANK.high;
-      if (insightRank < userMinRank) continue;
-
-      // Check quiet hours
-      if (user.quietHoursEnabled && isInQuietHours(user.quietHoursStart, user.quietHoursEnd)) {
-        continue;
-      }
-
-      // Email
-      if (user.emailNotifications && user.email) {
-        const emailResult = await sendAlertEmail(
-          user.email,
-          insight.title,
-          insight.message,
-          insight.severity,
-          insight.cameraName
-        );
-        if (emailResult.success) {
-          result.email.sent++;
-        } else {
-          result.email.failed++;
-        }
-        await writeNotificationLog({
-          userId: user.id,
-          event: 'alert',
-          channel: 'email',
-          target: user.email,
-          success: emailResult.success,
-          error: emailResult.error,
-          payload: { title: insight.title, severity: insight.severity, cameraName: insight.cameraName },
-        });
-        // Yan #6: alert path now also appends to the file audit log
-        // (previously only staff_shift events showed up in the log file).
-        writeAudit({
-          event: 'alert',
-          channel: 'email',
-          userId: user.id,
-          target: user.email,
-          success: emailResult.success,
-          error: emailResult.error ?? null,
-          severity: insight.severity,
-          title: insight.title,
-        });
-      }
-    }
+    writeAudit({
+      event: 'alert',
+      channel: 'email',
+      userId: owner.id,
+      target: owner.email,
+      success: emailResult.success,
+      error: emailResult.error ?? null,
+      severity: insight.severity,
+      title: insight.title,
+      cameraId: insight.cameraId,
+      type: insight.type,
+    });
   } catch (err) {
     console.error('[Dispatcher] Error dispatching notification:', err instanceof Error ? err.message : err);
   }
 
-  if (result.email.sent > 0) {
+  if (result.email.sent > 0 || result.email.skipped > 0) {
     console.log(
       `[Dispatcher] ${insight.severity.toUpperCase()} "${insight.title}" → ` +
-      `Email: ${result.email.sent} sent`
+      `Email sent=${result.email.sent} skipped=${result.email.skipped} failed=${result.email.failed}`
     );
   }
 
@@ -210,13 +367,14 @@ export async function dispatchNotification(insight: InsightPayload): Promise<Dis
  */
 export async function dispatchBatch(insights: InsightPayload[]): Promise<DispatchResult> {
   const totals: DispatchResult = {
-    email: { sent: 0, failed: 0 },
+    email: { sent: 0, failed: 0, skipped: 0 },
   };
 
   for (const insight of insights) {
     const r = await dispatchNotification(insight);
     totals.email.sent += r.email.sent;
     totals.email.failed += r.email.failed;
+    totals.email.skipped += r.email.skipped;
   }
 
   return totals;

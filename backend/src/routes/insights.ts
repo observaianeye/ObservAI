@@ -268,6 +268,14 @@ router.get('/summary', authenticate, async (req: Request, res: Response) => {
 });
 
 // ─── POST /api/insights/generate ─────────────────────────────────────────────
+//
+// Faz 11: per-camera throttle. The Notifications page refresh button POSTs
+// here every click — without a guard, every refresh re-fires the alert
+// dispatch pipeline (email spam). 5-minute window keeps fast successive
+// refreshes cheap by returning the most recent saved insights instead of
+// regenerating + redispatching.
+const GENERATE_THROTTLE_MS = Number(process.env.INSIGHT_GENERATE_THROTTLE_MS || 5 * 60 * 1000);
+const lastGeneratedAt = new Map<string, number>();
 
 router.post('/generate', authenticate, async (req: Request, res: Response) => {
   try {
@@ -276,6 +284,24 @@ router.post('/generate', authenticate, async (req: Request, res: Response) => {
     if (!(await userOwnsCamera(req.user.id, cameraId))) {
       return res.status(404).json({ error: 'Camera not found' });
     }
+
+    const now = Date.now();
+    const last = lastGeneratedAt.get(cameraId) ?? 0;
+    if (now - last < GENERATE_THROTTLE_MS) {
+      const waitS = Math.ceil((GENERATE_THROTTLE_MS - (now - last)) / 1000);
+      const cached = await prisma.$queryRawUnsafe<InsightRow[]>(
+        `SELECT * FROM insights WHERE "cameraId" = ${sqlQuote(cameraId)} ORDER BY "createdAt" DESC LIMIT 50`
+      );
+      return res.json({
+        message: `Throttled — last generation ${Math.round((now - last) / 1000)}s ago, retry in ${waitS}s.`,
+        throttled: true,
+        retryAfterSeconds: waitS,
+        alerts: cached,
+        saved: 0,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    lastGeneratedAt.set(cameraId, now);
 
     const result = await generateInsights(cameraId);
 

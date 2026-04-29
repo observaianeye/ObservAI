@@ -12,8 +12,10 @@
 import { prisma } from '../lib/db';
 import { generateInsights } from './insightEngine';
 
-const INTERVAL_MS = 6 * 60 * 60 * 1000;
-const STARTUP_DELAY_MS = 30_000;
+// Faz 11: cut from 6h→1h so notifications surface promptly; 15s warmup so the
+// first tick doesn't race the aggregator's setImmediate boot pass.
+const INTERVAL_MS = 60 * 60 * 1000;
+const STARTUP_DELAY_MS = 15_000;
 
 let timer: NodeJS.Timeout | null = null;
 let kickoff: NodeJS.Timeout | null = null;
@@ -40,8 +42,11 @@ async function runOnce(): Promise<{ success: number; fail: number; total: number
 }
 
 export function startInsightsCron(): void {
-  if (process.env.INSIGHT_CRON_ENABLED !== 'true') {
-    console.log('[insights-cron] disabled (set INSIGHT_CRON_ENABLED=true to enable)');
+  // Faz 11: default ON. Was opt-in (INSIGHT_CRON_ENABLED=true) which left the
+  // Notifications page empty in fresh installs. Set INSIGHT_CRON_ENABLED=false
+  // to disable.
+  if (process.env.INSIGHT_CRON_ENABLED === 'false') {
+    console.log('[insights-cron] disabled (INSIGHT_CRON_ENABLED=false)');
     return;
   }
   if (timer) {
@@ -54,7 +59,7 @@ export function startInsightsCron(): void {
   timer = setInterval(() => {
     runOnce().catch((e) => console.error('[insights-cron] tick error:', e));
   }, INTERVAL_MS);
-  console.log('[insights-cron] enabled, every 6h');
+  console.log('[insights-cron] enabled, every 1h');
 }
 
 export function stopInsightsCron(): void {
