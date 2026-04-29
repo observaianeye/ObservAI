@@ -45,6 +45,13 @@ class PythonBackendManager extends EventEmitter {
   private lastHealthCheck: string | null = null;
   private offlineEmitted = false;
 
+  // Faz 10 Bug #4: remember the last camera id we bound Python to. On health
+  // recovery (Python restart) we re-POST /set-camera so the NodePersister
+  // wakes up immediately on the new process — without this, a Python crash
+  // would silently turn off persistence until the next /api/cameras/activate
+  // call, which can be hours during a quiet shift.
+  private boundCameraId: string | null = null;
+
   async start(config: BackendConfig): Promise<boolean> {
     if (this.process) {
       console.log('Python backend already running, stopping first...');
@@ -63,6 +70,12 @@ class PythonBackendManager extends EventEmitter {
           console.log(`[PythonManager] Python backend already running on port ${wsPort} (external process)`);
           this.config = config;
           this.startedAt = new Date().toISOString();
+          // Faz 10 Bug #4: external Python won't have OBSERVAI_CAMERA_ID env
+          // (start-all.bat leaves it empty). POST /set-camera so the
+          // NodePersister activates without requiring a Python restart.
+          if (config.cameraId) {
+            await this.setCamera(config.cameraId).catch(() => undefined);
+          }
           return true;
         }
       } catch {
@@ -151,6 +164,51 @@ class PythonBackendManager extends EventEmitter {
     }
   }
 
+  /**
+   * Faz 10 Bug #4 — bind/rebind the running Python pipeline to a Node camera
+   * UUID. POSTs http://localhost:<wsPort>/set-camera with `{cameraId}`. The
+   * Python side activates the NodePersister lazily so analytics_logs rows
+   * start landing immediately, with no env-var-at-spawn-time gymnastics.
+   *
+   * Idempotent + best-effort. Returns false on network/HTTP failure but does
+   * NOT throw — callers (cameras.ts /activate, health recovery) treat it as
+   * advisory because activation should succeed even if Python is offline.
+   */
+  async setCamera(cameraId: string): Promise<boolean> {
+    if (!cameraId || typeof cameraId !== 'string') return false;
+    const wsPort = this.config?.wsPort || 5001;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    try {
+      const resp = await fetch(`http://localhost:${wsPort}/set-camera`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cameraId }),
+        signal: ctrl.signal,
+      });
+      if (resp.ok) {
+        this.boundCameraId = cameraId;
+        console.log(`[PythonManager] /set-camera → ${cameraId} (200)`);
+        return true;
+      }
+      console.warn(`[PythonManager] /set-camera → ${resp.status}`);
+      return false;
+    } catch (err: any) {
+      // ECONNREFUSED is the expected case when Python is offline — log quiet.
+      if (err?.cause?.code !== 'ECONNREFUSED' && err?.code !== 'ECONNREFUSED') {
+        console.warn('[PythonManager] /set-camera failed:', err?.message || err);
+      }
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Last camera id we bound Python to. Used by health-recovery rebind. */
+  getBoundCameraId(): string | null {
+    return this.boundCameraId;
+  }
+
   async stop(): Promise<boolean> {
     if (!this.process) {
       return true;
@@ -237,6 +295,11 @@ class PythonBackendManager extends EventEmitter {
           console.log('[PythonManager] health recovered, backend online');
           this.emit('python_backend_online');
           this.offlineEmitted = false;
+          // Faz 10 Bug #4: re-bind on recovery so persistence resumes
+          // immediately without waiting for the next user activation.
+          if (this.boundCameraId) {
+            this.setCamera(this.boundCameraId).catch(() => undefined);
+          }
         }
         this.consecutiveFailures = 0;
       } else {

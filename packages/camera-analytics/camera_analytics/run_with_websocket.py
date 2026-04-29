@@ -148,6 +148,7 @@ class CameraAnalyticsWithWebSocket:
         self.ws_server.on_change_source = self.change_source
         self.ws_server.on_toggle_heatmap = self.toggle_heatmap  # Heatmap toggle
         self.ws_server.on_update_zones = self.update_zones      # Zone update
+        self.ws_server.on_set_camera = self.set_camera          # Faz 10 Bug #4: dynamic cam binding
 
         self.engine: Optional[CameraAnalyticsEngine] = None
         self.analytics_task: Optional[asyncio.Task] = None
@@ -172,6 +173,33 @@ class CameraAnalyticsWithWebSocket:
         else:
             print("ℹ️  Zones saved, but engine not running")
         self.analytics_task: Optional[asyncio.Task] = None
+
+    async def set_camera(self, cam_id: str) -> None:
+        """Faz 10 Bug #4 — bind the running engine to a Node camera UUID.
+
+        Called by Node `pythonBackendManager.setCamera()` (Express POST to
+        /set-camera). Updates self.cam_id and lazily starts the NodePersister
+        so analytics_logs rows start landing immediately without restarting
+        Python. Idempotent — re-binding to the same id is a no-op except for
+        logging, and re-binding to a new id rotates the cam_id field that
+        emit_metrics tags subsequent ticks with.
+        """
+        prev = self.cam_id
+        self.cam_id = cam_id
+        node_url = os.environ.get("OBSERVAI_NODE_URL")
+        ingest_key = os.environ.get("OBSERVAI_INGEST_KEY")
+        if not (node_url and ingest_key):
+            print(
+                "[NodePersister] /set-camera received but OBSERVAI_NODE_URL or "
+                "OBSERVAI_INGEST_KEY is unset — persister cannot activate."
+            )
+            return
+        if self.persister is None:
+            self.persister = NodePersister(node_url, ingest_key)
+            await self.persister.start()
+            print(f"[NodePersister] activated for camera {cam_id} (prev={prev})")
+        else:
+            print(f"[NodePersister] camera id rebind {prev} → {cam_id}")
 
     async def start(self) -> None:
         # Signal handling

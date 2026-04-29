@@ -9,6 +9,7 @@ import { requireManager } from '../middleware/roleCheck';
 import { authenticate } from '../middleware/authMiddleware';
 import { requireCameraOwnership, userOwnsCamera } from '../middleware/tenantScope';
 import { utf8String } from '../lib/utf8Validator';
+import { pythonBackendManager } from '../lib/pythonBackendManager';
 
 const router = Router();
 
@@ -85,6 +86,14 @@ router.post('/activate/:id', authenticate, requireCameraOwnership('id'), async (
       where: { id },
       data: { isActive: true },
     });
+
+    // Faz 10 Bug #4 — push the new camera id to the Python pipeline so the
+    // NodePersister rebinds and starts emitting tagged analytics_logs rows
+    // immediately. Best-effort: failures (Python offline) don't fail the
+    // activation request — the user can switch cameras even when the engine
+    // is down, persistence resumes when Python comes back online via the
+    // health-monitor rebind hook.
+    pythonBackendManager.setCamera(id).catch(() => undefined);
 
     res.json(camera);
   } catch (error) {

@@ -225,6 +225,34 @@ async function startServer() {
       }
     }
 
+    // Faz 10 Bug #4 — auto-bind Python NodePersister on boot. start-all.bat
+    // launches Python with empty OBSERVAI_CAMERA_ID, so without this hop the
+    // persister stays inert and analytics_logs never grows. We pick the first
+    // active camera (any tenant — single-cafe deployments only have one
+    // active anyway) and POST /set-camera so persistence is live the moment
+    // the engine starts streaming. Best-effort: failures (Python not yet up)
+    // are swallowed; the health-monitor recovery rebind picks them up later.
+    if (process.env.DISABLE_AUTO_BIND_PYTHON_CAMERA !== 'true') {
+      setTimeout(async () => {
+        try {
+          const firstActive = await prisma.camera.findFirst({
+            where: { isActive: true },
+            select: { id: true, name: true },
+          });
+          if (firstActive) {
+            const ok = await pythonBackendManager.setCamera(firstActive.id);
+            console.log(
+              `🐍 Python NodePersister bind: ${firstActive.name} (${firstActive.id}) → ${ok ? 'ok' : 'pending (engine offline)'}`
+            );
+          } else {
+            console.log('🐍 Python NodePersister bind: skipped (no active camera in DB)');
+          }
+        } catch (bindError) {
+          console.error('⚠️ Auto-bind Python camera failed:', bindError);
+        }
+      }, 1500);
+    }
+
     // Start Express server
     app.listen(PORT, () => {
       console.log(`🚀 ObservAI Backend API running on http://localhost:${PORT}`);

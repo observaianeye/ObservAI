@@ -60,7 +60,9 @@ class AnalyticsWebSocketServer:
         )
         self.camera_id = "default"  # Default camera ID
 
-        # Backend readiness state
+        # Backend readiness state. current_count + last_seen_ts are populated
+        # by broadcast_global_stream so the Node /api/ai/chat handler can pull
+        # the live occupant count off /health (Issue #8 — anti-hallucination).
         self._status = {
             "phase": "initializing",
             "model_loaded": False,
@@ -68,6 +70,8 @@ class AnalyticsWebSocketServer:
             "streaming": False,
             "error": None,
             "fps": 0.0,
+            "current_count": 0,
+            "last_metric_ts": None,
         }
 
         # Callbacks
@@ -79,6 +83,10 @@ class AnalyticsWebSocketServer:
         self.on_change_source = None
         self.on_toggle_heatmap = None  # Toggle heatmap
         self.on_update_zones = None    # Update zones dynamically
+        # Faz 10 Bug #4 / Yan #22 wire-up: Node calls POST /set-camera so the
+        # NodePersister can attach analytics ticks to the right camera UUID
+        # without depending on env vars set at start-all.bat time.
+        self.on_set_camera = None
 
         # Default MJPEG mode if the client doesn't pass ?mode=... Leave as
         # "inference" until smooth mode is validated on live cameras, then flip
@@ -252,6 +260,8 @@ class AnalyticsWebSocketServer:
                 "source_connected": self._status["source_connected"],
                 "streaming": self._status["streaming"],
                 "fps": self._status["fps"],
+                "current_count": self._status.get("current_count", 0),
+                "last_metric_ts": self._status.get("last_metric_ts"),
                 "clients": len(self.clients),
             }
             if self._status["error"]:
@@ -260,9 +270,31 @@ class AnalyticsWebSocketServer:
             http_status = 200 if status_str == "ready" else 503
             return web.json_response(body, status=http_status)
 
+        # Faz 10 Bug #4 wire-up: dynamic camera binding. Node POSTs the active
+        # camera UUID here so the NodePersister can start emitting tagged
+        # analytics_log rows for that camera. Returns 503 if the runner has not
+        # registered an on_set_camera handler (defensive — should not happen).
+        async def set_camera_handler(request: web.Request) -> web.Response:
+            try:
+                data = await request.json()
+            except Exception:
+                return web.json_response({"error": "invalid_json"}, status=400)
+            cam_id = data.get("cameraId")
+            if not isinstance(cam_id, str) or not cam_id.strip():
+                return web.json_response({"error": "cameraId_required"}, status=400)
+            if not self.on_set_camera:
+                return web.json_response({"error": "handler_not_registered"}, status=503)
+            try:
+                await self.on_set_camera(cam_id.strip())
+            except Exception as e:
+                logger.error(f"set_camera handler raised: {e}")
+                return web.json_response({"error": "handler_failed", "detail": str(e)}, status=500)
+            return web.json_response({"ok": True, "cameraId": cam_id.strip()})
+
         # Register HTTP routes
         self.app.router.add_get('/health', health_handler)
         self.app.router.add_get('/mjpeg', mjpeg_handler)
+        self.app.router.add_post('/set-camera', set_camera_handler)
 
         @self.sio.event
         async def disconnect(sid):
@@ -443,10 +475,21 @@ class AnalyticsWebSocketServer:
 
     async def broadcast_global_stream(self, data: Dict):
         """Broadcast GlobalStream data to all clients and publish to Kafka"""
+        import time as _time
         # Keep FPS metric updated in status
         # _metrics_to_stream() puts fps at top-level, not under "metrics"
         if "fps" in data:
             self._status["fps"] = data["fps"]
+        # Issue #8: surface live current_count on /health so the Node chat
+        # handler can ground "şu anki" answers without hitting the DB.
+        m = data.get("metrics") if isinstance(data.get("metrics"), dict) else data
+        if isinstance(m, dict):
+            cc = m.get("current_count")
+            if cc is None:
+                cc = m.get("currentCount")
+            if isinstance(cc, (int, float)):
+                self._status["current_count"] = int(cc)
+        self._status["last_metric_ts"] = int(_time.time() * 1000)
         await self.sio.emit("global", data)
 
         # Publish to Kafka if enabled
