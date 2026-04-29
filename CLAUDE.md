@@ -50,7 +50,7 @@ git pull origin main
 |--------|------|-----------|
 | Frontend | 5173 | React 18 + Vite + TypeScript |
 | Backend API | 3001 | Express + Prisma + TypeScript |
-| Python Analytics | 5001 | YOLO11L + InsightFace + WebSocket |
+| Python Analytics | 5001 | YOLO11L (kisi) + InsightFace (yuz tespiti) + MiVOLO (yas/cinsiyet) + WebSocket |
 | Ollama AI | 11434 | Yerel LLM (qwen3:14b primary / llama3.1:8b fallback) |
 
 ## Baslatma / Durdurma (Windows)
@@ -85,11 +85,11 @@ python -m camera_analytics.run_with_websocket --model yolo11l.pt
 ## Mimari
 
 ### Veri Akisi
-Kamera/YouTube → YOLO11L kisi tespiti → InsightFace yas/cinsiyet → BoT-SORT takip → Bolge gecis tespiti → WebSocket → Frontend dashboard + SQLite
+Kamera/YouTube → YOLO11L kisi tespiti → InsightFace yuz tespiti → MiVOLO yas/cinsiyet → BoT-SORT takip → Bolge gecis tespiti → WebSocket → Frontend dashboard + SQLite
 
 ### 3-Thread Async Pipeline
 ```
-Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) → result_q(10) → Main Thread (render + emit)
+Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace face det + MiVOLO age/gender) → result_q(10) → Main Thread (render + emit)
 ```
 
 ### Frontend Onemli Dosyalar
@@ -134,7 +134,7 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 - `analytics.py` — Ana motor (~2200 satir): TrackedPerson, temporal smoothing, zone, heatmap, privacy blur
 - `run_with_websocket.py` — Bootstrap, WebSocket event handler, model preload
 - `config.py` — AnalyticsConfig dataclass, YAML yukleme, 40+ parametre
-- `age_gender.py` — InsightFace buffalo_l wrapper (CUDA EP)
+- `age_gender.py` — Dual: InsightFace buffalo_l (face detection only, CUDA EP) + MiVOLO `MiVOLOEstimator` (yas/cinsiyet, Torch CUDA, mivolo_repo clone)
 - `sources.py` — Video kaynak: webcam, YouTube/yt-dlp, RTSP, dosya
 - `optimize.py` — Donanim tespiti (CUDA FP16 / CPU fallback)
 - `metrics.py` — CameraMetrics dataclass, JSON serialization (numpy-safe)
@@ -159,8 +159,9 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 ## Donanim
 
 - **GPU**: NVIDIA RTX 5070 (12GB VRAM, CUDA 13.2)
-- **Model**: yolo11l.engine (TensorRT FP16, ~50MB) — `yolo11l.pt`'den otomatik derlenir
-- **InsightFace**: buffalo_l (TensorRT EP FP16, genderage + detection + recognition)
+- **YOLO11L**: yolo11l.engine (TensorRT FP16, ~50MB person detection) — `yolo11l.pt`'den otomatik derlenir
+- **InsightFace**: buffalo_l (CUDA EP / TensorRT EP FP16, **detection-only** kullanim — genderage modulu yuklu ama age_gender.py:343 yorumuna gore aktif kullanilmiyor; MiVOLO yas/cinsiyet tek otorite)
+- **MiVOLO**: `mivolo_d1` (Torch CUDA, multi-input VOLO age/gender; `packages/camera-analytics/mivolo_repo/` clone — submodule degil, timm monkey patch sebebiyle)
 - **TensorRT**: 10.16 — YOLO + InsightFace icin FP16 hizlandirilmis inference
 
 ### TensorRT Kurulumu (Ekip icin — Herkes Yapmalı)
@@ -195,10 +196,10 @@ python -m camera_analytics.run_with_websocket --source 1 --model yolo11l.pt
 ## Onemli Teknik Detaylar
 
 ### Demografi Pipeline
-1. InsightFace full-frame face detection (her frame'de, RTX 5070 ile 960x960 det_size)
+1. InsightFace full-frame **face detection** (her frame'de, RTX 5070 ile 960x960 det_size). genderage modulu yuklu ama `_allowed = ['detection', 'genderage']` kullanim sadece detection — age/gender icin sonuc atilir.
 2. Yuz → YOLO kisi bbox eslestirme (proportional tolerance)
 3. Eslesmeyenler icin crop-based fallback (max 3 crop, CLAHE low-light enhancement)
-4. AYRI age/gender confidence: age=lenient pose penalty (default 0.85, yaw/150), gender=hysteresis band (0.35 lower / 0.65 upper, yaw>70 reject)
+4. **MiVOLO** ile yas/cinsiyet: AYRI age/gender confidence — age=lenient pose penalty (default 0.85, yaw/150), gender=hysteresis band (0.35 lower / 0.65 upper, yaw>70 reject). InsightFace genderage kullanilmaz (age_gender.py:343 yorumu: "we use MiVOLO for age/gender, InsightFace only for detection").
 5. Temporal smoothing: Age=EMA+weighted_median (stability dampening), Gender=decay-weighted voting + lock
 6. Gender lock: 8 ardisik ayni cinsiyet oyu sonrasi cinsiyet kilitlenir (flip-flop engelleme)
 7. Age lock: 30 sample + stability >= 0.95 olunca yas kilitlenir (frame-to-frame snap onler)
