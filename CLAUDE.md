@@ -331,6 +331,26 @@ Her sonraki degisikligi olculebilir yapmak icin uc kanal test:
 - **Styling**: TailwindCSS 3.4
 - **Paket**: pnpm (frontend), npm (backend), pip (Python)
 
+## Bilinen Sorunlar / Operasyonel Kurallar
+
+### Yan #20 — MiroFish Docker collision (port 5001)
+ObservAI Python analytics 5001'i kullanir. Geliştiricilerin bazilari ayni
+makinede MiroFish (eski projedir, ayni port) calistirabilir. **Iki proje
+ayni anda calismaz** — biri 5001'i tutar, oturucusu olmayan EADDRINUSE
+hatasi ile boot'a basarsiz olur. Operasyonel kural:
+
+```bash
+# ObservAI'yi calistirmadan once 5001 bos olmali
+netstat -ano | findstr ":5001"     # Windows
+# Eger MiroFish container calisiyorsa onu durdur:
+docker stop $(docker ps -q --filter "publish=5001")
+# Veya MiroFish dev server'i kapat
+```
+
+`start-all.bat` boot oncesi `:5001 LISTEN` varsa "Port 5001 already in use"
+uyarisi verip duruyor (Faz 9'da eklendi); MiroFish'e dair ozel mesaj yok,
+sebep manuel kontrol gerek.
+
 ## Proje Yapisi
 
 ```
