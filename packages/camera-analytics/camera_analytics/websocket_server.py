@@ -482,9 +482,14 @@ class AnalyticsWebSocketServer:
             self._status["fps"] = data["fps"]
         # Issue #8: surface live current_count on /health so the Node chat
         # handler can ground "şu anki" answers without hitting the DB.
+        # Faz 10 Bug: _metrics_to_stream() emits "current" (not current_count
+        # or currentCount) so include that as the primary key — without it the
+        # /health probe stays pinned at 0 even while the engine tracks people.
         m = data.get("metrics") if isinstance(data.get("metrics"), dict) else data
         if isinstance(m, dict):
-            cc = m.get("current_count")
+            cc = m.get("current")
+            if cc is None:
+                cc = m.get("current_count")
             if cc is None:
                 cc = m.get("currentCount")
             if isinstance(cc, (int, float)):

@@ -130,12 +130,29 @@ export default function StaffingPage() {
     loadStaff();
   };
 
+  // Faz 11: hard delete (DELETE ?hard=1) so removed staff disappears from the
+  // list instead of lingering as an "Inactive" ghost. Confirm dialog quotes
+  // the staff member's name and warns that StaffAssignment rows cascade with
+  // them — the backend onDelete:Cascade enforces that, but the UX needs to
+  // call it out so a manager doesn't lose tomorrow's shift roster by accident.
   const handleDeleteStaff = async (id: string) => {
-    if (!confirm(t('staffing.confirm.deactivate'))) return;
-    const res = await fetch(`${API_URL}/api/staff/${id}`, { method: 'DELETE', credentials: 'include' });
-    if (res.ok) {
-      showToast('warning', t('staffing.toast.staffDeactivated'));
+    const target = staff.find((s) => s.id === id);
+    const name = target ? `${target.firstName} ${target.lastName}`.trim() : id;
+    if (!confirm(t('staffing.confirm.delete', { name }))) return;
+    try {
+      const res = await fetch(`${API_URL}/api/staff/${id}?hard=1`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showToast('error', data?.error || t('staffing.error.staffDeleteFailed'));
+        return;
+      }
+      showToast('success', t('staffing.toast.staffDeleted'));
+      // Optimistic local removal so the card disappears even if loadStaff hits
+      // a transient network blip.
+      setStaff((prev) => prev.filter((s) => s.id !== id));
       loadStaff();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : t('staffing.error.staffDeleteFailed'));
     }
   };
 

@@ -295,6 +295,7 @@ export default function GlobalChatbot() {
           onClick={() => setIsOpen(true)}
           className="fixed bottom-4 right-4 z-50 w-14 h-14 bg-gradient-to-br from-violet-500 via-brand-500 to-accent-500 text-white rounded-full shadow-glow-brand hover:scale-105 transition-transform flex items-center justify-center cursor-pointer ring-1 ring-white/15"
           aria-label={t('chatbot.openLabel')}
+          data-testid="chatbot-toggle"
         >
           <Sparkles className="w-6 h-6" />
         </button>

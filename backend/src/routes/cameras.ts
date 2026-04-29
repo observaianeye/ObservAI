@@ -158,8 +158,8 @@ router.post('/', requireManager, async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/cameras/:id - Update an owned camera
-router.put('/:id', requireManager, requireCameraOwnership('id'), async (req: Request, res: Response) => {
+// Update handler shared by PUT (legacy) and PATCH (REST-correct)
+const updateCameraHandler = async (req: Request, res: Response) => {
   try {
     const data = req.body;
     const camera = await prisma.camera.update({
@@ -177,7 +177,12 @@ router.put('/:id', requireManager, requireCameraOwnership('id'), async (req: Req
     console.error('Error updating camera:', error);
     res.status(500).json({ error: 'Failed to update camera' });
   }
-});
+};
+
+// PUT /api/cameras/:id - Update an owned camera (legacy)
+router.put('/:id', requireManager, requireCameraOwnership('id'), updateCameraHandler);
+// PATCH /api/cameras/:id - Update an owned camera (REST-correct alias)
+router.patch('/:id', requireManager, requireCameraOwnership('id'), updateCameraHandler);
 
 // DELETE /api/cameras/:id - Delete an owned camera (Manager+ on own data)
 router.delete('/:id', requireManager, requireCameraOwnership('id'), async (req: Request, res: Response) => {

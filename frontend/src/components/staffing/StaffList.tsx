@@ -103,8 +103,10 @@ export function StaffList({ staff, loading, onEdit, onDelete, onSendTest }: Prop
               )}
               <button
                 onClick={() => onDelete(s.id)}
-                title={t('staffList.action.deactivate')}
-                className="px-3 py-1.5 text-danger-400 hover:bg-danger-500/10 rounded-lg transition-colors border border-white/[0.08]"
+                title={t('staffList.action.delete')}
+                aria-label={t('staffList.action.delete')}
+                data-testid={`staff-delete-${s.id}`}
+                className="px-3 py-1.5 text-danger-400 hover:bg-danger-500/10 hover:border-danger-500/30 rounded-lg transition-colors border border-white/[0.08]"
               >
                 <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
               </button>

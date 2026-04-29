@@ -207,8 +207,8 @@ router.get('/me', authenticate, (req: Request, res: Response) => {
     });
 });
 
-// POST /api/auth/change-password
-router.post('/change-password', authenticate, async (req: Request, res: Response) => {
+// Shared handler for POST (legacy) and PATCH (REST-correct)
+const changePasswordHandler = async (req: Request, res: Response) => {
     try {
         const data = ChangePasswordSchema.parse(req.body);
         const user = req.user;
@@ -238,7 +238,12 @@ router.post('/change-password', authenticate, async (req: Request, res: Response
         console.error('Change password error:', error);
         res.status(500).json({ error: 'Failed to change password' });
     }
-});
+};
+
+// POST /api/auth/change-password (legacy)
+router.post('/change-password', authenticate, changePasswordHandler);
+// PATCH /api/auth/change-password (REST-correct alias)
+router.patch('/change-password', authenticate, changePasswordHandler);
 
 // POST /api/auth/forgot-password
 router.post('/forgot-password', async (req: Request, res: Response) => {
