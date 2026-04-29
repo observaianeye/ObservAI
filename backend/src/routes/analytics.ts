@@ -1082,8 +1082,14 @@ function generateComparisonSummary(period1: any, period2: any): string {
 // UNIFIED OVERVIEW ENDPOINT
 // ============================================================
 
-type OverviewRange = '1h' | '1d' | '1w' | '1m' | '3m';
-const RANGE_DAYS: Record<OverviewRange, number> = { '1h': 0, '1d': 1, '1w': 7, '1m': 30, '3m': 90 };
+type OverviewRange = '1h' | '1d' | '1w' | '1m' | '3m' | 'custom';
+const RANGE_DAYS: Record<Exclude<OverviewRange, 'custom'>, number> = { '1h': 0, '1d': 1, '1w': 7, '1m': 30, '3m': 90 };
+
+// Yan #39: cap custom range at 365 days. Beyond that the AnalyticsSummary
+// table starts rolling off (we keep ~12mo of dailies) and the bar chart
+// becomes unreadable; the cap is enforced server-side so a malicious client
+// can't ask for a 10-year range and pull every row in the table.
+const CUSTOM_RANGE_MAX_DAYS = 365;
 
 interface DemoSnap { gender: { male: number; female: number; unknown: number }; age: Record<string, number>; samples: number; }
 
@@ -1124,12 +1130,37 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
   try {
     const { cameraId } = req.params;
     const range = (req.query.range as OverviewRange) || '1d';
-    if (!['1h', '1d', '1w', '1m', '3m'].includes(range)) {
-      return res.status(400).json({ error: 'Invalid range. Use: 1h | 1d | 1w | 1m | 3m' });
+    if (!['1h', '1d', '1w', '1m', '3m', 'custom'].includes(range)) {
+      return res.status(400).json({ error: 'Invalid range. Use: 1h | 1d | 1w | 1m | 3m | custom' });
+    }
+
+    // Yan #39: parse + validate custom from/to before any DB work.
+    let customFrom: Date | null = null;
+    let customTo: Date | null = null;
+    if (range === 'custom') {
+      const fromStr = req.query.from;
+      const toStr = req.query.to;
+      if (typeof fromStr !== 'string' || typeof toStr !== 'string') {
+        return res.status(400).json({ error: 'Custom range requires from and to ISO date strings.' });
+      }
+      const f = new Date(fromStr);
+      const t = new Date(toStr);
+      if (isNaN(f.getTime()) || isNaN(t.getTime())) {
+        return res.status(400).json({ error: 'Invalid ISO date in from/to.' });
+      }
+      if (f.getTime() >= t.getTime()) {
+        return res.status(400).json({ error: 'Custom range "from" must be earlier than "to".' });
+      }
+      const spanDays = Math.ceil((t.getTime() - f.getTime()) / (24 * 60 * 60 * 1000));
+      if (spanDays > CUSTOM_RANGE_MAX_DAYS) {
+        return res.status(400).json({ error: `Custom range cannot exceed ${CUSTOM_RANGE_MAX_DAYS} days.` });
+      }
+      customFrom = f;
+      customTo = t;
     }
 
     const now = new Date();
-    const rangeEnd = new Date(now);
+    const rangeEnd = range === 'custom' && customTo ? customTo : new Date(now);
 
     // ─── 1h branch ── live data from AnalyticsLog, 5-min buckets ──
     if (range === '1h') {
@@ -1280,12 +1311,21 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
       });
     }
 
-    // ─── 1w / 1m / 3m branch ── daily summaries, prior same-length window ──
-    const days = RANGE_DAYS[range];
+    // ─── 1w / 1m / 3m / custom branch ── daily summaries, prior same-length window ──
+    let days: number;
+    let rangeStart: Date;
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
-    const rangeStart = new Date(todayStart);
-    rangeStart.setDate(rangeStart.getDate() - (days - 1));
+    if (range === 'custom' && customFrom && customTo) {
+      // Custom uses caller-supplied [from, to]; days = ceil((to-from)/day).
+      days = Math.max(1, Math.ceil((customTo.getTime() - customFrom.getTime()) / (24 * 60 * 60 * 1000)));
+      rangeStart = new Date(customFrom);
+      rangeStart.setHours(0, 0, 0, 0);
+    } else {
+      days = RANGE_DAYS[range as Exclude<OverviewRange, 'custom'>];
+      rangeStart = new Date(todayStart);
+      rangeStart.setDate(rangeStart.getDate() - (days - 1));
+    }
     const prevEnd = new Date(rangeStart);
     prevEnd.setMilliseconds(-1);
     const prevStart = new Date(prevEnd);
@@ -1353,7 +1393,7 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
 
     // Weekday compare (only meaningful for ≥1w ranges) — this rolling 7d vs prior 7d
     let weekdayCompare: any = null;
-    if (range === '1w' || range === '1m' || range === '3m') {
+    if (range === '1w' || range === '1m' || range === '3m' || (range === 'custom' && days >= 7)) {
       const thisWeekStart = new Date(todayStart);
       thisWeekStart.setDate(thisWeekStart.getDate() - 6);
       const lastWeekEnd = new Date(thisWeekStart);
@@ -1398,7 +1438,7 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
 
     // Tomorrow prediction (only when ≥1w of history available)
     let prediction: any = null;
-    if (range === '1w' || range === '1m' || range === '3m') {
+    if (range === '1w' || range === '1m' || range === '3m' || (range === 'custom' && days >= 7)) {
       const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const targetWeekday = tomorrow.getDay();
