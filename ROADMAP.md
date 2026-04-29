@@ -57,13 +57,32 @@ Kullanici 11 maddelik kapsamli sistem raporu verdi (ekran ekran gezdi, ag loglar
 
 **Sonuc:** 57 yan kapatildi, 2 pre-existing pre-Faz7 fail e2e (5.2a Yan #22 deneme analytics empty + 6.3a Telegram column residual) belgelendi. Yan #37 chat tenant leak production LEAK_COUNT=0 (4. session). Faz 8 exit kapisi tum kontrolleri PASS.
 
-## Faz 8 — Design Polish + Magic MCP (READY TO START 2026-04-29)
-**Durum:** READY (Faz 7 exit kapisi PASS)
-**Kapsam:** AnalyticsPage echarts upgrade, Settings UI rework, GlobalChatbot styling, Insights card redesign, Yan #31 polygon-polygon overlap (Sutton-Hodgman/SAT), Yan #39 custom date range picker.
+## Faz 8 — Design Polish + Magic MCP + 2 DEFER yan (DONE 2026-04-29)
+**Durum:** DONE
+**Branch:** partal_test | **Commit:** Faz 7 final 77c8f4f → Faz 8 ~9 yeni atomic commit | **Vitest:** 114 PASS / 6 expected FAIL | **Detay:** `test-results/08-design-polish-batch.md`
 
-## Faz 9 — Doc-only buffer + final dokuman (BACKLOG)
-**Durum:** BACKLOG
-**Kapsam:** #20 MiroFish doc, #21 test fixture infra, #58 CLAUDE.md telegram cleanup, #60 staffing AI summary karar, 3.7c daily idempotency, 3.8 InsightFace+MiVOLO doc, tum faz raporlarini birlestir, PR + surum notu.
+| Batch | Kapsam | Yan | Durum |
+|---|---|---|---|
+| 1 | Polygon-polygon SAT-equivalent overlap (backend + frontend parity) | #31 | DONE +5 vitest |
+| 2 | Custom date range API + native picker UI | #39 | DONE +4 vitest |
+| 3 | echarts theme polish (observai palette + formatConfidence) | — | DONE |
+| 4 | api/errors zod extractor util + StaffingPage error wire | — | DONE_PARTIAL (full Settings rework Faz 9'a) |
+| 5 | markdownLite inline code + URL auto-link | — | DONE +3 node:test |
+| 6 | makeTimeAgo lift to lib/relativeTime | — | DONE_PARTIAL (InsightCard component Faz 9'a) |
+| 7 | Final regression gate + 08-batch.md + ROADMAP DONE | — | DONE |
+
+**Sonuc:** Yan #31 + #39 (Faz 7'den DEFER edilen 2 HIGH yan) closed. 4 design polish batch (echarts, api/errors, markdownLite, relativeTime) infra/util commit'lendi; full UX rework (Settings UI grid + InsightCard component) Faz 9'a hand-off (Magic MCP ile brainstorming gerektirir). Yan #37 leak probe 6. kez 0.
+
+## Faz 9 — Doc-only buffer + deferred UX rework + final dokuman (READY TO START)
+**Durum:** READY (Faz 8 exit kapisi PASS)
+**Kapsam (Faz 8'den devren):**
+- BranchSection card grid + accordion chevron + Bildirimler+Kanallar merge (Yan #1.4)
+- InsightCard component (animated dismiss + dateKey badge + relative time)
+
+**Kapsam (orijinal Faz 9):**
+- #20 MiroFish doc, #21 test fixture infra, #58 CLAUDE.md telegram cleanup, #60 staffing AI summary karar
+- 3.7c daily idempotency, 3.8 InsightFace+MiVOLO doc
+- Tum faz raporlarini birlestir + PR + surum notu
 
 ---
 
