@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
+import { formatConfidence } from '../../lib/formatters';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -644,7 +645,7 @@ export default function AnalyticsPage() {
                 <h3 className="font-semibold text-ink-0 text-sm">{t(`analytics.chart.title.${overview.range}`)}</h3>
               </div>
               {timelineOption ? (
-                <ReactECharts option={timelineOption} style={{ height: '280px' }} notMerge lazyUpdate />
+                <ReactECharts option={timelineOption} theme="observai" style={{ height: '280px' }} opts={{ renderer: 'canvas' }} notMerge lazyUpdate />
               ) : (
                 <p className="text-sm text-ink-4 text-center py-12">{t('analytics.chart.noData')}</p>
               )}
@@ -803,10 +804,10 @@ export default function AnalyticsPage() {
                   </h3>
                 </div>
                 <div className="text-xs text-ink-3 font-mono">
-                  {t('analytics.prediction.confidence')}: <span className="text-violet-300">{Math.round(overview.prediction!.confidence)}%</span> · {t('analytics.prediction.weeksData', { n: overview.prediction!.dataWeeks })}
+                  {t('analytics.prediction.confidence')}: <span className="text-violet-300">{formatConfidence(overview.prediction!.confidence)}</span> · {t('analytics.prediction.weeksData', { n: overview.prediction!.dataWeeks })}
                 </div>
               </div>
-              <ReactECharts option={predictionOption} style={{ height: '200px' }} notMerge lazyUpdate />
+              <ReactECharts option={predictionOption} theme="observai" style={{ height: '200px' }} opts={{ renderer: 'canvas' }} notMerge lazyUpdate />
             </motion.div>
           )}
 

@@ -129,7 +129,7 @@ const DwellTimeWidget = memo(function DwellTimeWidget() {
           </div>
           {dwellTime.average > 0 ? (
             <>
-              <ReactECharts option={option} style={{ height: '80px' }} />
+              <ReactECharts option={option} theme="observai" style={{ height: '80px' }} />
               <p className="text-xs text-ink-4 mt-2">{t('widgets.dwell.caption')}</p>
             </>
           ) : (
