@@ -16,6 +16,8 @@ import {
   Zap,
   ArrowUpRight,
   ArrowDownRight,
+  Download,
+  ChevronDown,
 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
@@ -176,6 +178,10 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Yan #43: user-controlled export row cap. UI default 1000 (cheap), ceiling
+  // 10000 (matches backend ExportRequestSchema.limit.max), 'all' omits the
+  // query param so the backend default takes over.
+  const [exportLimit, setExportLimit] = useState<'1000' | '5000' | '10000' | 'all'>('1000');
 
   const aiAbortRef = useRef<AbortController | null>(null);
 
@@ -395,6 +401,20 @@ export default function AnalyticsPage() {
               );
             })}
           </div>
+          {/* Yan #43: export row-cap selector. Persists per-tab session only;
+              the export dropdown (Yan #55) reads this directly. */}
+          <select
+            data-testid="export-limit-select"
+            value={exportLimit}
+            onChange={(e) => setExportLimit(e.target.value as '1000' | '5000' | '10000' | 'all')}
+            className="px-2 py-2 text-xs bg-surface-2/70 border border-white/[0.08] rounded-xl text-ink-1 hover:border-brand-500/40 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+            aria-label={t('export.limit.label')}
+          >
+            <option value="1000">{t('export.limit.1000')}</option>
+            <option value="5000">{t('export.limit.5000')}</option>
+            <option value="10000">{t('export.limit.10000')}</option>
+            <option value="all">{t('export.limit.all')}</option>
+          </select>
           <button
             onClick={() => { if (cameraId) { loadOverview(cameraId, range); loadAI(cameraId); } }}
             disabled={loading}
