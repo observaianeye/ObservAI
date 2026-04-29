@@ -96,7 +96,7 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 - `components/camera/CameraFeed.tsx` — Ana canli video (~1400 satir), MJPEG + WebSocket
 - `components/camera/ZoneCanvas.tsx` — Bolge cizim: rect + polygon + freehand (framer-motion animasyonlu, ESC iptal, Enter/double-click/right-click tamamla)
 - `components/camera/ZonePolygonUtils.ts` — Ramer-Douglas-Peucker simplify + ray-casting + bbox
-- `components/staffing/{StaffForm,StaffList,ShiftCalendar,NotificationStatusBadge}.tsx` — Personel CRUD + haftalik vardiya takvimi + Telegram/Email bildirim durumu
+- `components/staffing/{StaffForm,StaffList,ShiftCalendar,NotificationStatusBadge}.tsx` — Personel CRUD + haftalik vardiya takvimi + Email bildirim durumu (Telegram pasifize edildi — Yan #58, Faz 9)
 - `components/settings/BranchSection.tsx` — Sube CRUD + OSM Nominatim geocoding + Google Maps baglantisi
 - `components/dashboard/WeatherWidget.tsx` — Sube koordinatina bagli Open-Meteo widget, 10 dk localStorage cache
 - `services/cameraBackendService.ts` — WebSocket client, health polling
@@ -113,16 +113,16 @@ Capture Thread → raw_frame_q(30) → Inference Thread (YOLO + InsightFace) →
 - `prisma/schema.prisma` — DB semasi (SQLite dev: `file:./dev.db`) + ChatMessage + AnalyticsSummary
 
 #### Bildirim Servisleri (ADIM 4)
-- `src/services/telegramService.ts` — Telegram Bot API wrapper, severity bazli emoji
-- `src/services/emailService.ts` — Nodemailer + HTML template, gunluk ozet + kritik alert
-- `src/services/notificationDispatcher.ts` — Severity bazli dispatch (CRITICAL/HIGH/MEDIUM/LOW)
+> **Yan #58 (Faz 9):** Telegram product karari ile kaldirildi. `telegramService.ts` dosyasi repo'dan silindi; `notificationDispatcher` **email-only**. `Staff.telegramChatId` schema alani Faz 10'da migration ile drop edilebilir (su an legacy NULL kolonu).
+- `src/services/emailService.ts` — Nodemailer + HTML template, gunluk ozet + kritik alert (TEK aktif kanal)
+- `src/services/notificationDispatcher.ts` — Severity bazli dispatch (CRITICAL/HIGH/MEDIUM/LOW), email-only
 
 #### Staff & Table Tracking (ADIM 5)
 - `src/routes/staffing.ts` — Vardiya bazli personel plani, peak saat + demografi verisine dayali
-- `src/routes/staff.ts` — Staff CRUD (Prisma Staff modeli: firstName, lastName, email, telegramChatId, phone, role)
+- `src/routes/staff.ts` — Staff CRUD (Prisma Staff modeli: firstName, lastName, email, phone, role; `telegramChatId` legacy alan, dispatch'te kullanilmaz — Yan #58)
 - `src/routes/staff-assignments.ts` — StaffAssignment CRUD + POST /:id/notify + GET /:id/accept|decline (JWT token'li public link)
 - `src/routes/tables.ts` — POST /ai-summary (Ollama brifi 30sn throttle), GET /:cameraId (zone+status), PATCH /:zoneId/status (manuel temizleme override → Python pipeline)
-- `src/services/notificationDispatcher.ts` — `notifyStaffShift(assignmentId)` Telegram + Email paralel, audit log `backend/logs/notification-dispatch.log`
+- `src/services/notificationDispatcher.ts` — `notifyStaffShift(assignmentId)` email-only dispatch (Yan #58 sonrasi Telegram pasif), audit log `backend/logs/notification-dispatch.log`
 - TABLE zone tipi (analytics.py) — v2 state machine: occupied (>= 60sn) → empty buffer (2 dk user kurali) → needs_cleaning → auto_empty (15 dk), transit_grace 10sn (sandalye kaymasi)
 
 #### AI Config + Data Integrity (ADIM 11, 16, 17)
