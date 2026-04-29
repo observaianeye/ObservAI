@@ -316,6 +316,7 @@ export default function StaffingPage() {
         {tab === 'staff' && branchId && (
           <motion.button
             whileTap={{ scale: 0.97 }}
+            data-testid="add-staff-trigger"
             onClick={() => { setEditing(null); setFormOpen(true); }}
             className="px-4 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-xl font-semibold hover:shadow-glow-brand flex items-center gap-2"
           >

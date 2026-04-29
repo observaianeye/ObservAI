@@ -174,6 +174,7 @@ export function StaffForm({ open, initial, branchId, onClose, onSubmit }: Props)
                 </button>
                 <motion.button
                   whileTap={{ scale: 0.97 }}
+                  data-testid="staff-form-submit"
                   onClick={handleSubmit}
                   disabled={saving}
                   className="px-5 py-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-lg font-semibold flex items-center gap-2 hover:shadow-glow-brand disabled:opacity-60"
