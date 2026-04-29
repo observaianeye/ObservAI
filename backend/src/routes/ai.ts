@@ -13,6 +13,7 @@ import { userOwnsCamera, userOwnsBranch } from '../middleware/tenantScope';
 import { CameraIdOptionalSchema } from '../lib/schemas';
 import { sanitizeUserMessage, wrapUserMessage } from '../lib/promptSanitizer';
 import { cumulativeDelta } from '../lib/cumulativeCounter';
+import { clampPeakOccupancy } from '../lib/peakOccupancy';
 
 const router = Router();
 
@@ -778,7 +779,119 @@ async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): 
     const avgCurrentCount = Math.round(
       logs.reduce((sum, log) => sum + log.currentCount, 0) / logs.length
     );
-    const peakCount = logs.reduce((m, l) => Math.max(m, l.currentCount), 0);
+    const rawPeakCount = logs.reduce((m, l) => Math.max(m, l.currentCount), 0);
+    const peakCount = clampPeakOccupancy(rawPeakCount, totalPeopleIn, avgCurrentCount);
+
+    // Peak HOUR analysis — Analytics page surfaces this; AI chat used to
+    // omit it entirely, so questions like "en yoğun saat" got "veri yok".
+    // Two sources (preference order): 7-day AnalyticsSummary hourly rows
+    // (canonical, matches /api/analytics/today peakHour) → fallback to
+    // hour-of-day bucketing of the in-memory `logs` window.
+    const fmtHour = (h: number) => `${String(h).padStart(2, '0')}:00`;
+    const liveHourBuckets = new Map<number, { sum: number; n: number; peak: number }>();
+    for (const l of logs) {
+      const h = new Date(l.timestamp).getHours();
+      const b = liveHourBuckets.get(h) ?? { sum: 0, n: 0, peak: 0 };
+      b.sum += l.currentCount;
+      b.n += 1;
+      if (l.currentCount > b.peak) b.peak = l.currentCount;
+      liveHourBuckets.set(h, b);
+    }
+    const liveHourly = [...liveHourBuckets.entries()]
+      .map(([hour, b]) => ({ hour, avg: Math.round(b.sum / b.n), peak: b.peak }))
+      .sort((a, b) => b.avg - a.avg);
+    const peakHourLive = liveHourly[0] && liveHourly[0].avg > 0 ? liveHourly[0] : null;
+
+    let peakHourSummary: { hour: number; avg: number; peak: number } | null = null;
+    const peakHoursTopN: Array<{ hour: number; avg: number; peak: number }> = [];
+    // TODAY block — separate from 7-day so AI can answer "bugün / today" peak
+    // questions with today's actual numbers, not last week's max. Faz 12 fix
+    // for AI saying "peak occupancy today was 45" while Analytics KPI shows
+    // a different (today-only, clamped) number.
+    let todayPeakHour: { hour: number; avg: number; peak: number; entries: number } | null = null;
+    let todayPeakOccupancy = 0;
+    let todayTotalEntries = 0;
+    let todayAvgOcc = 0;
+    let todayHasData = false;
+    try {
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const sumWhere: any = { hour: { not: null }, date: { gte: since } };
+      if (cameraId) {
+        sumWhere.cameraId = cameraId;
+      } else if (branchId) {
+        const cams = await prisma.camera.findMany({ where: { branchId }, select: { id: true } });
+        if (cams.length > 0) sumWhere.cameraId = { in: cams.map(c => c.id) };
+        else sumWhere.cameraId = '__none__'; // ensures empty result instead of leaking other branches
+      }
+      const summaries = await prisma.analyticsSummary.findMany({
+        where: sumWhere,
+        select: { hour: true, avgOccupancy: true, peakOccupancy: true, totalEntries: true },
+      });
+      if (summaries.length > 0) {
+        const agg = new Map<number, { occSum: number; n: number; rawPeak: number; entries: number }>();
+        for (const s of summaries) {
+          const h = s.hour ?? 0;
+          const a = agg.get(h) ?? { occSum: 0, n: 0, rawPeak: 0, entries: 0 };
+          a.occSum += s.avgOccupancy ?? 0;
+          a.n += 1;
+          if ((s.peakOccupancy ?? 0) > a.rawPeak) a.rawPeak = s.peakOccupancy ?? 0;
+          a.entries += s.totalEntries ?? 0;
+          agg.set(h, a);
+        }
+        const arr = [...agg.entries()]
+          .map(([hour, a]) => {
+            const avg = Math.round(a.occSum / a.n);
+            const peak = clampPeakOccupancy(a.rawPeak, a.entries, avg);
+            return { hour, avg, peak };
+          })
+          .filter(r => r.avg > 0 || r.peak > 0)
+          .sort((x, y) => y.avg - x.avg || y.peak - x.peak);
+        if (arr[0]) {
+          peakHourSummary = arr[0];
+          for (const r of arr.slice(0, 3)) peakHoursTopN.push(r);
+        }
+      }
+
+      // TODAY-only aggregation (mirrors analytics.ts 1d branch semantics).
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayWhere: any = { hour: { not: null }, date: { gte: todayStart } };
+      if (cameraId) {
+        todayWhere.cameraId = cameraId;
+      } else if (branchId) {
+        const cams = await prisma.camera.findMany({ where: { branchId }, select: { id: true } });
+        if (cams.length > 0) todayWhere.cameraId = { in: cams.map(c => c.id) };
+        else todayWhere.cameraId = '__none__';
+      }
+      const todayHourly = await prisma.analyticsSummary.findMany({
+        where: todayWhere,
+        select: { hour: true, totalEntries: true, avgOccupancy: true, peakOccupancy: true },
+      });
+      if (todayHourly.length > 0) {
+        const totalEntriesToday = todayHourly.reduce((s, r) => s + r.totalEntries, 0);
+        const activeRows = todayHourly.filter((r) => (r.avgOccupancy ?? 0) > 0 || r.totalEntries > 0);
+        const activeAvg = activeRows.length > 0
+          ? activeRows.reduce((s, r) => s + (r.avgOccupancy ?? 0), 0) / activeRows.length
+          : 0;
+        const rawTodayPeak = todayHourly.reduce((m, r) => Math.max(m, r.peakOccupancy ?? 0), 0);
+        todayPeakOccupancy = clampPeakOccupancy(rawTodayPeak, totalEntriesToday, activeAvg);
+        todayTotalEntries = totalEntriesToday;
+        todayAvgOcc = Math.round(activeAvg);
+        todayHasData = totalEntriesToday > 0 || activeRows.length > 0;
+        const sortedToday = [...todayHourly]
+          .filter((r) => (r.avgOccupancy ?? 0) > 0 || r.totalEntries > 0)
+          .sort((a, b) => (b.avgOccupancy ?? 0) - (a.avgOccupancy ?? 0));
+        if (sortedToday[0]) {
+          const top = sortedToday[0];
+          todayPeakHour = {
+            hour: top.hour ?? 0,
+            avg: Math.round(top.avgOccupancy ?? 0),
+            peak: clampPeakOccupancy(top.peakOccupancy ?? 0, top.totalEntries, top.avgOccupancy ?? 0),
+            entries: top.totalEntries,
+          };
+        }
+      }
+    } catch { /* summary lookup optional — fall through to live bucket data */ }
     const avgQueueCount = logs.filter(l => l.queueCount !== null).length > 0
       ? Math.round(
         logs.filter(l => l.queueCount !== null)
@@ -876,6 +989,26 @@ async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): 
     }
     context += '\n';
 
+    // TODAY block — anchors "bugün / today" peak/visitor/occupancy answers
+    // to today-only data so the model doesn't quote a 7-day max as if it
+    // were today's number (Faz 12 fix for AI saying "peak today was 45"
+    // while Analytics page KPI shows a different today-clamped number).
+    context += `=== TODAY (use for "bugün / today" peak hours, total visitors, peak occupancy questions) ===\n`;
+    if (todayHasData) {
+      context += `TODAY_TOTAL_VISITORS: ${todayTotalEntries}\n`;
+      context += `TODAY_AVG_OCCUPANCY: ${todayAvgOcc}\n`;
+      context += `TODAY_PEAK_OCCUPANCY: ${todayPeakOccupancy}\n`;
+      if (todayPeakHour) {
+        context += `TODAY_PEAK_HOUR: ${fmtHour(todayPeakHour.hour)} (avg=${todayPeakHour.avg}, peak=${todayPeakHour.peak}, entries=${todayPeakHour.entries})\n`;
+      } else {
+        context += `TODAY_PEAK_HOUR: NO_DATA\n`;
+      }
+      context += `Source: analyticsSummary_today_hourly\n`;
+    } else {
+      context += `TODAY_NO_DATA: bugüne ait hourly summary henüz yazılmadı (canlı motor offline veya saat tamamlanmadı). "Today" sorularına LIVE_PEOPLE_COUNT ve şu ana kadarki canlı veriyle cevap ver.\n`;
+    }
+    context += '\n';
+
     context += `=== HISTORICAL AGGREGATE (last ${logs.length} samples — DO NOT use for "current" questions) ===\n`;
     context += `Total entered (window): ${totalPeopleIn}\n`;
     context += `Total exited (window): ${totalPeopleOut}\n`;
@@ -884,6 +1017,19 @@ async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): 
     if (avgQueueCount !== null) context += `Avg queue length: ${avgQueueCount}\n`;
     if (avgWaitTime !== null) context += `Avg wait time: ${avgWaitTime}s\n`;
     context += '\n';
+
+    const peakHourCanonical = peakHourSummary ?? peakHourLive;
+    if (peakHourCanonical) {
+      const peakSource = peakHourSummary ? 'analyticsSummary_7d_hourly' : 'analyticsLog_window_hour_buckets';
+      context += `=== PEAK HOUR ANALYSIS — LAST 7 DAYS (use ONLY for "haftalık / son 7 gün / weekly" questions; for "today / bugün" use the TODAY block above) ===\n`;
+      context += `PEAK_HOUR: ${fmtHour(peakHourCanonical.hour)} (avg occupancy ${peakHourCanonical.avg}, peak ${peakHourCanonical.peak})\n`;
+      if (peakHoursTopN.length > 0) {
+        context += `Top 3 hours (last 7d): ${peakHoursTopN.map(p => `${fmtHour(p.hour)} avg=${p.avg} peak=${p.peak}`).join(', ')}\n`;
+      } else if (liveHourly.length > 1) {
+        context += `Hour breakdown (live window): ${liveHourly.slice(0, 5).map(p => `${fmtHour(p.hour)} avg=${p.avg}`).join(', ')}\n`;
+      }
+      context += `Source: ${peakSource}\n\n`;
+    }
 
     if (demographics) {
       context += `=== DEMOGRAPHICS AGGREGATE (window) ===\n${demographics}\n`;
@@ -1058,6 +1204,15 @@ CRITICAL RULES (violation = wrong answer):
 5. Maximum 4 short sentences. No filler, no thinking-out-loud, no "${'`'}<think>${'`'}" tags.
 6. Suggest 1 concrete action only when the user asks for advice. Otherwise just answer the question.
 7. For demographic questions → use "Latest gender split" / "Latest age buckets" if present (live), else fall back to DEMOGRAPHICS AGGREGATE.
+8. Peak hour / yoğunluk / zirve saat questions:
+   - If question contains "bugün / today / şu an / şimdi": use ONLY the TODAY block (TODAY_PEAK_HOUR, TODAY_PEAK_OCCUPANCY, TODAY_TOTAL_VISITORS). NEVER substitute the LAST 7 DAYS values for "today" answers.
+   - If question contains "hafta / 7 gün / weekly / week / aylık / monthly": use the PEAK HOUR ANALYSIS — LAST 7 DAYS block.
+   - When the window is ambiguous, default to TODAY.
+   - Quote the exact hour (e.g. "14:00") and the avg occupancy plus peak occupancy from the chosen block.
+   - When you say "peak occupancy today was X", X MUST equal TODAY_PEAK_OCCUPANCY — not the LAST 7 DAYS peak.
+   - If TODAY block shows TODAY_NO_DATA, explicitly say "bugüne ait saatlik veri henüz birikmedi / no hourly data has accumulated for today yet" and only then mention LAST 7 DAYS as historical context.
+   - NEVER say "saatlik veri yok / no hourly data" if either block has values.
+   - NEVER substitute Peak occupancy (window) from HISTORICAL AGGREGATE for "today" or "weekly" peak.
 
 ANSWER:`;
 }

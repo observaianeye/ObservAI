@@ -109,9 +109,15 @@ function generateHourlyRow(baseTraffic: number, dayMod: number, hourIdx: number,
                   : randFloat(0.92, 1.05);
   const exits = Math.max(0, Math.round(entries * exitFactor));
 
-  // Peak occupancy is bounded by the floor capacity; avg is a fraction of peak.
-  const peak = Math.max(1, Math.round(entries * randFloat(0.55, 0.95)));
-  const avg = Math.max(1, Math.round(peak * randFloat(0.55, 0.85)));
+  // Little's Law: avgConcurrent = entriesPerHour × dwellHrs.
+  // Cafe avg dwell ~25-35 min → dwellHr = 0.40-0.60. Peak ≈ avg × 1.5-2.2
+  // (Poisson arrivals, modest variance). Prior formula derived peak from
+  // entries directly (entries × 0.55-0.95) — that conflates "max concurrent
+  // people in venue" with "people who entered this hour", inflating peak
+  // 2-5x and producing peak/avg ratios of 5-10x that violated the invariant.
+  const dwellHr = randFloat(0.40, 0.60);
+  const avg = Math.max(1, Math.round(entries * dwellHr));
+  const peak = Math.max(avg, Math.round(avg * randFloat(1.5, 2.2)));
 
   // Demographics: weight by AGE_DISTRIBUTION but jitter each bucket so two
   // identical hours don't render as identical pie charts.

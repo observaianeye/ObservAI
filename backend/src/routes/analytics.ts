@@ -7,6 +7,7 @@ import { prisma } from '../lib/db';
 import { z } from 'zod';
 import { validateAnalyticsPayload } from '../lib/analyticsValidator';
 import { cumulativeDelta } from '../lib/cumulativeCounter';
+import { clampPeakOccupancy } from '../lib/peakOccupancy';
 import { sendAlertEmail } from '../services/emailService';
 import { authenticate } from '../middleware/authMiddleware';
 import { requireCameraOwnership, requireZoneOwnership, userOwnsCamera } from '../middleware/tenantScope';
@@ -1357,7 +1358,8 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
       const finalAvgOccupancy = finalActive.length > 0
         ? Math.round((finalActive.reduce((s, p) => s + p.occupancy, 0) / finalActive.length) * 10) / 10
         : avgOccupancy;
-      const finalPeakOccupancy = Math.max(peakOccupancy, ...timeline.map((p) => p.occupancy));
+      const rawFinalPeakOccupancy = Math.max(peakOccupancy, ...timeline.map((p) => p.occupancy));
+      const finalPeakOccupancy = clampPeakOccupancy(rawFinalPeakOccupancy, finalTotalVisitors, finalAvgOccupancy);
       const finalPeakRow = timeline.reduce((max, p) => (p.visitors > (max?.visitors ?? -1) ? p : max), timeline[0]);
       const finalPeakHour = finalPeakRow && finalPeakRow.visitors > 0 ? finalPeakRow.label : peakHour;
 
@@ -1441,7 +1443,8 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
     const avgOccupancy = activeDays.length > 0
       ? Math.round((activeDays.reduce((s, r) => s + (r.avgOccupancy ?? 0), 0) / activeDays.length) * 10) / 10
       : 0;
-    const peakOccupancy = dailyRows.length > 0 ? Math.max(...dailyRows.map((r) => r.peakOccupancy)) : 0;
+    const rawPeakOccupancy = dailyRows.length > 0 ? Math.max(...dailyRows.map((r) => r.peakOccupancy)) : 0;
+    const peakOccupancy = clampPeakOccupancy(rawPeakOccupancy, totalVisitors, avgOccupancy);
 
     // Peak hour across the whole range
     const hourTotals: number[] = new Array(24).fill(0);

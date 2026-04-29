@@ -581,11 +581,35 @@ export default function CameraFeed() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Responsive sizing — previous values were too small to read age/gender at
-      // normal viewing distance on 1080p. Bumped ~75% and forced bold weight.
-      const fontSize = Math.min(28, Math.max(14, canvas.height * 0.028));
-      const lineWidth = Math.min(4, Math.max(2, canvas.width * 0.0025));
-      const badgeFontSize = Math.floor(fontSize * 0.8);
+      // Responsive sizing — compact: smaller font + thinner pills so the
+      // overlay reads as a guide, not a banner. Min cap stays at 10 so age
+      // bucket stays legible on small streams.
+      const fontSize = Math.min(17, Math.max(10, canvas.height * 0.0175));
+      const lineWidth = Math.min(2.5, Math.max(1.25, canvas.width * 0.0017));
+      const badgeFontSize = Math.max(9, Math.floor(fontSize * 0.78));
+      const radius = Math.max(3, fontSize * 0.32);
+
+      // Rounded-rect helper — falls back to a manual path on engines without
+      // CanvasRenderingContext2D.roundRect (older Safari).
+      const roundedRect = (x: number, y: number, w: number, h: number, r: number) => {
+        const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+        if (typeof (ctx as any).roundRect === 'function') {
+          ctx.beginPath();
+          (ctx as any).roundRect(x, y, w, h, rr);
+          return;
+        }
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.lineTo(x + w - rr, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+        ctx.lineTo(x + w, y + h - rr);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+        ctx.lineTo(x + rr, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+        ctx.lineTo(x, y + rr);
+        ctx.quadraticCurveTo(x, y, x + rr, y);
+        ctx.closePath();
+      };
 
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -601,10 +625,10 @@ export default function CameraFeed() {
 
         zones.forEach((zone) => {
           const stroke = zoneColor(zone.type);
+          // Softer dash at half line-width — reads as a guide rather than a wall.
+          ctx.lineWidth = Math.max(1.25, lineWidth * 0.75);
+          ctx.setLineDash([10, 8]);
           ctx.strokeStyle = stroke;
-          ctx.fillStyle = stroke;
-          ctx.lineWidth = lineWidth;
-          ctx.setLineDash([6, 6]);
 
           let labelX = 0;
           let labelY = 0;
@@ -618,12 +642,13 @@ export default function CameraFeed() {
               else ctx.lineTo(x, y);
             });
             ctx.closePath();
-            ctx.stroke();
-            // Translucent fill to make the zone region readable on busy frames.
+            // Translucent fill (lighter than before — the dashed border carries the shape).
             const prevAlpha = ctx.globalAlpha;
-            ctx.globalAlpha = 0.12;
+            ctx.globalAlpha = 0.08;
+            ctx.fillStyle = stroke;
             ctx.fill();
             ctx.globalAlpha = prevAlpha;
+            ctx.stroke();
             // Label anchor: top-left of polygon bounding box.
             labelX = Math.min(...zone.points.map((p) => p.x)) * canvas.width;
             labelY = Math.min(...zone.points.map((p) => p.y)) * canvas.height;
@@ -632,23 +657,54 @@ export default function CameraFeed() {
             const zoneY = zone.y * canvas.height;
             const zoneWidth = zone.width * canvas.width;
             const zoneHeight = zone.height * canvas.height;
-            ctx.strokeRect(zoneX, zoneY, zoneWidth, zoneHeight);
+            roundedRect(zoneX, zoneY, zoneWidth, zoneHeight, radius);
             const prevAlpha = ctx.globalAlpha;
-            ctx.globalAlpha = 0.12;
-            ctx.fillRect(zoneX, zoneY, zoneWidth, zoneHeight);
+            ctx.globalAlpha = 0.08;
+            ctx.fillStyle = stroke;
+            ctx.fill();
             ctx.globalAlpha = prevAlpha;
+            ctx.stroke();
             labelX = zoneX;
             labelY = zoneY;
           }
 
           ctx.setLineDash([]);
 
-          ctx.font = `${fontSize}px sans-serif`;
-          const textMetrics = ctx.measureText(zone.name);
+          // Pill-shaped label: dark glass background + colored dot + zone name.
+          // Compact — zone names are guides, not headlines.
+          const zoneFontSize = Math.max(9, Math.round(fontSize * 0.72));
+          ctx.font = `600 ${zoneFontSize}px "Inter", "Space Grotesk", system-ui, sans-serif`;
+          const labelPadX = 6;
+          const labelPadY = 2;
+          const dotR = Math.max(2.5, zoneFontSize * 0.18);
+          const textW = ctx.measureText(zone.name).width;
+          const labelW = labelPadX * 2 + dotR * 2 + 4 + textW;
+          const labelH = Math.ceil(zoneFontSize * 1.05) + labelPadY * 2;
+          const lx = labelX;
+          const ly = Math.max(0, labelY - labelH - 4);
+
+          // Subtle drop shadow for separation from busy video.
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+          ctx.shadowBlur = 6;
+          ctx.shadowOffsetY = 1;
+          roundedRect(lx, ly, labelW, labelH, labelH / 2);
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+          ctx.fill();
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetY = 0;
+
+          // Color dot
+          ctx.beginPath();
+          ctx.arc(lx + labelPadX + dotR, ly + labelH / 2, dotR, 0, Math.PI * 2);
           ctx.fillStyle = stroke;
-          ctx.fillRect(labelX, labelY - fontSize - 4, textMetrics.width + 10, fontSize + 6);
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(zone.name, labelX + 5, labelY - 5);
+          ctx.fill();
+
+          // Zone name
+          ctx.fillStyle = '#f8fafc';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(zone.name, lx + labelPadX + dotR * 2 + 4, ly + labelH / 2);
+          ctx.textBaseline = 'alphabetic';
         });
       }
 
@@ -662,62 +718,93 @@ export default function CameraFeed() {
         const pw = w * canvas.width;
         const ph = h * canvas.height;
 
-        // Draw bounding box with responsive line width
-        ctx.strokeStyle = detection.state === 'entering' ? '#10b981' :
+        const stateColor = detection.state === 'entering' ? '#10b981' :
           detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
-        ctx.lineWidth = lineWidth; // Use responsive line width
-        ctx.strokeRect(px, py, pw, ph);
 
-        // Draw label background
+        // Subtle drop shadow lifts the bbox off busy video without darkening it.
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 1;
+
+        // Rounded bbox stroke — feels modern and avoids harsh corner pixels.
+        ctx.strokeStyle = stateColor;
+        ctx.lineWidth = lineWidth;
+        ctx.lineJoin = 'round';
+        roundedRect(px, py, pw, ph, radius);
+        ctx.stroke();
+
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+
+        // Build label text
         const gender = detection.gender === 'male' ? 'M' :
           detection.gender === 'female' ? 'F' : '?';
-
-        // Use age bucket directly from backend (e.g., '18-24', '25-34', etc.)
-        const ageBucket = detection.ageBucket || 'Unknown';
+        const ageBucket = detection.ageBucket || '?';
         const dwellTime = Math.floor(detection.dwellSec);
-        // Lock indicator: solid "=" when both age + gender are stable,
-        // helps the user tell "model is sure" from "still learning".
         const bothLocked = Boolean(detection.ageLocked && detection.genderLocked);
-        const lockMark = bothLocked ? ' =' : '';
-        const labelText = `${gender} | ${ageBucket} | ${dwellTime}s${lockMark}`;
+        const lockMark = bothLocked ? ' ●' : ''; // small filled circle = locked
+        const labelText = `${gender} · ${ageBucket} · ${dwellTime}s${lockMark}`;
 
-        ctx.font = `bold ${fontSize}px "Inter", "Space Grotesk", system-ui, sans-serif`;
-        const textMetrics = ctx.measureText(labelText);
-        const padX = 8;
-        const padY = 4;
-        const textHeight = Math.ceil(fontSize * 1.35);
-        const boxWidth = textMetrics.width + padX * 2;
+        ctx.font = `600 ${fontSize}px "Inter", "Space Grotesk", system-ui, sans-serif`;
+        const padX = 6;
+        const padY = 2;
+        const textW = ctx.measureText(labelText).width;
+        const boxH = Math.ceil(fontSize * 1.05) + padY * 2;
+        const stripeW = Math.max(2, lineWidth);
+        const boxW = textW + padX * 2 + stripeW + 3; // +accent stripe + small gap
 
-        // Smart Y positioning: if label doesn't fit above the bbox, draw it just
-        // inside the top of the bbox instead so it never clips off-screen.
-        const labelAbove = py >= textHeight + 2;
+        // Label sits flush above the bbox (with 4px gap). When it would clip
+        // off-screen, drop it inside the top of the bbox.
+        const labelAbove = py >= boxH + 6;
         const boxX = px;
-        const boxY = labelAbove ? py - textHeight : py;
-        const textY = boxY + textHeight - padY;
+        const boxY = labelAbove ? py - boxH - 4 : py + 4;
 
-        // Dark semi-opaque background for contrast against any video content,
-        // then a thin colored accent stripe on the left to preserve state color.
-        const accent = detection.state === 'entering' ? '#10b981' :
-          detection.state === 'exiting' ? '#ef4444' : '#3b82f6';
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
-        ctx.fillRect(boxX, boxY, boxWidth, textHeight);
-        ctx.fillStyle = accent;
-        ctx.fillRect(boxX, boxY, Math.max(3, lineWidth), textHeight);
+        // Pill background with shadow for legibility on any video content.
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 1;
+        roundedRect(boxX, boxY, boxW, boxH, boxH / 2);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
 
-        // Bright white text — no shadow needed thanks to the opaque background.
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(labelText, boxX + padX, textY);
+        // Left accent stripe — preserve state color cue.
+        roundedRect(boxX, boxY, stripeW, boxH, stripeW / 2);
+        ctx.fillStyle = stateColor;
+        ctx.fill();
 
-        // ID badge at bottom-left of the bbox
-        ctx.font = `bold ${badgeFontSize}px "Inter", "Space Grotesk", system-ui, sans-serif`;
+        // Label text — bright on dark, small and tight.
+        ctx.fillStyle = '#f8fafc';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(labelText, boxX + stripeW + 4, boxY + boxH / 2);
+        ctx.textBaseline = 'alphabetic';
+
+        // ID badge: small pill at bottom-left, neutral grey accent so it doesn't
+        // compete with the primary label.
+        ctx.font = `500 ${badgeFontSize}px "Inter", "Space Grotesk", system-ui, sans-serif`;
         const badgeText = `#${detection.id.slice(-4)}`;
-        const badgeMetrics = ctx.measureText(badgeText);
-        const badgeHeight = Math.ceil(badgeFontSize * 1.5);
-        const badgeWidth = badgeMetrics.width + padX * 2;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
-        ctx.fillRect(px, py + ph, badgeWidth, badgeHeight);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(badgeText, px + padX, py + ph + badgeHeight - padY);
+        const badgeTextW = ctx.measureText(badgeText).width;
+        const badgePadX = 5;
+        const badgePadY = 2;
+        const badgeH = Math.ceil(badgeFontSize * 1.05) + badgePadY * 2;
+        const badgeW = badgeTextW + badgePadX * 2;
+        const badgeY = py + ph + 4;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        ctx.shadowBlur = 5;
+        ctx.shadowOffsetY = 1;
+        roundedRect(px, badgeY, badgeW, badgeH, badgeH / 2);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(badgeText, px + badgePadX, badgeY + badgeH / 2);
+        ctx.textBaseline = 'alphabetic';
       });
 
       animationFrameRef.current = requestAnimationFrame(drawFrame);
