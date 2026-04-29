@@ -163,6 +163,79 @@ function EmptyState({ title, hint, icon }: { title: string; hint: string; icon: 
   );
 }
 
+// Yan #55: lightweight Export dropdown — no portal, no shadcn dep. Triggers a
+// real browser download via window.location.href so the cookie session
+// auto-attaches and the browser handles Save As. Disabled when no camera is
+// selected.
+function ExportDropdown({
+  cameraId,
+  limit,
+  lang,
+  apiUrl,
+  t,
+}: {
+  cameraId: string;
+  limit: '1000' | '5000' | '10000' | 'all';
+  lang: string;
+  apiUrl: string;
+  t: (k: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const trigger = (format: 'csv' | 'pdf') => {
+    setOpen(false);
+    if (!cameraId) return;
+    const params = new URLSearchParams({ cameraId, lang });
+    if (limit !== 'all') params.set('limit', limit);
+    window.location.href = `${apiUrl}/api/export/${format}?${params}`;
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        data-testid="export-dropdown-trigger"
+        disabled={!cameraId}
+        onClick={() => setOpen((v) => !v)}
+        className="px-3 py-2 inline-flex items-center gap-1.5 text-xs font-medium bg-surface-2/70 hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-ink-1 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <Download className="w-3.5 h-3.5" strokeWidth={1.5} />
+        {t('export.button')}
+        <ChevronDown className="w-3 h-3" strokeWidth={1.5} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-30 surface-card rounded-xl border border-white/[0.08] py-1 min-w-[120px] shadow-xl">
+          <button
+            type="button"
+            data-testid="export-csv"
+            onClick={() => trigger('csv')}
+            className="w-full text-left px-3 py-2 text-xs text-ink-1 hover:bg-white/[0.06]"
+          >
+            {t('export.csv')}
+          </button>
+          <button
+            type="button"
+            data-testid="export-pdf"
+            onClick={() => trigger('pdf')}
+            className="w-full text-left px-3 py-2 text-xs text-ink-1 hover:bg-white/[0.06]"
+          >
+            {t('export.pdf')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AnalyticsPage() {
   const { t, lang } = useLanguage();
   // Yan #38: dateRange now lives in DashboardFilterContext + localStorage so
@@ -401,8 +474,7 @@ export default function AnalyticsPage() {
               );
             })}
           </div>
-          {/* Yan #43: export row-cap selector. Persists per-tab session only;
-              the export dropdown (Yan #55) reads this directly. */}
+          {/* Yan #43: export row-cap selector. */}
           <select
             data-testid="export-limit-select"
             value={exportLimit}
@@ -415,6 +487,16 @@ export default function AnalyticsPage() {
             <option value="10000">{t('export.limit.10000')}</option>
             <option value="all">{t('export.limit.all')}</option>
           </select>
+          {/* Yan #55: Export CSV/PDF dropdown. Reads exportLimit + selectedCamera
+              + lang and triggers a browser download via window.location.href.
+              No portal lib — single useState toggles a small absolute panel. */}
+          <ExportDropdown
+            cameraId={cameraId}
+            limit={exportLimit}
+            lang={lang}
+            apiUrl={API_URL}
+            t={t}
+          />
           <button
             onClick={() => { if (cameraId) { loadOverview(cameraId, range); loadAI(cameraId); } }}
             disabled={loading}
