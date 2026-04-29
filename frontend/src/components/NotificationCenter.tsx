@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useDashboardFilter } from '../contexts/DashboardFilterContext';
+import { makeTimeAgo } from '../lib/relativeTime';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -25,20 +26,8 @@ const WS_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function makeTimeAgo(t: (key: string, vars?: Record<string, string | number>) => string) {
-  return (dateStr: string): string => {
-    const now = new Date();
-    const date = new Date(dateStr);
-    const diffMs = now.getTime() - date.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return t('common.justNow');
-    if (diffMin < 60) return t('common.minutesAgo', { n: diffMin });
-    const diffHour = Math.floor(diffMin / 60);
-    if (diffHour < 24) return t('common.hoursAgo', { n: diffHour });
-    const diffDay = Math.floor(diffHour / 24);
-    return t('common.daysAgo', { n: diffDay });
-  };
-}
+// makeTimeAgo lives in lib/relativeTime.ts (Faz 8) so AnalyticsPage Insights
+// cards reuse the same logic. Re-imported below.
 
 const SEVERITY_STYLES: Record<string, { icon: any; bg: string; text: string; ring: string }> = {
   critical: { icon: AlertCircle, bg: 'bg-danger-500/10', text: 'text-danger-400', ring: 'ring-danger-500/30' },
