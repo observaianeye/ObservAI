@@ -73,8 +73,11 @@ Kullanici 11 maddelik kapsamli sistem raporu verdi (ekran ekran gezdi, ag loglar
 
 **Sonuc:** Yan #31 + #39 (Faz 7'den DEFER edilen 2 HIGH yan) closed. 4 design polish batch (echarts, api/errors, markdownLite, relativeTime) infra/util commit'lendi; full UX rework (Settings UI grid + InsightCard component) Faz 9'a hand-off (Magic MCP ile brainstorming gerektirir). Yan #37 leak probe 6. kez 0.
 
-## Faz 9 — Doc-only buffer + final release prep (IN PROGRESS 2026-04-29)
-**Durum:** IN PROGRESS
+## Faz 9 — Doc-only buffer + final release prep (DONE 2026-04-29)
+**Durum:** DONE
+**Branch:** partal_test → main (PR draft ready, gh CLI auth user-pending)
+**Release:** v1.0.0
+**Vitest:** 114 PASS / 6 expected FAIL | **TS:** BE/FE 0 error | **Yan #37 leak:** 0 (8. session)
 **Kapsam (orijinal Faz 9):**
 - #20 MiroFish doc ✓, #21 test fixture aspirational note ✓, #58 CLAUDE.md telegram cleanup ✓
 - #60 staffing AI summary karar (option B doc cleanup) ✓
