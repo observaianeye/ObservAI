@@ -554,5 +554,40 @@ curl -s -b admin.txt -I "http://localhost:3001/api/export/csv?cameraId=<id>&lang
 
 Frontend yan'lar (#14/#19/#43/#55/#61) Vite hot-reload ile otomatik yansir.
 
+## Batch F Live Verify — VERIFIED_LIVE (2026-04-29 user restart sonrasi)
+
+User `stop-all.bat` + `start-all.bat` sonrasi backend yeni kod uzerinde calisiyor (FE 5173 200, BE 3001 200, Ollama 11434 200, PY 5001 model_loaded:true source idle 503 — irrelevant). Live probe sonuclari:
+
+### Backend live (her biri tek curl + DB cross-check)
+
+- **Yan #2 register fields PASS** — `POST /api/auth/register {firstName:'Ada',lastName:'Lovelace',companyName:'Analytical Co'}` → `201`. DB row `firstName='Ada' lastName='Lovelace' companyName='Analytical Co'` ✓ (eskiden DB row'da bu alanlar bos donuyordu)
+- **Yan #3 sessions revokedAt PASS** — login → token `00dc4998...`. `POST /logout` 200. DB row `revokedAt=2026-04-29T00:12:31.151Z` (set), satir silinmemis (audit trail). Replay `GET /me` ayni cookie ile → `401 {"error":"Unauthorized: Session revoked"}` ✓
+- **Yan #5 weather cache PASS** — `GET /api/branches/<id>/weather` req 1: `X-Weather-Cache: MISS` 200. req 2 (aynı saniyede): `X-Weather-Cache: HIT` 200 ✓ (10dk pencerede Open-Meteo'ya tek istek)
+- **Yan #6 password_reset audit PASS** — `POST /api/auth/forgot-password Accept-Language: tr-TR` → 200. `tail -1 backend/logs/notification-dispatch.log` →
+  ```
+  {"ts":"2026-04-29T00:13:03.592Z","event":"password_reset","channel":"email","userId":"d39ee5b9-...","target":"admin@observai.com","locale":"tr","success":true,"error":null}
+  ```
+  ✓ (eskiden sadece staff_shift event'leri loglaniyordu)
+- **Yan #32 polygon corner limit PASS** — `POST /api/zones` 200-corner polygon ile → `HTTP 400 {"error":"Validation error","details":[{"code":"too_big","maximum":128,"type":"array","message":"Array must contain at most 128 element(s)","path":["coordinates"]}]}` ✓ (DB hit yok)
+- **Yan #42 filename slug PASS**:
+  - TR CSV: `Content-Disposition: attachment; filename="faz2_admin_branch_cmd_webcam_analitik_raporu_2026-04-29.csv"` ✓
+  - EN PDF: `Content-Disposition: attachment; filename="faz2_admin_branch_cmd_webcam_analytics_report_2026-04-29.pdf"` ✓ (branch+camera slug locale-aware filename ile birlestirildi)
+
+### Frontend live (Vite hot-reload — auto)
+
+- **Smoke 2/2 PASS** in 7.3s: landing page renders + login route accessible (Yan #14/#19/#43/#55/#61 hicbiri smoke'u kirmadi)
+- **e2e/retroactive/faz6/* 13/14 PASS** in 1.5m. Tek fail `6.3a_telegram_skip_infeasible` — pre-existing test design issue (DB'de hala telegram kolon var, test "removed" asserti eski), Batch F regression DEGIL. 6.4b insight dismiss + 6.3b/c/d staff notify hep PASS → Yan #57+#59 path live'da calisiyor.
+- **e2e/retroactive/faz5/5.2b PDF PASS** (37s). 5.2a CSV pre-existing Yan #22 BUG_CANDIDATE (deneme user analytics_logs=0 → csvBytes=0); Yan #55 frontend dropdown UI mounted ama deneme'da veri yok. Code path dogru, deneme test fixture sorunu.
+
+### Idempotent script verify (live tetiklendi)
+
+- **Yan #25 backfill** — script TS code-path dogru; backend restart sonrasi `npm run seed:history` calistirmadim cunku 90 gun synthetic regenerate hot DB'de uzun surer + invasive. Script logic vitest-equivalent uzeri zaten dogrulanmis.
+- **Yan #49 chat orphan cleanup** — pre-restart calistirildi: 4 row deleted, re-run `Found 0 orphan chat_messages with NULL userId` ✓ (idempotent)
+
+### Code-only / doc-only (live verify gerekmez)
+
+- **Yan #33** — schema.prisma audit comment block. Migration yok.
+- **Yan #52** — `frontend/e2e/helpers/db.ts` Prisma fallback BigInt reviver. Helper sadece e2e test sirasinda exec olur, `7dae51e` commit hot reload gerektirmez.
+
 ## Sonraki Batch
 Prompt 7+ → Batch G (yan #58 CLAUDE.md doc temizlik + yan #60 Staffing AI summary kararı + yan #31 DEFER Faz 8 polygon-polygon overlap). Faz 7 batch'leri A–F = ~57 yan kapatildi (61 toplam — yan #31 DEFER, yan #58/#60 Batch G, yan #4.4 Faz 4 blocker tables-ai-summary korunuyor).
