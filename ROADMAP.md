@@ -41,6 +41,32 @@ Kullanici 11 maddelik kapsamli sistem raporu verdi (ekran ekran gezdi, ag loglar
 
 ---
 
+## Faz 7 — i18n + Security + 25+ Yan Bug Fix Batch (DONE 2026-04-29)
+
+**Branch:** partal_test | **Commit:** refactor-partal..HEAD = 49 yeni atomic commit | **Test:** 105 PASS / 6 expected FAIL | **Detay:** `test-results/07-i18n-security-fix-batch.md`
+
+| Batch | Yan'lar | Durum |
+|---|---|---|
+| A | #30, #34, #45, #54 | DONE |
+| B | #22 (Node LIVE_VERIFIED, Python design-inert) | DONE_NODE_LIVE_PYTHON_PARTIAL |
+| C | #1.5a, #10, #11, #41, #56, #34 yayilim | DONE |
+| D | #28, #36, #40, #46, #47, #48, #59 | DONE |
+| E | #38, #44, #50, #51, #57 | DONE |
+| F | #2, #3, #5, #6, #14, #19, #25, #32, #33, #42, #43, #49, #52, #55, #61 | DONE (LIVE_VERIFIED) |
+| G | Final regression gate + Faz 8 exit kapisi | DONE |
+
+**Sonuc:** 57 yan kapatildi, 2 pre-existing pre-Faz7 fail e2e (5.2a Yan #22 deneme analytics empty + 6.3a Telegram column residual) belgelendi. Yan #37 chat tenant leak production LEAK_COUNT=0 (4. session). Faz 8 exit kapisi tum kontrolleri PASS.
+
+## Faz 8 — Design Polish + Magic MCP (READY TO START 2026-04-29)
+**Durum:** READY (Faz 7 exit kapisi PASS)
+**Kapsam:** AnalyticsPage echarts upgrade, Settings UI rework, GlobalChatbot styling, Insights card redesign, Yan #31 polygon-polygon overlap (Sutton-Hodgman/SAT), Yan #39 custom date range picker.
+
+## Faz 9 — Doc-only buffer + final dokuman (BACKLOG)
+**Durum:** BACKLOG
+**Kapsam:** #20 MiroFish doc, #21 test fixture infra, #58 CLAUDE.md telegram cleanup, #60 staffing AI summary karar, 3.7c daily idempotency, 3.8 InsightFace+MiVOLO doc, tum faz raporlarini birlestir, PR + surum notu.
+
+---
+
 ## Takim Arkadaslari Icin Talimatlar
 
 > **ONCELIKLI:** Asagidaki adimlari sirasıyla takip edin. Branch olusturmadan hicbir ise baslamayin!

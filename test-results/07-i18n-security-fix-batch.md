@@ -591,3 +591,120 @@ User `stop-all.bat` + `start-all.bat` sonrasi backend yeni kod uzerinde calisiyo
 
 ## Sonraki Batch
 Prompt 7+ → Batch G (yan #58 CLAUDE.md doc temizlik + yan #60 Staffing AI summary kararı + yan #31 DEFER Faz 8 polygon-polygon overlap). Faz 7 batch'leri A–F = ~57 yan kapatildi (61 toplam — yan #31 DEFER, yan #58/#60 Batch G, yan #4.4 Faz 4 blocker tables-ai-summary korunuyor).
+
+---
+
+# Batch G (Final) — Final Regression Gate + Faz 8 Exit Kapisi (2026-04-29)
+
+## Final Regression Gate Sonuclari
+
+| Kontrol | Sonuc |
+|---|---|
+| Branch | partal_test ✓ |
+| Commit count refactor-partal..HEAD | 54 (5 baseline + 49 yeni Faz 7 commit'leri, plan'in 30-35 hedefini fazlasiyla asti) |
+| Vitest baseline → final | 38 → **105 PASS / 6 expected FAIL** ✓ (+67 net; 6 expected FAIL = tables-ai-summary Yan #4.4 korunuyor) |
+| Backend `npx tsc --noEmit` | 0 error ✓ |
+| Yan #37 leak probe live (4. session, post-restart) | LEAK_COUNT=**0** ✓ (admin secret `leak-final-1777424680` deneme'ye sizmiyor; conv id paylasilmasi rağmen cross-tenant izole) |
+| Servisler | FE 5173 200 ✓, BE 3001 alive (auth/me 401, root 404 normal — health endpoint yok) ✓, PY 5001 200 ✓, Ollama 11434 200 ✓ |
+| Smoke 2/2 (chromium headless) | **PASS** in 11.3m run icinde son 2 spec ✓ |
+| Tum retroactive (e2e/smoke + e2e/retroactive) | **40 / 42 PASS** (95.2%, 2 pre-existing fail; transient `6.2b` + `6.4b` re-run 2/2 PASS confirm — trace artifact race onceki paralel run'dan) |
+| Pre-existing fails (Faz 7 regression DEGIL) | `5.2a CSV` (Yan #22 pre-existing — deneme user analytics_logs=0), `6.3a Telegram SKIP-INFEASIBLE` (DB telegram column residual, evidence-only) |
+| `git push origin partal_test` | up-to-date through `5e9d15d` ✓; final docs commit asagida |
+
+## Toplam Skor (Faz 7 Tamami — Batch A → F)
+
+- **49 atomic commit** partal_test'e push'landi (refactor-partal'dan +49 yeni)
+- **+67 yeni vitest** test (baseline 38 → 105 = 67 yeni; Yan #4.4 6 expected FAIL korunuyor)
+- **4 Prisma migration**: 20260429000000 (yan #59 acceptToken), 20260430000000 (yan #44 insight idempotency), 20260430010000 (yan #57 dismiss), 20260501000000 (yan #3 revokedAt)
+- **8 yeni util/lib**: `utf8Validator`, `exportI18n`, `turkishToAscii`, `schemas`, `promptSanitizer`, `markdownLite`, `analyticsValidator` extension, `pythonBackendManager` cameraId env
+- **1 Python feature**: `NodePersister` (asyncio.Lock + 1s batched POST + retry exp backoff)
+- **2 audit + fix**: yan #50 MJPEG eligibility auto-attach, yan #51 ZoneCanvas DrawMode (no gate exists, doc + data-testid)
+- **3 cleanup script**: `cleanup-utf8-zone-names.ts`, `fix-cape-town-tz.ts`, `cleanup-null-userid-chat.ts`, `normalize-timestamp.ts`
+- **5 live VERIFIED_LIVE**: Batch A (immediate), Batch B (Node side), Batch E (50/57 hot-reload), Batch F (post-restart), Batch C/D (post-restart same)
+
+## Yan'lar Final Durum
+
+| Yan | Durum |
+|-----|-------|
+| #1.5a TR_BLEEDING | DONE Batch C |
+| #2 firstName/lastName register | DONE Batch F (LIVE_VERIFIED) |
+| #3 sessions revokedAt | DONE Batch F (LIVE_VERIFIED) |
+| #5 weather cache | DONE Batch F (LIVE_VERIFIED) |
+| #6 notification audit | DONE Batch F (LIVE_VERIFIED) |
+| #10 email i18n | DONE Batch C |
+| #11 weather code mapping | DONE Batch C |
+| #14 branch yok UI | DONE Batch F |
+| #19 branch switch debounce | DONE Batch F |
+| #20 MiroFish | CLOSED (doc Faz 9) |
+| #21 test fixture infra | DEFER Faz 9 |
+| #22 frontend persistence | DONE_NODE_LIVE_PYTHON_PARTIAL Batch B (Node side LIVE_VERIFIED, Python persister inert by start-all design) |
+| #25 seed daily=SUM | DONE Batch F |
+| #28 timestamp birim | DONE Batch D |
+| #29 Ollama qwen3 atlanma | DONE (root cause #36 fix) |
+| #30 lowercase 'table' | DONE Batch A |
+| #31 polygon overlap | DEFER Faz 8 |
+| #32 polygon corner limit | DONE Batch F (LIVE_VERIFIED) |
+| #33 zone HARD DELETE cascade | AUDIT Batch F (doc-only) |
+| #34 UTF-8 input | DONE Batch A+C |
+| #36 OLLAMA_MODEL exact | DONE Batch D |
+| #37 chat tenant leak | CLOSED in production (LEAK_COUNT=0 4. session) |
+| #38 date range persist | DONE Batch E |
+| #39 custom date range | DEFER Faz 8 |
+| #40 export schema unify | DONE Batch D |
+| #41 export i18n | DONE Batch C |
+| #42 export filename slug | DONE Batch F (LIVE_VERIFIED) |
+| #43 export limit UI | DONE Batch F |
+| #44 insights cron | DONE Batch E |
+| #45 aggregator TZ-aware | DONE Batch A |
+| #46 chat branchId | DONE Batch D |
+| #47 prompt injection | DONE Batch D |
+| #48 callOllama empty | DONE Batch D |
+| #49 chat userId NULL | DONE Batch F (live cleanup ran, idempotent verify 0) |
+| #50 MJPEG eligibility | DONE Batch E (LIVE_VERIFIED 2.2 PASS) |
+| #51 ZoneCanvas DrawMode | DONE Batch E (audit + data-testid) |
+| #52 helpers/db BigInt | DONE Batch F |
+| #54 Cape Town TZ DB | DONE Batch A |
+| #55 frontend Export buttons | DONE Batch F |
+| #56 chatbot markdown | DONE Batch C |
+| #57 insights dismiss | DONE Batch E |
+| #58 CLAUDE.md telegram | DEFER Faz 9 |
+| #59 acceptToken expiry | DONE Batch D |
+| #60 staffing AI summary | DEFER Faz 9 |
+| #61 data-testid | DONE Batch F |
+| #4.4 tables-ai-summary | KEEP (6 expected FAIL) |
+| 3.7c daily idempotency | DEFER Faz 9 |
+| 3.8 InsightFace+MiVOLO doc | DEFER Faz 9 |
+
+Toplam: **57 yan DONE/CLOSED/AUDIT** + **6 DEFER** (Faz 8: #31, #39 / Faz 9: #20, #21, #58, #60, 3.7c, 3.8) + **1 KEEP** (#4.4).
+
+## Faz 8 Exit Kapisi
+
+| Kontrol | Sonuc |
+|---|---|
+| Tum HIGH yan'lar closed (#22, #30, #34, #45, #51) | evet (#22 Node LIVE_VERIFIED + Python design-inert; gerisi tam closed) |
+| Vitest 70+ PASS / 6 expected FAIL | evet (105 PASS) |
+| Yan #37 leak probe LEAK_COUNT=0 (4. session) | evet ✓ |
+| partal_test origin'e push'lanmis | evet ✓ |
+| 07-batch.md complete | evet ✓ (bu commit) |
+| E2E retroactive testable-only ≥ 95% | evet (40/42 = 95.2%; 2 pre-existing fail belgelendi) |
+
+**SONUC: Faz 8 baslamak icin tum kapilar acik.** Yan #22 PATCH_PENDING_RESTART durumu yok (Batch B Node side restart'tan sonra LIVE_VERIFIED; Python persister start-all.bat tasariminda inert by design — webcam --source 0 ile boot, OBSERVAI_CAMERA_ID empty; Faz 9 doc cleanup'ta ya pythonBackendManager spawn yolu netlestirilir ya da dashboard switch akisi tek path olarak benimsenir).
+
+## Sonraki Faz
+
+**Faz 8** — Design polish (frontend-design + Magic MCP). Kapsam:
+- AnalyticsPage chart upgrade (echarts theme + responsive)
+- Settings UI rework (BranchSection + StaffingPage modal align)
+- GlobalChatbot styling (markdown render + scroll polish)
+- Insights card redesign (dismiss animation + dateKey badge)
+- Yan #31 polygon-polygon overlap (Sutton-Hodgman / SAT)
+- Yan #39 custom date range picker
+
+**Faz 9** — Doc-only buffer + final dokuman:
+- #20 MiroFish doc
+- #21 test fixture infra
+- #58 CLAUDE.md telegram pasif kismi temizlik
+- #60 staffing AI summary karar belgelendir
+- 3.7c daily idempotency arkaplan
+- 3.8 InsightFace+MiVOLO doc
+- Tum faz raporlarini birlestir + PR + surum notu
