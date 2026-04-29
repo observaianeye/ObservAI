@@ -572,12 +572,17 @@ function parseRecommendations(text: string): string[] {
 /**
  * Generate AI-powered recommendations.
  * Priority: Ollama (primary) -> Gemini (fallback) -> Demo recommendations
+ *
+ * Issue #5: a force-refresh nonce defeats Ollama's silent prompt cache so
+ * clicking the refresh button actually rolls new wording. Higher temperature
+ * (0.7 vs the chat default 0.4) also widens the variety knob.
  */
-export async function getAIRecommendations(cameraId?: string): Promise<string[]> {
+export async function getAIRecommendations(cameraId?: string, opts?: { force?: boolean }): Promise<string[]> {
   try {
     const { contextStr, totalVisitors, avgOccupancy, demographics } =
       await buildRecommendationContext(cameraId);
 
+    const nonce = opts?.force ? `\n# nonce ${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : '';
     const prompt = `You are an AI analytics advisor for ObservAI, a real-time visitor analytics platform for cafes and restaurants.
 
 Based on the following analytics data, provide exactly 5 actionable business recommendations.
@@ -587,7 +592,7 @@ LANGUAGE RULE:
 - Write recommendations in BOTH Turkish and English format.
 - Format each recommendation as: "TR: <Turkish> | EN: <English>"
 
-${contextStr}
+${contextStr}${nonce}
 
 Format: Return ONLY a JSON array of 5 strings, each a concise recommendation (1-2 sentences).
 Example: ["TR: Yogun saatlerde 2 ek personel ayin. | EN: Assign 2 additional staff during peak hours.", ...]
@@ -599,7 +604,7 @@ Recommendations:`;
     // --- Try Ollama first (primary provider) ---
     if (AI_PROVIDER === 'ollama') {
       try {
-        const { response: aiResponse, model } = await callOllama(prompt);
+        const { response: aiResponse, model } = await callOllama(prompt, { temperature: 0.7, maxTokens: 1024 });
         console.log(`[InsightEngine] Ollama recommendation generated via ${model}`);
         const recs = parseRecommendations(aiResponse);
         if (recs.length > 0) return recs;
@@ -888,6 +893,9 @@ export async function saveInsights(insights: InsightResult[]): Promise<number> {
 /**
  * Generate insights for a camera and persist them.
  * This is the main entry point for on-demand insight generation.
+ *
+ * Issue #6: insight set rebalanced so notifications page shows variety
+ * instead of the same demographic blurb every cron tick.
  */
 export async function generateInsights(cameraId: string): Promise<{
   alerts: InsightResult[];
@@ -903,11 +911,15 @@ export async function generateInsights(cameraId: string): Promise<{
   dayStart.setHours(0, 0, 0, 0);
   const trends = await analyzeTrends(cameraId, dayStart, now);
 
-  // Generate trend-based insights
+  // Pull yesterday's window for delta-based insights.
+  const yesterdayStart = new Date(dayStart);
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+  const yesterdayTrends = await analyzeTrends(cameraId, yesterdayStart, dayStart);
+
+  // ── Peak hour approaching ──
   if (trends.peakHours.length > 0) {
     const peakHour = trends.peakHours[0];
     const currentHour = now.getHours();
-    // Alert if approaching peak hour (1 hour before)
     if (currentHour === peakHour.hour - 1) {
       alerts.push({
         type: 'trend',
@@ -921,19 +933,80 @@ export async function generateInsights(cameraId: string): Promise<{
     }
   }
 
-  // Demographic trend insight
-  if (trends.demographicProfile) {
-    const dp = trends.demographicProfile;
+  // ── Demographic shift (only fire when dominant gender flipped vs yesterday) ──
+  if (trends.demographicProfile && yesterdayTrends.demographicProfile) {
+    const today = trends.demographicProfile;
+    const yest = yesterdayTrends.demographicProfile;
+    const dominantChanged = today.dominantGender !== yest.dominantGender ||
+      today.dominantAgeGroup !== yest.dominantAgeGroup;
+    if (dominantChanged) {
+      alerts.push({
+        type: 'demographic_trend',
+        severity: 'low',
+        title: 'Demographic Shift Detected',
+        message: `Dominant visitor profile shifted from ${yest.dominantGender}/${yest.dominantAgeGroup} ` +
+          `to ${today.dominantGender}/${today.dominantAgeGroup}. ` +
+          `Today gender split: ${JSON.stringify(today.genderDistribution)}.`,
+        cameraId,
+        context: {
+          fromGender: yest.dominantGender,
+          toGender: today.dominantGender,
+          fromAge: yest.dominantAgeGroup,
+          toAge: today.dominantAgeGroup,
+          ...today,
+        },
+      });
+    }
+  } else if (trends.demographicProfile && !yesterdayTrends.demographicProfile) {
+    // First-day case — keep one log so the notifications page isn't empty,
+    // but mark it so we don't re-fire daily.
     alerts.push({
       type: 'demographic_trend',
       severity: 'low',
-      title: 'Demographic Profile Update',
-      message: `Today's dominant visitor profile: ${dp.dominantGender}, ${dp.dominantAgeGroup}. ` +
-        `Gender split: ${JSON.stringify(dp.genderDistribution)}.`,
+      title: 'Demographic Profile (Initial)',
+      message: `Today's dominant visitor profile: ${trends.demographicProfile.dominantGender}, ${trends.demographicProfile.dominantAgeGroup}.`,
       cameraId,
-      context: { ...dp },
+      context: { ...trends.demographicProfile, firstSnapshot: true },
     });
   }
+
+  // ── Visitor delta vs yesterday ──
+  const baseline = yesterdayTrends.totalVisitors;
+  const todayCount = trends.totalVisitors;
+  if (baseline > 0 && todayCount > 0) {
+    const deltaPct = Math.round(((todayCount - baseline) / baseline) * 100);
+    if (Math.abs(deltaPct) >= 30) {
+      alerts.push({
+        type: 'trend',
+        severity: Math.abs(deltaPct) >= 60 ? 'high' : 'medium',
+        title: deltaPct > 0 ? 'Visitor Surge vs Yesterday' : 'Visitor Drop vs Yesterday',
+        message: `Today's visitor count (${todayCount}) is ${deltaPct > 0 ? '+' : ''}${deltaPct}% versus yesterday's ${baseline}. ` +
+          `${deltaPct > 0 ? 'Consider extending peak staffing.' : 'Investigate marketing or schedule a promo.'}`,
+        cameraId,
+        context: { todayCount, baseline, deltaPct },
+      });
+    }
+  }
+
+  // ── Engine data gap (no logs in last 30 minutes during business hours) ──
+  try {
+    const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000);
+    const recentSamples = await prisma.analyticsLog.count({
+      where: { cameraId, timestamp: { gte: thirtyMinAgo } },
+    });
+    const businessHour = now.getHours() >= 8 && now.getHours() < 23;
+    if (businessHour && recentSamples === 0) {
+      alerts.push({
+        type: 'system_alert',
+        severity: 'high',
+        title: 'Analytics Engine Offline',
+        message: `No analytics samples received in the last 30 minutes during business hours. ` +
+          `Check Python pipeline / camera connection.`,
+        cameraId,
+        context: { lastSampleWithin: 'none_30m', businessHour: true },
+      });
+    }
+  } catch { /* skip if DB hiccup */ }
 
   // Save all alerts to DB
   const saved = await saveInsights(alerts);

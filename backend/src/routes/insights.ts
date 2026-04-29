@@ -220,10 +220,13 @@ router.get('/trends/:cameraId', authenticate, requireCameraOwnership('cameraId')
 router.get('/recommendations', authenticate, async (req: Request, res: Response) => {
   try {
     const cameraId = req.query.cameraId as string | undefined;
+    // Issue #5: ?force=true bypasses Ollama's prompt-cache so the user actually
+    // gets fresh recommendations when clicking the refresh button.
+    const force = req.query.force === 'true' || req.query.force === '1';
     if (cameraId && !(await userOwnsCamera(req.user.id, cameraId))) {
       return res.status(404).json({ error: 'Camera not found' });
     }
-    const recommendations = await getAIRecommendations(cameraId);
+    const recommendations = await getAIRecommendations(cameraId, { force });
 
     // Determine which AI source was used
     const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama';

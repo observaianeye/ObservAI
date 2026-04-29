@@ -306,15 +306,19 @@ export default function AnalyticsPage() {
     }
   }, []);
 
-  const loadAI = useCallback(async (camId: string) => {
+  const loadAI = useCallback(async (camId: string, force = false) => {
     if (aiAbortRef.current) aiAbortRef.current.abort();
     const ctrl = new AbortController();
     aiAbortRef.current = ctrl;
     setAiLoading(true);
     try {
+      // Issue #5: forward force=true on the user-triggered refresh so the
+      // backend defeats Ollama's prompt cache and rolls new wording.
+      const summaryQs = force ? `?cameraId=${camId}&force=true` : `?cameraId=${camId}`;
+      const recsQs = force ? `?cameraId=${camId}&force=true` : `?cameraId=${camId}`;
       const [summaryRes, recsRes] = await Promise.allSettled([
-        fetch(`${API_URL}/api/insights/summary?cameraId=${camId}`, { credentials: 'include', signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
-        fetch(`${API_URL}/api/insights/recommendations?cameraId=${camId}`, { credentials: 'include', signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_URL}/api/insights/summary${summaryQs}`, { credentials: 'include', signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
+        fetch(`${API_URL}/api/insights/recommendations${recsQs}`, { credentials: 'include', signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
       ]);
       if (summaryRes.status === 'fulfilled' && summaryRes.value) {
         setAiSummary({ tr: summaryRes.value.tr, en: summaryRes.value.en, source: summaryRes.value.source });
@@ -546,7 +550,7 @@ export default function AnalyticsPage() {
             t={t}
           />
           <button
-            onClick={() => { if (cameraId) { loadOverview(cameraId, range, customRange); loadAI(cameraId); } }}
+            onClick={() => { if (cameraId) { loadOverview(cameraId, range, customRange); loadAI(cameraId, true); } }}
             disabled={loading}
             className="p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.06] rounded-xl transition-colors border border-white/[0.08]"
             title={t('common.refresh')}
