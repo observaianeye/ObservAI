@@ -51,7 +51,7 @@ git pull origin main
 | Frontend | 5173 | React 18 + Vite + TypeScript |
 | Backend API | 3001 | Express + Prisma + TypeScript |
 | Python Analytics | 5001 | YOLO11L (kisi) + InsightFace (yuz tespiti) + MiVOLO (yas/cinsiyet) + WebSocket |
-| Ollama AI | 11434 | Yerel LLM (qwen3:14b primary / llama3.1:8b fallback) |
+| Ollama AI | 11434 | Yerel LLM (qwen2.5:14b-8k primary / llama3.1:8b-8k fallback — Faz 10 Bug #8) |
 
 ## Baslatma / Durdurma (Windows)
 
@@ -274,7 +274,8 @@ Backend'te server-side validation ile guvenlik agi saglanir.
 ### AI Entegrasyonu (Ollama + Gemini fallback)
 - Tek kaynakta yonetilir: `backend/src/lib/aiConfig.ts` — `routes/ai.ts` ve `services/insightEngine.ts` ayni listeyi kullanir
 - Varsayilan saglayici: Ollama (local, http://localhost:11434)
-- Ollama oncelik: qwen3:14b → qwen3 → llama3.3:latest → llama3.3 → llama3.2:latest → llama3.2 → qwen2.5:7b → qwen2.5 → llama3.1:8b → llama3:8b → gemma2 → mistral → phi3 → qwen2
+- Ollama oncelik (Faz 10 Bug #8 sonrasi): qwen2.5:14b-8k → qwen2.5:14b → qwen2.5 → qwen3:14b → qwen3 → llama3.3 → llama3.2 → qwen2.5:7b → llama3.1:8b-8k → llama3.1:8b → llama3:8b → gemma2 → mistral → phi3 → qwen2 → gemma4:26b
+- Primary qwen3:14b -> qwen2.5:14b-8k degisiminin sebebi: qwen2.5:14b-8k anti-hallucination prompt'unu (snapshot.currentCount kurali) sayisal Turkce sorularda daha sadik takip ediyor; 8k context tag prompt LIVE+AGGREGATE blogunun truncate olmasini engelliyor.
 - `OLLAMA_MODEL` env ile override
 - `OLLAMA_TIMEOUT_MS` (default 60000) — AbortController ile istek zaman asimi
 - Gemini candidates (fallback): gemini-2.5-flash → gemini-2.0-flash-001 → gemini-2.0-flash-lite

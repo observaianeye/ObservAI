@@ -23,8 +23,12 @@ describe('aiConfig — GEMINI_MODEL_CANDIDATES', () => {
 });
 
 describe('aiConfig — OLLAMA_MODEL_PRIORITY', () => {
-  it('leads with qwen3:14b (primary per ADIM 11 + Stage 6)', () => {
-    expect(OLLAMA_MODEL_PRIORITY[0]).toBe('qwen3:14b');
+  it('leads with qwen2.5:14b-8k (primary per Faz 10 Bug #8 — anti-hallucination grounding)', () => {
+    expect(OLLAMA_MODEL_PRIORITY[0]).toBe('qwen2.5:14b-8k');
+  });
+
+  it('keeps qwen3:14b in the list as a fallback (legacy installs from earlier Faz iterations)', () => {
+    expect(OLLAMA_MODEL_PRIORITY).toContain('qwen3:14b');
   });
 
   it('includes llama3.1:8b as fallback', () => {

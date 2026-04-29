@@ -723,96 +723,85 @@ async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): 
     // Get recent analytics logs (last 100 entries)
     const logs = await prisma.analyticsLog.findMany({
       where,
-      orderBy: {
-        timestamp: 'desc'
-      },
+      orderBy: { timestamp: 'desc' },
       take: 100,
-      include: {
-        camera: {
-          select: {
-            id: true,
-            name: true,
-            sourceType: true
-          }
-        }
-      }
+      include: { camera: { select: { id: true, name: true, sourceType: true } } },
     });
 
     if (logs.length === 0) {
-      return 'No recent analytics data available.';
+      return 'NO_REAL_DATA: Analitik kayit bulunamadi. Kullaniciya "elimde gercek veri yok, kamera baglandiktan sonra tekrar sor" de.';
     }
 
-    // Calculate summary statistics
+    // Issue #8: REAL-TIME data (latest log) goes FIRST so the model anchors
+    // its "current/şu anki" answers to actual values, not the rolling avg.
+    const latestLog = logs[0];
+    const latestAgeSec = Math.max(0, Math.round((Date.now() - latestLog.timestamp.getTime()) / 1000));
+    const latestStale = latestAgeSec > 120; // >2min = engine likely stopped
+
+    // Live current count from the Python WebSocket /health if available — this
+    // is the absolute ground truth (what the camera sees right now). Fall back
+    // to latestLog.currentCount when offline.
+    let livePeopleCount: number | null = null;
+    let liveSource = 'analytics_log_latest';
+    try {
+      const pyUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:5001';
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 1500);
+      const r = await fetch(`${pyUrl}/health`, { signal: ctrl.signal }).catch(() => null);
+      clearTimeout(timer);
+      if (r && r.ok) {
+        const h: any = await r.json().catch(() => null);
+        if (h && typeof h.current_count === 'number') {
+          livePeopleCount = h.current_count;
+          liveSource = 'python_live_health';
+        }
+      }
+    } catch { /* python offline */ }
+    if (livePeopleCount === null) livePeopleCount = latestLog.currentCount;
+
+    // Latest demographics for "şu anki" demographic queries.
+    let latestGenderJson = '';
+    let latestAgeJson = '';
+    try {
+      const d = latestLog.demographics ? JSON.parse(latestLog.demographics as any) : null;
+      if (d?.gender) latestGenderJson = JSON.stringify(d.gender);
+      if (d?.age) latestAgeJson = JSON.stringify(d.age);
+    } catch { /* skip */ }
+
+    // Aggregates over last 100 logs (~1-8h depending on poll cadence). Useful
+    // for "ortalama" / "son saatte" questions but EXPLICITLY labelled as such
+    // so the model doesn't conflate them with the live count.
     const totalPeopleIn = logs.reduce((sum, log) => sum + log.peopleIn, 0);
     const totalPeopleOut = logs.reduce((sum, log) => sum + log.peopleOut, 0);
     const avgCurrentCount = Math.round(
       logs.reduce((sum, log) => sum + log.currentCount, 0) / logs.length
     );
+    const peakCount = logs.reduce((m, l) => Math.max(m, l.currentCount), 0);
     const avgQueueCount = logs.filter(l => l.queueCount !== null).length > 0
       ? Math.round(
-        logs
-          .filter(l => l.queueCount !== null)
+        logs.filter(l => l.queueCount !== null)
           .reduce((sum, log) => sum + (log.queueCount || 0), 0) /
         logs.filter(l => l.queueCount !== null).length
       )
       : null;
     const avgWaitTime = logs.filter(l => l.avgWaitTime !== null).length > 0
       ? (
-        logs
-          .filter(l => l.avgWaitTime !== null)
+        logs.filter(l => l.avgWaitTime !== null)
           .reduce((sum, log) => sum + (log.avgWaitTime || 0), 0) /
         logs.filter(l => l.avgWaitTime !== null).length
       ).toFixed(1)
       : null;
 
-    // Extract demographics data
     const demographics = extractDemographics(logs);
-
-    // Get zone insights
     const zoneInsights = await getZoneInsights();
 
-    // Build structured context string
-    let context = '=== VENUE ANALYTICS DATA ===\n\n';
-
-    if (logs[0].camera) {
-      context += `| Field          | Value                    |\n`;
-      context += `|----------------|-------------------------|\n`;
-      context += `| Camera         | ${logs[0].camera.name}  |\n`;
-      context += `| Source Type    | ${logs[0].camera.sourceType} |\n`;
-      context += `| Time Range     | ${logs[logs.length - 1].timestamp.toISOString()} to ${logs[0].timestamp.toISOString()} |\n`;
-      context += `| Data Points    | ${logs.length}          |\n\n`;
-    } else {
-      context += `Time Range: ${logs[logs.length - 1].timestamp.toISOString()} to ${logs[0].timestamp.toISOString()}\n`;
-      context += `Data Points: ${logs.length}\n\n`;
-    }
-
-    context += '--- Traffic Summary ---\n';
-    context += `| Metric                 | Value       |\n`;
-    context += `|------------------------|------------|\n`;
-    context += `| Total People Entered   | ${totalPeopleIn}        |\n`;
-    context += `| Total People Exited    | ${totalPeopleOut}        |\n`;
-    context += `| Current Count (Avg)    | ${avgCurrentCount}       |\n`;
-    context += `| Net Traffic            | ${totalPeopleIn - totalPeopleOut} |\n`;
-    if (avgQueueCount !== null) {
-      context += `| Queue Count (Avg)      | ${avgQueueCount}        |\n`;
-    }
-    if (avgWaitTime !== null) {
-      context += `| Average Wait Time      | ${avgWaitTime} seconds  |\n`;
-    }
-    context += '\n';
-
-    if (demographics) {
-      context += `--- Demographics ---\n${demographics}\n`;
-    }
-
-    if (zoneInsights) {
-      context += `--- Zone Insights ---\n${zoneInsights}\n`;
-    }
-
-    // Hava durumu (Open-Meteo, ücretsiz, API key gerektirmiyor)
-    // Try to use branch coordinates if available, default to Ankara
+    // Weather pulled from the user's default branch (real, never "missing"
+    // unless the upstream API actually fails — in which case we prefix
+    // "WEATHER_UNAVAILABLE:" so the model sees it for what it is).
+    let weatherBlock = '';
     let weatherLat = 39.9334;
     let weatherLon = 32.8597;
+    let weatherCity = 'Ankara';
     try {
       const defaultBranch = await prisma.branch.findFirst({
         where: { isDefault: true },
@@ -821,9 +810,9 @@ async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): 
       if (defaultBranch) {
         weatherLat = defaultBranch.latitude;
         weatherLon = defaultBranch.longitude;
+        weatherCity = defaultBranch.city || weatherCity;
       }
     } catch { /* branch lookup optional */ }
-
     try {
       const weatherRes = await fetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${weatherLat}&longitude=${weatherLon}&current_weather=true&hourly=precipitation_probability&forecast_days=1`
@@ -838,29 +827,67 @@ async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): 
         };
         const desc = wmoDesc[cw.weathercode] || `Code ${cw.weathercode}`;
         const precipProb = weatherData.hourly?.precipitation_probability?.[new Date().getHours()] ?? null;
-        context += `\n--- Current Weather ---\n`;
-        context += `Temperature: ${cw.temperature}°C, ${desc}, Wind: ${cw.windspeed} km/h\n`;
-        if (precipProb !== null) context += `Rain Probability: ${precipProb}%\n`;
+        weatherBlock = `WEATHER (${weatherCity}): Temperature=${cw.temperature}°C, Conditions=${desc}, Wind=${cw.windspeed} km/h`;
+        if (precipProb !== null) weatherBlock += `, RainProbability=${precipProb}%`;
+      } else {
+        weatherBlock = 'WEATHER_UNAVAILABLE: hava durumu API yanit vermedi';
       }
-    } catch { /* hava durumu opsiyonel */ }
-
-    // Add latest snapshot data
-    const latestLog = logs[0];
-    context += `\n--- Latest Snapshot (${latestLog.timestamp.toISOString()}) ---\n`;
-    context += `People In: ${latestLog.peopleIn}\n`;
-    context += `People Out: ${latestLog.peopleOut}\n`;
-    context += `Current Count: ${latestLog.currentCount}\n`;
-    if (latestLog.queueCount !== null) {
-      context += `Queue Count: ${latestLog.queueCount}\n`;
+    } catch {
+      weatherBlock = 'WEATHER_UNAVAILABLE: hava durumu sorgusu basarisiz';
     }
-    if (latestLog.fps !== null) {
-      context += `FPS: ${latestLog.fps}\n`;
+
+    // Build the context string. Order matters: LIVE first, aggregates second,
+    // weather third, alerts last. Each section has a sentinel marker the model
+    // is instructed to anchor on.
+    //
+    // Issue #8: when liveSource is the analytics log (Python /health didn't
+    // expose a count) AND that log is stale, we deliberately mask the number
+    // so the model cannot quote a 78-hour-old "live" count as if it were now.
+    const liveValueIsTrustworthy = liveSource === 'python_live_health' || !latestStale;
+    let context = '';
+    context += '=== LIVE / REAL-TIME (use this for "su anki", "current", "right now" questions) ===\n';
+    context += `Camera: ${logs[0].camera?.name ?? 'unknown'}\n`;
+    context += `Source: ${liveSource}\n`;
+    if (liveValueIsTrustworthy) {
+      context += `LIVE_PEOPLE_COUNT: ${livePeopleCount}\n`;
+    } else {
+      context += `LIVE_PEOPLE_COUNT: UNAVAILABLE (engine offline ${latestAgeSec}s)\n`;
+    }
+    context += `Latest log timestamp: ${latestLog.timestamp.toISOString()} (${latestAgeSec}s ago${latestStale ? ', STALE' : ''})\n`;
+    if (liveValueIsTrustworthy) {
+      context += `Latest peopleIn: ${latestLog.peopleIn}, peopleOut: ${latestLog.peopleOut}\n`;
+      if (latestLog.queueCount !== null) context += `Latest queueCount: ${latestLog.queueCount}\n`;
+      if (latestGenderJson) context += `Latest gender split: ${latestGenderJson}\n`;
+      if (latestAgeJson) context += `Latest age buckets: ${latestAgeJson}\n`;
+    }
+    if (!liveValueIsTrustworthy) {
+      context += `STALE_MARKER: live engine has not produced a fresh sample in ${latestAgeSec}s (${Math.round(latestAgeSec/60)}min). For ANY "current/right now" question reply with "Canli motor su an offline; veriler ${Math.round(latestAgeSec/60)} dakika once duraklamis" — do NOT quote a number.\n`;
+    }
+    context += '\n';
+
+    context += `=== HISTORICAL AGGREGATE (last ${logs.length} samples — DO NOT use for "current" questions) ===\n`;
+    context += `Total entered (window): ${totalPeopleIn}\n`;
+    context += `Total exited (window): ${totalPeopleOut}\n`;
+    context += `Avg occupancy (window): ${avgCurrentCount}\n`;
+    context += `Peak occupancy (window): ${peakCount}\n`;
+    if (avgQueueCount !== null) context += `Avg queue length: ${avgQueueCount}\n`;
+    if (avgWaitTime !== null) context += `Avg wait time: ${avgWaitTime}s\n`;
+    context += '\n';
+
+    if (demographics) {
+      context += `=== DEMOGRAPHICS AGGREGATE (window) ===\n${demographics}\n`;
+    }
+
+    context += `=== ${weatherBlock} ===\n\n`;
+
+    if (zoneInsights) {
+      context += `=== ZONE INSIGHTS ===\n${zoneInsights}\n`;
     }
 
     return context;
   } catch (error) {
     console.error('Error fetching analytics context:', error);
-    return 'Error fetching analytics data.';
+    return 'CONTEXT_ERROR: Veri cekilirken hata. Kullaniciya "veri tabanina su an erisemiyorum" de.';
   }
 }
 
@@ -976,7 +1003,7 @@ async function getZoneInsights(): Promise<string | null> {
  *
  * `lang` (when provided by the frontend) takes precedence over the heuristic.
  */
-function buildContextPrompt(userMessage: string, analyticsContext: string, lang?: 'tr' | 'en'): string {
+export function buildContextPrompt(userMessage: string, analyticsContext: string, lang?: 'tr' | 'en'): string {
   let isTurkish: boolean;
   if (lang === 'tr') {
     isTurkish = true;
@@ -1012,13 +1039,14 @@ ${analyticsContext}
 
 QUESTION: ${safeUserMessage}
 
-RULES:
-- Use ONLY the data above. Quote exact numbers (e.g. "23 visitors", "4.2 min wait").
-- Maximum 4 sentences. Be direct, no filler.
-- If data is insufficient, say what IS available.
-- Suggest 1 concrete action when relevant (staffing, queue, layout, marketing).
-- Correlate weather with traffic if weather data exists.
-- For demographics: suggest targeted actions based on dominant group.
+CRITICAL RULES (violation = wrong answer):
+1. For "su anki / current / right now / şimdi / anlık" questions → answer ONLY with LIVE_PEOPLE_COUNT from the LIVE / REAL-TIME section. NEVER substitute the historical avg or peak.
+2. NEVER invent numbers. Quote exact values from the context (e.g. "12 ziyaretci", "%18 yagmur ihtimali").
+3. If WEATHER block starts with "WEATHER_UNAVAILABLE:" → say "hava durumu su an alinamiyor". Otherwise WEATHER IS PROVIDED — use it. NEVER claim "weather data missing" when a WEATHER (city): line exists.
+4. If LIVE section is marked STALE or context starts with NO_REAL_DATA: → say the engine is offline / no data; do NOT make up a count.
+5. Maximum 4 short sentences. No filler, no thinking-out-loud, no "${'`'}<think>${'`'}" tags.
+6. Suggest 1 concrete action only when the user asks for advice. Otherwise just answer the question.
+7. For demographic questions → use "Latest gender split" / "Latest age buckets" if present (live), else fall back to DEMOGRAPHICS AGGREGATE.
 
 ANSWER:`;
 }

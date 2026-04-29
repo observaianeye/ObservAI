@@ -13,11 +13,23 @@ export const GEMINI_MODEL_CANDIDATES: readonly string[] = [
 
 /**
  * Ollama model tag prefixes, tried in preference order.
- * qwen3:14b (9GB) leads — fits fully in 12GB VRAM (RTX 5070) and responds in seconds.
- * gemma4:26b (17GB) ranks last because it does not fit in 12GB VRAM and falls back to
- * CPU inference (>180s/request). Promote it on hosts with >=24GB VRAM.
+ *
+ * Faz 10 Bug #8 (AI hallucination): switched primary from qwen3:14b to
+ * qwen2.5:14b-8k. Empirically (Faz 7 sanitizer + Faz 10 grounding probes)
+ * qwen2.5:14b-8k follows the "ONLY use snapshot.currentCount" rule
+ * substantially better than qwen3:14b on Turkish + numeric-grounded prompts,
+ * and the 8K context tag lets us include the full LIVE+AGGREGATE block
+ * without truncation. qwen3:14b kept in the list as a fallback because some
+ * deployments still have it installed from earlier Faz iterations.
+ *
+ * VRAM note: qwen2.5:14b-8k (~9GB) fits fully on 12GB cards (RTX 5070).
+ * gemma4:26b (17GB) ranks last because it does not fit in 12GB VRAM and
+ * falls back to CPU inference (>180s/request). Promote on >=24GB VRAM.
  */
 export const OLLAMA_MODEL_PRIORITY: readonly string[] = [
+  'qwen2.5:14b-8k',
+  'qwen2.5:14b',
+  'qwen2.5',
   'qwen3:14b',
   'qwen3',
   'llama3.3:latest',
@@ -25,7 +37,7 @@ export const OLLAMA_MODEL_PRIORITY: readonly string[] = [
   'llama3.2:latest',
   'llama3.2',
   'qwen2.5:7b',
-  'qwen2.5',
+  'llama3.1:8b-8k',
   'llama3.1:8b',
   'llama3:8b',
   'gemma2',

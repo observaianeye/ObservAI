@@ -100,10 +100,13 @@ REM ═════════════════════════�
 
 echo %BLUE%Checking Ollama AI service...%NC%
 
-REM Primary / fallback models (Stage 6 — qwen3:14b → llama3.1:8b).
+REM Primary / fallback models (Faz 10 Bug #8 — qwen2.5:14b-8k → llama3.1:8b-8k).
+REM Switched primary from qwen3:14b after grounding probes showed qwen2.5:14b-8k
+REM follows "ONLY snapshot.currentCount" anti-hallucination rules better on TR
+REM prompts. 8k context tag avoids truncation of the LIVE + AGGREGATE prompt block.
 REM Primary is overridable via backend\.env (OLLAMA_MODEL=...); fallback is fixed.
-set "OLLAMA_PRIMARY_MODEL=qwen3:14b"
-set "OLLAMA_FALLBACK_MODEL=llama3.1:8b"
+set "OLLAMA_PRIMARY_MODEL=qwen2.5:14b-8k"
+set "OLLAMA_FALLBACK_MODEL=llama3.1:8b-8k"
 if exist "backend\.env" for /f "tokens=2 delims==" %%M in ('findstr /I "^OLLAMA_MODEL=" "backend\.env" 2^>nul') do set "OLLAMA_PRIMARY_MODEL=%%M"
 set "OLLAMA_MODEL=!OLLAMA_PRIMARY_MODEL!"
 
