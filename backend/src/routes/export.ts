@@ -18,6 +18,33 @@ import { CameraIdOptionalSchema } from '../lib/schemas';
 
 const router = Router();
 
+// Yan #42: filename slug helper. Multi-branch SaaS exports used to all share
+// `analytics_export_<date>.csv`, so a user juggling N branches couldn't tell
+// downloaded files apart. Slug pulls branch + camera names through a
+// deterministic ASCII fold and clamps each segment to 30 chars so neither a
+// long name nor unicode jank produces an unusable filename.
+export function slugifyForFilename(s: string | null | undefined): string {
+  return (s ?? 'unknown')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 30) || 'unknown';
+}
+
+async function resolveExportContext(cameraId: string | undefined): Promise<{ branchSlug: string; cameraSlug: string }> {
+  if (!cameraId) return { branchSlug: 'all', cameraSlug: 'all' };
+  const cam = await prisma.camera.findUnique({
+    where: { id: cameraId },
+    include: { branch: true },
+  });
+  return {
+    branchSlug: slugifyForFilename(cam?.branch?.name),
+    cameraSlug: slugifyForFilename(cam?.name),
+  };
+}
+
 async function buildOwnedWhere(userId: string, params: { cameraId?: string; startDate?: string; endDate?: string }) {
   const ownedCams = await prisma.camera.findMany({
     where: { createdBy: userId },
@@ -128,7 +155,12 @@ router.get('/csv', authenticate, async (req: Request, res: Response) => {
 
     // Set headers for file download
     const dateStr = new Date().toISOString().split('T')[0];
-    const filename = labels.csvFilename(dateStr);
+    const ctx = await resolveExportContext(params.cameraId);
+    const baseFilename = labels.csvFilename(dateStr);
+    const ext = baseFilename.endsWith('.csv') ? '.csv' : '';
+    const stem = ext ? baseFilename.slice(0, -ext.length) : baseFilename;
+    // Yan #42: prefix branch+camera slug so multi-branch downloads are unique.
+    const filename = `${ctx.branchSlug}_${ctx.cameraSlug}_${stem}${ext}`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Language', locale);
@@ -210,7 +242,12 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
 
     // Set headers for file download
     const dateStr = new Date().toISOString().split('T')[0];
-    const filename = labels.pdfFilename(dateStr);
+    const ctx = await resolveExportContext(params.cameraId);
+    const basePdf = labels.pdfFilename(dateStr);
+    const ext = basePdf.endsWith('.pdf') ? '.pdf' : '';
+    const stem = ext ? basePdf.slice(0, -ext.length) : basePdf;
+    // Yan #42: prefix branch+camera slug.
+    const filename = `${ctx.branchSlug}_${ctx.cameraSlug}_${stem}${ext}`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Language', locale);
