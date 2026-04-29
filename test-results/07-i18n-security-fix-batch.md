@@ -429,5 +429,130 @@ curl -s -b admin.txt -X PATCH http://localhost:3001/api/insights/<id>/dismiss
 sqlite3 backend/prisma/dev.db "SELECT id, dismissedAt FROM insights WHERE id='<id>'"
 ```
 
+## Batch F Detay (DONE — 2026-04-29)
+
+Pre-flight: Vitest 92 PASS / 6 expected FAIL ✓, FE/BE/PY/Ollama 200 ✓, branch partal_test, 35 commit (Batch E + report).
+
+### Yan #2 — Register firstName/lastName/companyName accept
+- File: `backend/src/routes/auth.ts` `RegisterSchema` extended with `firstName(max 50)`, `lastName(max 50)`, `companyName(max 100)`. Handler prefers explicit fields; legacy `name` split fallback retained for back-compat.
+- Vitest: `register-fields.test.ts` (+3): explicit persists, legacy split, explicit overrides legacy
+- Commit: `33725ec` `fix(routes/auth): yan #2 register firstName/lastName/companyName accept + 3 vitest`
+
+### Yan #3 — Sessions revokedAt server-side invalidation
+- Schema: `backend/prisma/schema.prisma` `Session.revokedAt DateTime?` nullable.
+- Migration: `prisma/migrations/20260501000000_yan_3_session_revoked_at/migration.sql` (`ALTER TABLE ADD COLUMN`). Pre-existing batch D/E migrations resolved via `prisma migrate resolve --applied` then `migrate deploy` ✓.
+- File: `routes/auth.ts` logout uses `updateMany {revokedAt: now}` (soft revoke, audit trail). `middleware/authMiddleware.ts` rejects sessions with `revokedAt` set (401 'Session revoked'), keeps row instead of `delete`.
+- Vitest: `session-revocation.test.ts` (+3): logout updateMany, replay rejected, active accepted
+- Commit: `009cb85` `fix(routes/auth): yan #3 sessions revokedAt + server-side invalidation + 3 vitest`
+
+### Yan #5 — Weather backend cache 10min
+- File: `backend/src/routes/branches.ts` in-process `Map<string,{data,expiresAt}>` keyed by `branchId:lat:lng`, TTL 10 min. `X-Weather-Cache: HIT|MISS` header for visibility. `__clearWeatherCacheForTests()` exported for future test isolation.
+- Closes Faz 1 yan #5 ("backend proxy generationtime_ms changes per call → no cache → Open-Meteo rate-limit risk").
+- Commit: `04f121d` `feat(routes/branches): yan #5 backend weather cache 10min Map`
+
+### Yan #6 — Notification log audit (all events)
+- File: `backend/src/services/notificationDispatcher.ts` exports `appendNotificationAudit()` so non-staff dispatchers can append to `logs/notification-dispatch.log`. `dispatchNotification` (alert path) now writes file audit alongside DB log.
+- File: `routes/auth.ts` password-reset path appends `event='password_reset'` audit entry with locale + success + error.
+- Closes Faz 1 yan #6 ("dispatch log only contained staff_shift events").
+- Commit: `946ffb5` `fix(services/notificationDispatcher): yan #6 audit log all events (not just staff_shift)`
+
+### Yan #14 — Camera UI submit disabled when no branch
+- File: `frontend/src/pages/dashboard/CameraSelectionPage.tsx` submit button `disabled={!selectedBranch || isSaving}` + `title={t('cameraSelection.requireBranch')}` tooltip + `cursor-not-allowed`.
+- i18n: `cameraSelection.requireBranch` TR (`Önce üst menüden bir şube seçin — kameralar şubeye bağlıdır.`) + EN (`Pick a branch in the top menu first — cameras are scoped to branches.`)
+- Closes Faz 2 yan #14 (silent submit when no branch selected).
+- Commit: `7a1c179` `fix(camera/CameraSelectionPage): yan #14 disable submit when no branch + tooltip`
+
+### Yan #19 — Branch switch 300ms debounce
+- File: `frontend/src/components/layout/TopNavbar.tsx` `useMemo`'d debouncer wraps `setSelectedBranch`. Closes Faz 2 yan #19 ("rapid back-to-back branch switch crashed Playwright context, real users see flicker").
+- 300ms = comfort window between two intentional clicks while collapsing accidental double-fires.
+- Commit: `bb2c245` `fix(layout/TopNavbar): yan #19 branch switch 300ms debounce`
+
+### Yan #25 — Seed daily = SUM(hourly) idempotent
+- File: `backend/scripts/backfill-analytics-summary.ts` after upserting hourly rows, daily rollup is recomputed by reading back the persisted hourly rows and aggregating from them. Eliminates RNG drift between daily synthetic row and hour-level chart.
+- avgQueueLength + avgWaitTime now derived from hourly rows where queue/wait actually existed (peak hours), `avgOccupancy` averaged over active hours only.
+- Commit: `8612898` `fix(scripts/backfill): yan #25 daily=SUM(hourly) idempotent compute`
+
+### Yan #31 — Polygon-polygon overlap → DEFER Faz 8
+- Plan note. Sutton-Hodgman / SAT polygon-polygon intersection nontrivial. Deferred to Faz 8 (UX + zone interaction polish). No code change.
+
+### Yan #32 — Zones polygon corner limit max(128)
+- File: `backend/src/routes/zones.ts` `CreateZoneSchema.coordinates` bounded `min(3).max(128)`. Caps malicious / runaway polygon payloads before Prisma + ray-cast loops.
+- Vitest: `zones-polygon-limit.test.ts` (+3): 1000 vertex rejected, 128 boundary accepted, 2 under-min rejected
+- Commit: `03cd59a` `fix(routes/zones): yan #32 polygon corner limit max(128) + 3 vitest`
+
+### Yan #33 — Zone HARD DELETE cascade audit
+- File: `backend/prisma/schema.prisma` audit comment block above `model Zone`:
+  - Cascading: Zone.cameraId → Camera, ZoneInsight.zoneId → Zone (both `onDelete: Cascade`).
+  - Non-cascading by design: TableEvent.zoneId + Insight.zoneId are soft FKs with no relation block; rows persist after zone delete so analytics history isn't destroyed.
+- Doc-only commit per plan ("PASS, doc only").
+- Commit: `8504f5f` `audit(prisma): yan #33 zone delete cascade verified onDelete:Cascade in schema`
+
+### Yan #42 — Export filename branch+camera slug
+- File: `backend/src/routes/export.ts` exported `slugifyForFilename()` (NFD diacritic strip + lowercase + non-alnum→`_` + clamp 30 chars + fallback `unknown`). `resolveExportContext(cameraId)` looks up Camera+Branch and returns `{branchSlug, cameraSlug}`. CSV+PDF download filenames now `<branchSlug>_<cameraSlug>_<existing>.csv|.pdf`.
+- Vitest: `export-filename-slug.test.ts` (+4): basic, TR diacritics, clamp+trim, null/undefined/empty
+- Commit: `e43be15` `fix(routes/export): yan #42 filename branch+camera slug + 4 vitest`
+
+### Yan #43 — Export limit UI selector
+- File: `frontend/src/pages/dashboard/AnalyticsPage.tsx` header gains `<select>` with options 1000 / 5000 / 10000 / all. State `useState<'1000'|'5000'|'10000'|'all'>('1000')`. 'all' omits the `limit` query param so backend default kicks in.
+- i18n: `export.limit.{label,1000,5000,10000,all}` + `export.button` + `export.csv` + `export.pdf` TR/EN
+- Commit: `5b749ab` `feat(AnalyticsPage): yan #43 export limit selector (1000/5000/10000/all)`
+
+### Yan #49 — chat_messages userId NULL cleanup
+- File: `backend/scripts/cleanup-null-userid-chat.ts` (yeni). DRY_RUN=true previews; default deletes. Idempotent.
+- Live run: 4 orphan rows deleted, re-run `Found 0 orphan chat_messages with NULL userId` ✓
+- Commit: `3afc66b` `fix(scripts): yan #49 cleanup chat_messages userId NULL orphans`
+
+### Yan #52 — helpers/db.ts BigInt fix
+- File: `frontend/e2e/helpers/db.ts` Prisma fallback's inline `node -e` JSON.stringify reviver downcasts `bigint → Number`. Closes the throw on SQLite INTEGER columns wide enough for BigInt materialisation.
+- Commit: `7dae51e` `fix(helpers/db): yan #52 BigInt-aware JSON.stringify reviver`
+
+### Yan #55 — Frontend Export dropdown (CSV/PDF)
+- File: `frontend/src/pages/dashboard/AnalyticsPage.tsx` `ExportDropdown` component (no portal, single useState + outside-click useEffect). Trigger button + CSV / PDF items. Click triggers `window.location.href = ${apiUrl}/api/export/${format}?cameraId&lang[&limit]` so cookie session attaches and browser owns Save As. Disabled when `cameraId` empty.
+- data-testid: `export-dropdown-trigger`, `export-csv`, `export-pdf`, `export-limit-select` for e2e.
+- Closes Faz 5 yan #55 (frontend export buttons absent — only backend route).
+- Commit: `0aa4b5e` `feat(AnalyticsPage): yan #55 frontend Export dropdown (CSV/PDF) buttons`
+
+### Yan #61 — data-testid eklemeleri
+- File: `frontend/src/pages/dashboard/StaffingPage.tsx` Add Staff trigger `data-testid="add-staff-trigger"`.
+- File: `frontend/src/components/staffing/StaffForm.tsx` modal submit `data-testid="staff-form-submit"`.
+- Closes Faz 6 yan #61 (StaffingPage / StaffForm strict-mode locator collision).
+- Commit: `0dfd990` `fix(staffing): yan #61 data-testid attribut eklemeleri`
+
+## Batch F Regression Gate Sonuclari (2026-04-29)
+- Vitest final: **105 PASS / 6 expected FAIL** (92 onceki + 3 #2 + 3 #3 + 3 #32 + 4 #42 = +13, plan +6 hedefi asildi). Beklenen 6 fail: tables-ai-summary.test.ts (Yan #4.4 korunur)
+- Backend `npx tsc --noEmit`: exit 0
+- Frontend `pnpm tsc --noEmit`: exit 0
+- Yan #37 leak probe (vitest): **3/3 PASS** ✓
+- Smoke 2/2: **PASS** in 7.3s (chromium headless)
+- Servisler: FE 5173 200, BE 3001 200, PY 5001 200, Ollama 11434 200
+- 15 atomic commit Batch F: `33725ec` (#2) + `009cb85` (#3) + `04f121d` (#5) + `946ffb5` (#6) + `7a1c179` (#14) + `bb2c245` (#19) + `8612898` (#25) + `03cd59a` (#32) + `8504f5f` (#33) + `e43be15` (#42) + `5b749ab` (#43) + `3afc66b` (#49) + `7dae51e` (#52) + `0aa4b5e` (#55) + `0dfd990` (#61). Yan #31 DEFER Faz 8.
+- `git push origin partal_test` pending end-of-batch
+
+## Batch F Live Verify Durumu — PATCH_PENDING_RESTART
+Backend hala eski kod uzerinde calisiyor. Vitest 105/6 yesil + Yan #37 leak probe 3/3 + smoke 2/2 → kod path dogru. Live'da Yan #2 (register field accept), Yan #3 (revokedAt invalidation), Yan #5 (weather cache HIT/MISS header), Yan #6 (password_reset audit log entry), Yan #32 (zones 400 on >128 corner), Yan #42 (filename slug) gercekten yansimak icin user `stop-all.bat` + `start-all.bat` yapmasi gerek.
+
+USER ACTION ITEM: backend node restart sonrasi:
+```bash
+# Yan #2 register field accept
+curl -X POST http://localhost:3001/api/auth/register -H 'Content-Type: application/json' \
+  -d '{"email":"yan2_$(date +%s)@test.com","password":"password123","firstName":"Ada","lastName":"Lovelace","companyName":"Analytical Co"}'
+# beklenen: 201 + DB row firstName='Ada' lastName='Lovelace' companyName='Analytical Co'
+
+# Yan #5 weather cache
+curl -s -b admin.txt -D - http://localhost:3001/api/branches/<branchId>/weather | grep -i x-weather-cache
+# ilk istek MISS, ikinci istek HIT (10dk pencerede)
+
+# Yan #32 polygon corner limit
+curl -X POST http://localhost:3001/api/zones -b admin.txt -H 'Content-Type: application/json' \
+  -d '{"cameraId":"<uuid>","name":"big","type":"CUSTOM","coordinates":[/* 200 nokta */]}'
+# beklenen: 400 Validation error coordinates max(128)
+
+# Yan #42 filename
+curl -s -b admin.txt -I "http://localhost:3001/api/export/csv?cameraId=<id>&lang=tr" | grep -i content-disposition
+# beklenen: filename="<branch_slug>_<camera_slug>_analitik_raporu_<date>.csv"
+```
+
+Frontend yan'lar (#14/#19/#43/#55/#61) Vite hot-reload ile otomatik yansir.
+
 ## Sonraki Batch
-Prompt 6 → Batch F (16 minor — i18n stragglers + LOW severity yan'lar). Yan #61 (data-testid yayilim) + Yan #58 (CLAUDE.md doc temizlik) + Yan #60 (Staffing AI summary kararı).
+Prompt 7+ → Batch G (yan #58 CLAUDE.md doc temizlik + yan #60 Staffing AI summary kararı + yan #31 DEFER Faz 8 polygon-polygon overlap). Faz 7 batch'leri A–F = ~57 yan kapatildi (61 toplam — yan #31 DEFER, yan #58/#60 Batch G, yan #4.4 Faz 4 blocker tables-ai-summary korunuyor).
