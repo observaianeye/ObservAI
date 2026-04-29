@@ -62,7 +62,12 @@ function trySqlite3(sql: string): QueryResult | null {
 
 function tryPrisma(sql: string): QueryResult {
   const escaped = sql.replace(/`/g, '\\`').replace(/\$/g, '\\$');
-  const code = `const{PrismaClient}=require('@prisma/client');const c=new PrismaClient();c.$queryRawUnsafe(\`${escaped}\`).then(r=>{process.stdout.write(JSON.stringify(r));return c.$disconnect();}).catch(e=>{process.stderr.write(String(e));return c.$disconnect().then(()=>process.exit(1));});`;
+  // Yan #52: Prisma $queryRawUnsafe returns BigInt for SQLite INTEGER columns
+  // wider than 32-bit. JSON.stringify throws on BigInt, so the inline node
+  // helper now uses a reviver that downcasts bigint -> Number. Numbers > 2^53
+  // are vanishingly rare for our id/timestamp columns; if a future column
+  // grows past that bound the helper should be re-audited.
+  const code = `const{PrismaClient}=require('@prisma/client');const c=new PrismaClient();c.$queryRawUnsafe(\`${escaped}\`).then(r=>{process.stdout.write(JSON.stringify(r,(_k,v)=>typeof v==='bigint'?Number(v):v));return c.$disconnect();}).catch(e=>{process.stderr.write(String(e));return c.$disconnect().then(()=>process.exit(1));});`;
   const proc = spawnSync('node', ['-e', code], {
     cwd: BACKEND_CWD,
     encoding: 'utf8',
