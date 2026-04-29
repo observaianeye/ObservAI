@@ -20,7 +20,7 @@ interface Branch {
 // Yan #39: 'custom' joins the enum so the user can pick an arbitrary
 // from/to window. Custom payload (from/to ISO) lives in a separate
 // localStorage key and is only consulted when dateRange === 'custom'.
-export type DashboardDateRange = '1h' | '1d' | '1w' | '1m' | '3m' | 'custom';
+export type DashboardDateRange = '1d' | '1w' | '1m' | '3m' | 'custom';
 
 export interface CustomDateRange {
   from: string; // ISO
@@ -29,11 +29,16 @@ export interface CustomDateRange {
 
 const DATE_RANGE_KEY = 'dashboardDateRange';
 const CUSTOM_RANGE_KEY = 'dashboardCustomRange';
-const VALID_RANGES: ReadonlyArray<DashboardDateRange> = ['1h', '1d', '1w', '1m', '3m', 'custom'];
+const VALID_RANGES: ReadonlyArray<DashboardDateRange> = ['1d', '1w', '1m', '3m', 'custom'];
 
 function readStoredRange(): DashboardDateRange {
   try {
     const stored = localStorage.getItem(DATE_RANGE_KEY);
+    // Faz 11: 1h removed — quietly migrate any persisted '1h' choice to '1d'.
+    if (stored === '1h') {
+      try { localStorage.setItem(DATE_RANGE_KEY, '1d'); } catch { /* ignore */ }
+      return '1d';
+    }
     if (stored && (VALID_RANGES as readonly string[]).includes(stored)) {
       return stored as DashboardDateRange;
     }

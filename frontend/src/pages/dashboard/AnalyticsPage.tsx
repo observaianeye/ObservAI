@@ -25,7 +25,7 @@ import { formatConfidence } from '../../lib/formatters';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-type Range = '1h' | '1d' | '1w' | '1m' | '3m' | 'custom';
+type Range = '1d' | '1w' | '1m' | '3m' | 'custom';
 
 interface OverviewKpis {
   totalVisitors: number;
@@ -79,7 +79,7 @@ interface OverviewResponse {
   rangeStart: string;
   rangeEnd: string;
   hasData: boolean;
-  dataSource: 'logs' | 'summary';
+  dataSource: 'logs' | 'summary' | 'logs+summary' | 'fallback_7d_mean';
   kpis: OverviewKpis;
   timeline: TimelinePoint[];
   peakHours: PeakHourEntry[];
@@ -92,7 +92,6 @@ interface OverviewResponse {
 interface AISummary { tr: string; en: string; source: string; }
 
 const RANGE_OPTIONS: { key: Range; labelKey: string }[] = [
-  { key: '1h', labelKey: 'analytics.range.1h' },
   { key: '1d', labelKey: 'analytics.range.1d' },
   { key: '1w', labelKey: 'analytics.range.1w' },
   { key: '1m', labelKey: 'analytics.range.1m' },
@@ -171,13 +170,11 @@ function EmptyState({ title, hint, icon }: { title: string; hint: string; icon: 
 // selected.
 function ExportDropdown({
   cameraId,
-  limit,
   lang,
   apiUrl,
   t,
 }: {
   cameraId: string;
-  limit: '1000' | '5000' | '10000' | 'all';
   lang: string;
   apiUrl: string;
   t: (k: string) => string;
@@ -197,7 +194,6 @@ function ExportDropdown({
     setOpen(false);
     if (!cameraId) return;
     const params = new URLSearchParams({ cameraId, lang });
-    if (limit !== 'all') params.set('limit', limit);
     window.location.href = `${apiUrl}/api/export/${format}?${params}`;
   };
 
@@ -254,10 +250,6 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Yan #43: user-controlled export row cap. UI default 1000 (cheap), ceiling
-  // 10000 (matches backend ExportRequestSchema.limit.max), 'all' omits the
-  // query param so the backend default takes over.
-  const [exportLimit, setExportLimit] = useState<'1000' | '5000' | '10000' | 'all'>('1000');
 
   const aiAbortRef = useRef<AbortController | null>(null);
 
@@ -311,25 +303,36 @@ export default function AnalyticsPage() {
     const ctrl = new AbortController();
     aiAbortRef.current = ctrl;
     setAiLoading(true);
-    try {
-      // Issue #5: forward force=true on the user-triggered refresh so the
-      // backend defeats Ollama's prompt cache and rolls new wording.
-      const summaryQs = force ? `?cameraId=${camId}&force=true` : `?cameraId=${camId}`;
-      const recsQs = force ? `?cameraId=${camId}&force=true` : `?cameraId=${camId}`;
-      const [summaryRes, recsRes] = await Promise.allSettled([
-        fetch(`${API_URL}/api/insights/summary${summaryQs}`, { credentials: 'include', signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
-        fetch(`${API_URL}/api/insights/recommendations${recsQs}`, { credentials: 'include', signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
-      ]);
-      if (summaryRes.status === 'fulfilled' && summaryRes.value) {
-        setAiSummary({ tr: summaryRes.value.tr, en: summaryRes.value.en, source: summaryRes.value.source });
-      }
-      if (recsRes.status === 'fulfilled' && recsRes.value) {
-        setRecommendations(recsRes.value.recommendations || []);
-        setRecSource(recsRes.value.source || '');
-      }
-    } catch { /* aborted */ } finally {
-      if (!ctrl.signal.aborted) setAiLoading(false);
-    }
+
+    // Issue #5: forward force=true on the user-triggered refresh so the
+    // backend defeats Ollama's prompt cache and rolls new wording.
+    const summaryQs = force ? `?cameraId=${camId}&force=true` : `?cameraId=${camId}`;
+    const recsQs = force ? `?cameraId=${camId}&force=true` : `?cameraId=${camId}`;
+
+    // Ollama serializes concurrent calls (~22s each → ~45s total). Update each
+    // panel as soon as its own response lands instead of waiting for both, so
+    // the user sees the summary the moment it arrives, not 25s later.
+    const summaryP = fetch(`${API_URL}/api/insights/summary${summaryQs}`, { credentials: 'include', signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && !ctrl.signal.aborted) {
+          setAiSummary({ tr: data.tr, en: data.en, source: data.source });
+        }
+      })
+      .catch(() => { /* aborted or network error — UI stays on previous state */ });
+
+    const recsP = fetch(`${API_URL}/api/insights/recommendations${recsQs}`, { credentials: 'include', signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && !ctrl.signal.aborted) {
+          setRecommendations(data.recommendations || []);
+          setRecSource(data.source || '');
+        }
+      })
+      .catch(() => { /* aborted or network error */ });
+
+    await Promise.allSettled([summaryP, recsP]);
+    if (!ctrl.signal.aborted) setAiLoading(false);
   }, []);
 
   // Load overview on camera/range change
@@ -350,7 +353,7 @@ export default function AnalyticsPage() {
   // Auto-refresh overview for live ranges (custom is user-pinned, no auto-poll)
   useEffect(() => {
     if (!cameraId || range === 'custom') return;
-    const refreshMs = range === '1h' ? 30000 : range === '1d' ? 60000 : 300000;
+    const refreshMs = range === '1d' ? 30000 : 300000;
     const interval = setInterval(() => loadOverview(cameraId, range, null), refreshMs);
     return () => clearInterval(interval);
   }, [cameraId, range, loadOverview]);
@@ -526,36 +529,19 @@ export default function AnalyticsPage() {
               />
             </div>
           )}
-          {/* Yan #43: export row-cap selector. */}
-          <select
-            data-testid="export-limit-select"
-            value={exportLimit}
-            onChange={(e) => setExportLimit(e.target.value as '1000' | '5000' | '10000' | 'all')}
-            className="px-2 py-2 text-xs bg-surface-2/70 border border-white/[0.08] rounded-xl text-ink-1 hover:border-brand-500/40 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-            aria-label={t('export.limit.label')}
-          >
-            <option value="1000">{t('export.limit.1000')}</option>
-            <option value="5000">{t('export.limit.5000')}</option>
-            <option value="10000">{t('export.limit.10000')}</option>
-            <option value="all">{t('export.limit.all')}</option>
-          </select>
-          {/* Yan #55: Export CSV/PDF dropdown. Reads exportLimit + selectedCamera
-              + lang and triggers a browser download via window.location.href.
-              No portal lib — single useState toggles a small absolute panel. */}
           <ExportDropdown
             cameraId={cameraId}
-            limit={exportLimit}
             lang={lang}
             apiUrl={API_URL}
             t={t}
           />
           <button
             onClick={() => { if (cameraId) { loadOverview(cameraId, range, customRange); loadAI(cameraId, true); } }}
-            disabled={loading}
-            className="p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.06] rounded-xl transition-colors border border-white/[0.08]"
-            title={t('common.refresh')}
+            disabled={loading || aiLoading}
+            className="p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.06] rounded-xl transition-colors border border-white/[0.08] disabled:opacity-60 disabled:cursor-not-allowed"
+            title={aiLoading ? (t('analytics.ai.generating') || 'Generating…') : t('common.refresh')}
           >
-            <RefreshCw strokeWidth={1.5} className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw strokeWidth={1.5} className={`w-4 h-4 ${(loading || aiLoading) ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
@@ -597,11 +583,17 @@ export default function AnalyticsPage() {
                       {aiSummary.source === 'ollama' ? 'Ollama' : aiSummary.source === 'gemini' ? 'Gemini' : t('common.demo')}
                     </span>
                   )}
+                  {aiLoading && (
+                    <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider font-mono text-violet-300">
+                      <RefreshCw className="w-2.5 h-2.5 animate-spin" strokeWidth={2} />
+                      {t('analytics.ai.generating') || 'Generating…'}
+                    </span>
+                  )}
                 </div>
                 {aiLoading && !aiSummary ? (
                   <p className="text-xs text-ink-3">{t('analytics.ai.generating')}</p>
                 ) : aiSummary ? (
-                  <p className="text-sm text-ink-2 leading-relaxed whitespace-pre-wrap">{lang === 'tr' ? aiSummary.tr : aiSummary.en}</p>
+                  <p className={`text-sm text-ink-2 leading-relaxed whitespace-pre-wrap ${aiLoading ? 'opacity-60' : ''}`}>{lang === 'tr' ? aiSummary.tr : aiSummary.en}</p>
                 ) : (
                   <p className="text-xs text-ink-4">{t('analytics.ai.empty')}</p>
                 )}
@@ -825,13 +817,19 @@ export default function AnalyticsPage() {
                   {recSource === 'ollama' ? 'Ollama' : recSource === 'gemini' ? 'Gemini' : t('common.demo')}
                 </span>
               )}
+              {aiLoading && (
+                <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider font-mono text-violet-300 ml-1">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" strokeWidth={2} />
+                  {t('analytics.ai.generating') || 'Generating…'}
+                </span>
+              )}
             </div>
             {aiLoading && recommendations.length === 0 ? (
               <p className="text-xs text-ink-3">{t('analytics.ai.generating')}</p>
             ) : recommendations.length === 0 ? (
               <p className="text-xs text-ink-4">{t('analytics.recs.empty')}</p>
             ) : (
-              <div className="space-y-2.5">
+              <div className={`space-y-2.5 ${aiLoading ? 'opacity-60' : ''}`}>
                 {recommendations.map((rec, i) => (
                   <div key={i} className="flex items-start gap-2.5">
                     <div className="w-5 h-5 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">

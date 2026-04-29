@@ -15,8 +15,68 @@ import { authenticate } from '../middleware/authMiddleware';
 import { EXPORT_LABELS, detectExportLocale } from '../lib/exportI18n';
 import { turkishToAscii } from '../lib/turkishToAscii';
 import { CameraIdOptionalSchema } from '../lib/schemas';
+import { cumulativeDelta } from '../lib/cumulativeCounter';
 
 const router = Router();
+
+// Faz 11: demographics aggregator. AnalyticsLog.demographics is a JSON string
+// snapshot per row ({gender:{male,female,unknown}, age:{0-17,18-24,...}}). Roll
+// every row up into one consolidated breakdown for the PDF summary.
+type DemoAgg = {
+  gender: Record<string, number>;
+  age: Record<string, number>;
+  samples: number;
+};
+
+function emptyDemoAgg(): DemoAgg {
+  return { gender: {}, age: {}, samples: 0 };
+}
+
+function mergeDemographicsJson(agg: DemoAgg, json: string | null | undefined): void {
+  if (!json) return;
+  try {
+    const d = JSON.parse(json);
+    if (d?.gender && typeof d.gender === 'object') {
+      for (const [k, v] of Object.entries(d.gender)) {
+        if (typeof v === 'number') agg.gender[k] = (agg.gender[k] ?? 0) + v;
+      }
+    }
+    if (d?.age && typeof d.age === 'object') {
+      for (const [k, v] of Object.entries(d.age)) {
+        if (typeof v === 'number') agg.age[k] = (agg.age[k] ?? 0) + v;
+      }
+    }
+    if (typeof d?.samples === 'number') agg.samples += d.samples;
+    else agg.samples += 1;
+  } catch { /* skip malformed row */ }
+}
+
+// Per-row CSV string e.g. "M:2 F:1; 25-34:2 35-44:1". Empty when no data.
+function summarizeDemographicsForRow(json: string | null | undefined): string {
+  if (!json) return '';
+  try {
+    const d = JSON.parse(json);
+    const parts: string[] = [];
+    if (d?.gender) {
+      const g = d.gender;
+      const segs: string[] = [];
+      if (g.male) segs.push(`M:${g.male}`);
+      if (g.female) segs.push(`F:${g.female}`);
+      if (g.unknown) segs.push(`?:${g.unknown}`);
+      if (segs.length > 0) parts.push(segs.join(' '));
+    }
+    if (d?.age) {
+      const segs: string[] = [];
+      for (const [k, v] of Object.entries(d.age)) {
+        if (typeof v === 'number' && v > 0) segs.push(`${k}:${v}`);
+      }
+      if (segs.length > 0) parts.push(segs.join(' '));
+    }
+    return parts.join('; ');
+  } catch {
+    return '';
+  }
+}
 
 // Yan #42: filename slug helper. Multi-branch SaaS exports used to all share
 // `analytics_export_<date>.csv`, so a user juggling N branches couldn't tell
@@ -122,20 +182,18 @@ router.get('/csv', authenticate, async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'No data found for the specified criteria' });
     }
 
-    // Prepare data for CSV
+    // Faz 11: only the columns we actually capture reliably. queueCount,
+    // avgWaitTime, longestWaitTime, fps were noise — most rows had defaults
+    // (0 / null) because the cafe pipeline doesn't compute them.
     const csvData = logs.map(log => ({
       timestamp: log.timestamp.toISOString(),
       camera: log.camera?.name || log.cameraId,
       peopleIn: log.peopleIn,
       peopleOut: log.peopleOut,
       currentCount: log.currentCount,
-      queueCount: log.queueCount || 0,
-      avgWaitTime: log.avgWaitTime || 0,
-      longestWaitTime: log.longestWaitTime || 0,
-      fps: log.fps || 0
+      demographics: summarizeDemographicsForRow(log.demographics),
     }));
 
-    // Generate CSV with locale-aware headers
     const parser = new Parser({
       fields: [
         { label: labels.timestamp, value: 'timestamp' },
@@ -143,10 +201,7 @@ router.get('/csv', authenticate, async (req: Request, res: Response) => {
         { label: labels.peopleIn, value: 'peopleIn' },
         { label: labels.peopleOut, value: 'peopleOut' },
         { label: labels.currentCount, value: 'currentCount' },
-        { label: labels.queueCount, value: 'queueCount' },
-        { label: labels.avgWaitTime, value: 'avgWaitTime' },
-        { label: labels.longestWaitTime, value: 'longestWaitTime' },
-        { label: labels.fps, value: 'fps' }
+        { label: labels.demographicsHeader, value: 'demographics' },
       ],
       withBOM: true, // Excel needs UTF-8 BOM to render TR diacritics correctly
     });
@@ -222,20 +277,22 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'No data found for the specified criteria' });
     }
 
-    // Calculate summary statistics
-    const totalPeopleIn = logs.reduce((sum, log) => sum + log.peopleIn, 0);
-    const totalPeopleOut = logs.reduce((sum, log) => sum + log.peopleOut, 0);
+    // Faz 11: drop queue/wait/fps from PDF summary too — they were either
+    // zero-padded defaults or absent. Replace with a true peakCurrent (max
+    // currentCount) plus an aggregated demographics block built from the
+    // per-row demographics JSON snapshots.
+    // peopleIn/peopleOut are cumulative engine counters — convert to delta.
+    const totalPeopleIn = cumulativeDelta(logs, 'peopleIn');
+    const totalPeopleOut = cumulativeDelta(logs, 'peopleOut');
     const avgCurrentCount = Math.round(
       logs.reduce((sum, log) => sum + log.currentCount, 0) / logs.length
     );
-    const avgQueueCount = logs.filter(l => l.queueCount !== null).length > 0
-      ? Math.round(
-          logs
-            .filter(l => l.queueCount !== null)
-            .reduce((sum, log) => sum + (log.queueCount || 0), 0) /
-          logs.filter(l => l.queueCount !== null).length
-        )
-      : 0;
+    const peakCurrentCount = logs.reduce((m, log) => Math.max(m, log.currentCount || 0), 0);
+
+    const demoAgg = emptyDemoAgg();
+    for (const log of logs) mergeDemographicsJson(demoAgg, log.demographics);
+    const genderTotal = (demoAgg.gender.male ?? 0) + (demoAgg.gender.female ?? 0) + (demoAgg.gender.unknown ?? 0);
+    const ageTotal = Object.values(demoAgg.age).reduce((s, v) => s + v, 0);
 
     // Create PDF document
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
@@ -273,57 +330,84 @@ router.get('/pdf', authenticate, async (req: Request, res: Response) => {
     doc.text(`${pdfLabel(labels.totalEntered)}: ${totalPeopleIn}`);
     doc.text(`${pdfLabel(labels.totalExited)}: ${totalPeopleOut}`);
     doc.text(`${pdfLabel(labels.avgCurrent)}: ${avgCurrentCount}`);
-    doc.text(`${pdfLabel(labels.avgQueue)}: ${avgQueueCount}`);
+    doc.text(`${pdfLabel(labels.peakCurrent)}: ${peakCurrentCount}`);
     doc.moveDown(2);
 
-    // Add data table header
+    // Demographics block — only render when we have aggregated samples.
+    doc.fontSize(14).text(pdfLabel(labels.demographicsSection), { underline: true });
+    doc.moveDown();
+    doc.fontSize(10);
+    if (demoAgg.samples === 0 || (genderTotal === 0 && ageTotal === 0)) {
+      doc.text(pdfLabel(labels.noDemographics));
+    } else {
+      if (genderTotal > 0) {
+        doc.font('Helvetica-Bold').text(pdfLabel(labels.genderHeader));
+        doc.font('Helvetica');
+        const m = demoAgg.gender.male ?? 0;
+        const f = demoAgg.gender.female ?? 0;
+        const u = demoAgg.gender.unknown ?? 0;
+        const pct = (n: number) => `${Math.round((n / genderTotal) * 100)}%`;
+        if (m > 0) doc.text(`  ${locale === 'tr' ? 'Erkek' : 'Male'}: ${m} (${pct(m)})`);
+        if (f > 0) doc.text(`  ${locale === 'tr' ? 'Kadin' : 'Female'}: ${f} (${pct(f)})`);
+        if (u > 0) doc.text(`  ${locale === 'tr' ? 'Bilinmiyor' : 'Unknown'}: ${u} (${pct(u)})`);
+        doc.moveDown(0.5);
+      }
+      if (ageTotal > 0) {
+        doc.font('Helvetica-Bold').text(pdfLabel(labels.ageHeader));
+        doc.font('Helvetica');
+        const order = ['0-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+', '55+'];
+        const sortedAge = Object.entries(demoAgg.age)
+          .filter(([, v]) => v > 0)
+          .sort((a, b) => {
+            const ai = order.indexOf(a[0]);
+            const bi = order.indexOf(b[0]);
+            if (ai === -1 && bi === -1) return a[0].localeCompare(b[0]);
+            if (ai === -1) return 1;
+            if (bi === -1) return -1;
+            return ai - bi;
+          });
+        for (const [bucket, n] of sortedAge) {
+          const p = Math.round((n / ageTotal) * 100);
+          doc.text(`  ${bucket}: ${n} (${p}%)`);
+        }
+      }
+    }
+    doc.moveDown(2);
+
+    // Detail table — Faz 11 trimmed columns: timestamp, in, out, current.
     doc.fontSize(12).text(pdfLabel(labels.detailSection), { underline: true });
     doc.moveDown();
 
-    // Table headers
-    doc.fontSize(8);
+    doc.fontSize(9);
     const tableTop = doc.y;
     const col1 = 50;
-    const col2 = 150;
-    const col3 = 220;
-    const col4 = 280;
-    const col5 = 340;
-    const col6 = 400;
-    const col7 = 460;
-    const col8 = 520;
+    const col2 = 200;
+    const col3 = 290;
+    const col4 = 380;
 
     doc.text(pdfLabel(labels.detailTimestamp), col1, tableTop);
     doc.text(pdfLabel(labels.detailPeopleIn), col2, tableTop);
     doc.text(pdfLabel(labels.detailPeopleOut), col3, tableTop);
     doc.text(pdfLabel(labels.detailCurrent), col4, tableTop);
-    doc.text(pdfLabel(labels.detailQueue), col5, tableTop);
-    doc.text(pdfLabel(labels.detailAvgWait), col6, tableTop);
-    doc.text(pdfLabel(labels.detailMaxWait), col7, tableTop);
-    doc.text(pdfLabel(labels.detailFps), col8, tableTop);
 
-    doc.moveTo(col1, doc.y + 5).lineTo(570, doc.y + 5).stroke();
+    doc.moveTo(col1, doc.y + 5).lineTo(540, doc.y + 5).stroke();
     doc.moveDown();
 
-    // Add data rows (limit to prevent PDF from being too large)
     const displayLimit = Math.min(logs.length, 100);
     for (let i = 0; i < displayLimit; i++) {
       const log = logs[i];
       const y = doc.y;
 
-      // Check if we need a new page
       if (y > 700) {
         doc.addPage();
         doc.y = 50;
       }
 
-      doc.text(new Date(log.timestamp).toLocaleTimeString(), col1, doc.y);
+      const ts = new Date(log.timestamp);
+      doc.text(`${ts.toLocaleDateString()} ${ts.toLocaleTimeString()}`, col1, doc.y);
       doc.text(log.peopleIn.toString(), col2, y);
       doc.text(log.peopleOut.toString(), col3, y);
       doc.text(log.currentCount.toString(), col4, y);
-      doc.text((log.queueCount || 0).toString(), col5, y);
-      doc.text((log.avgWaitTime || 0).toFixed(1), col6, y);
-      doc.text((log.longestWaitTime || 0).toFixed(1), col7, y);
-      doc.text((log.fps || 0).toFixed(0), col8, y);
 
       doc.moveDown(0.5);
     }
