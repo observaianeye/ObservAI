@@ -381,6 +381,8 @@ python -m camera_analytics.run --benchmark-mode --duration-s 30 --source dummy.m
 
 25. **Seed scripti idempotent değil** (3.7c sample-camera-1 case) — `backfill-analytics-summary.ts` daily ve hourly'yi ayrı RNG yollarıyla dolduruyor, daily 31289 vs hourly 22021 (1.42x). **Önerge:** daily = SUM(hourly) doğrudan compute.
 
+> **3.7c Closure (Faz 9 doc note):** Seed scripti idempotency Faz 7 Yan #25'te kapatildi: `backfill-analytics-summary.ts` artik hourly'leri yazdiktan sonra daily rollup'i `prisma.analyticsSummary.findMany({where:{cameraId, granularity:'hourly', date:day}})` ile geri okuyup direkt SUM/MAX ile compute ediyor. Multi-branch timezone-aware aggregator (3.7c #23 timezone) Yan #45'te (Faz 7 Batch A) `Intl.DateTimeFormat` ile cozuldu. Live `runDailyAggregationFor()` her tick re-aggregate (#24) Faz 10 backlog (su an scripted seed icin 25 fix yetiyor; live fix arkaplan calismasi). Cape Town TZ DB fix Yan #54 (Faz 7 Batch A) ile uygulandi: `Asia/Dubai` -> `Africa/Johannesburg`.
+
 26. **`packages/camera-analytics/mivolo_repo/` git submodule değil, klon kopyası** — bunun nedeni timm monkey patch'i (line 17 yorum `MONKEY PATCH FOR TIMM / MiVOLO COMPATIBILITY`). pip ile `mivolo` paketi kurulmamış, ama mivolo_repo'dan `from mivolo.model.mivolo_model import` çalışıyor (sys.path'e ekleniyor). **Önerge:** README.md'ye MiVOLO setup adımı eklenmeli (klon nasıl yapıldı, hangi commit, monkey patch nedeni).
 
 27. **InsightFace `genderage` modülü YÜKLÜ ama AKTİF KULLANILMIYOR** (age_gender.py:343 yorumu: "we use MiVOLO for age/gender, InsightFace only for detection") — 250MB memory + 5ms/frame fazlalık. **Önerge:** `_allowed = ['detection']` (genderage çıkar) — küçük perf iyileşmesi.
