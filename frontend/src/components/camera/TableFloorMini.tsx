@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, AlertTriangle, Users, DoorOpen, LogOut } from 'lucide-react';
+import { Check, X, AlertTriangle, Users, DoorOpen, LogOut } from 'lucide-react';
 import { cameraBackendService, type TableData, type Zone, type AnalyticsData } from '../../services/cameraBackendService';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
@@ -56,6 +56,9 @@ export default function TableFloorMini() {
   const [zones, setZones] = useState<Zone[]>([]);
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const [activeCameraId, setActiveCameraId] = useState<string | null>(null);
+  const [pendingEmpty, setPendingEmpty] = useState<Set<string>>(new Set());
+  const [markError, setMarkError] = useState<{ zoneId: string; message: string } | null>(null);
 
   useEffect(() => {
     try {
@@ -120,9 +123,10 @@ export default function TableFloorMini() {
         }
         const active = await activeRes.json();
         if (!active?.id) {
-          if (!cancelled) setZones([]);
+          if (!cancelled) { setZones([]); setActiveCameraId(null); }
           return;
         }
+        if (!cancelled) setActiveCameraId(active.id);
         const zonesRes = await fetch(`/api/zones/${active.id}`, { credentials: 'include' });
         if (!zonesRes.ok) {
           if (!cancelled) setZones([]);
@@ -206,6 +210,67 @@ export default function TableFloorMini() {
   const crowdedZones = useMemo(() => rendered.filter((r) => r.crowded), [rendered]);
   const selectedZone = useMemo(() => rendered.find((r) => r.id === selectedZoneId) ?? null, [rendered, selectedZoneId]);
   const empty = rendered.length === 0;
+
+  // T27: Manual "Mark Empty" — staff overrides occupied/needs_cleaning state.
+  // Optimistic UI flip with rollback if backend PATCH fails so a network blip
+  // never leaves the floor plan showing a stale lying state.
+  const markTableEmpty = useCallback(async (zoneId: string) => {
+    if (!activeCameraId) {
+      setMarkError({ zoneId, message: lang === 'tr' ? 'Aktif kamera yok' : 'No active camera' });
+      return;
+    }
+    if (pendingEmpty.has(zoneId)) return;
+    setMarkError(null);
+    setPendingEmpty((prev) => new Set(prev).add(zoneId));
+
+    // Snapshot current table state for potential rollback
+    const prevTables = tables;
+    setTables((curr) => {
+      const idx = curr.findIndex((t) => t.id === zoneId);
+      if (idx >= 0) {
+        const next = curr.slice();
+        next[idx] = { ...next[idx], status: 'empty' };
+        return next;
+      }
+      // Inject placeholder so UI flips immediately even if pipeline hasn't
+      // emitted this table yet.
+      return [...curr, { id: zoneId, status: 'empty' } as TableData];
+    });
+
+    try {
+      const res = await fetch(`/api/tables/${encodeURIComponent(zoneId)}/status`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cameraId: activeCameraId, status: 'empty' }),
+      });
+      if (!res.ok) {
+        // Rollback optimistic update
+        setTables(prevTables);
+        const txt = await res.text().catch(() => '');
+        setMarkError({
+          zoneId,
+          message: lang === 'tr'
+            ? `İşaretlenemedi (${res.status})`
+            : `Failed to mark empty (${res.status})`,
+        });
+        console.warn('[TableFloorMini] mark-empty failed:', res.status, txt);
+      }
+    } catch (err) {
+      setTables(prevTables);
+      setMarkError({
+        zoneId,
+        message: lang === 'tr' ? 'Ağ hatası' : 'Network error',
+      });
+      console.warn('[TableFloorMini] mark-empty network error:', err);
+    } finally {
+      setPendingEmpty((prev) => {
+        const next = new Set(prev);
+        next.delete(zoneId);
+        return next;
+      });
+    }
+  }, [activeCameraId, lang, pendingEmpty, tables]);
 
   return (
     <GlassCard variant="neon" className="p-4 text-ink-0">
@@ -359,6 +424,9 @@ export default function TableFloorMini() {
                     z={selectedZone}
                     lang={lang as 'tr' | 'en'}
                     onClose={() => setSelectedZoneId(null)}
+                    onMarkEmpty={() => markTableEmpty(selectedZone.id)}
+                    pending={pendingEmpty.has(selectedZone.id)}
+                    error={markError && markError.zoneId === selectedZone.id ? markError.message : null}
                   />
                 ) : (
                   <CrowdDetail
@@ -453,33 +521,64 @@ function TableDetail({
   z,
   lang,
   onClose,
+  onMarkEmpty,
+  pending,
+  error,
 }: {
   z: RenderedZone;
   lang: 'tr' | 'en';
   onClose: () => void;
+  onMarkEmpty: () => void;
+  pending: boolean;
+  error: string | null;
 }) {
+  const isOccupied = z.status === 'occupied';
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0 flex-1 flex items-center gap-2">
-        <span className={`w-2 h-2 rounded-full ${z.status === 'occupied' ? 'bg-brand-400' : 'bg-success-400'}`} />
-        <p className="text-sm font-semibold text-ink-0 truncate">{z.name}</p>
-        <span
-          className={`text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded ${
-            z.status === 'occupied'
-              ? 'bg-brand-500/20 text-brand-200'
-              : 'bg-success-500/15 text-success-200'
-          }`}
-        >
-          {z.status === 'occupied' ? (lang === 'tr' ? 'Dolu' : 'Occupied') : (lang === 'tr' ? 'Boş' : 'Free')}
-        </span>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1 flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isOccupied ? 'bg-brand-400' : 'bg-success-400'}`} />
+          <p className="text-sm font-semibold text-ink-0 truncate">{z.name}</p>
+          <span
+            className={`text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded ${
+              isOccupied ? 'bg-brand-500/20 text-brand-200' : 'bg-success-500/15 text-success-200'
+            }`}
+          >
+            {isOccupied ? (lang === 'tr' ? 'Dolu' : 'Occupied') : (lang === 'tr' ? 'Boş' : 'Free')}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {isOccupied && (
+            <button
+              onClick={onMarkEmpty}
+              disabled={pending}
+              data-testid="table-mark-empty"
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold transition-colors bg-success-500/20 hover:bg-success-500/30 text-success-100 border border-success-500/40 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={lang === 'tr' ? 'Masayı temizlendi olarak işaretle' : 'Mark table empty'}
+            >
+              <Check className="w-3 h-3" />
+              <span>
+                {pending
+                  ? (lang === 'tr' ? 'İşaretleniyor…' : 'Marking…')
+                  : (lang === 'tr' ? 'Temizlendi' : 'Mark Empty')}
+              </span>
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-white/[0.08] text-ink-3 hover:text-ink-0 transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
-      <button
-        onClick={onClose}
-        className="p-1 rounded hover:bg-white/[0.08] text-ink-3 hover:text-ink-0 transition-colors flex-shrink-0"
-        aria-label="Close"
-      >
-        <X className="w-3.5 h-3.5" />
-      </button>
+      {error && (
+        <p className="text-[10px] text-danger-200 flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+          <span>{error}</span>
+        </p>
+      )}
     </div>
   );
 }

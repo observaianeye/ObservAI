@@ -156,8 +156,11 @@ function buildPrompt(body: z.infer<typeof AISummaryBody>): string {
 router.get('/:cameraId', authenticate, requireCameraOwnership('cameraId'), async (req: Request, res: Response) => {
   const { cameraId } = req.params;
 
+  // Faz 12 (T25 fix): zone.type is stored uppercase ('TABLE') by the zone
+  // create flow but legacy rows may exist as lowercase. Match both so the
+  // table list isn't silently empty when the case convention drifts.
   const zones = await prisma.zone.findMany({
-    where: { cameraId, type: 'table', isActive: true },
+    where: { cameraId, type: { in: ['TABLE', 'table'] }, isActive: true },
     select: { id: true, name: true, coordinates: true, color: true },
   });
 
@@ -243,7 +246,9 @@ router.patch('/:zoneId/status', authenticate, async (req: Request, res: Response
   }
 
   const zone = await prisma.zone.findFirst({
-    where: { id: zoneId, cameraId, type: 'TABLE', isActive: true },
+    // Case-insensitive type match — same convention as the GET handler
+    // so legacy lowercase rows also work via this endpoint.
+    where: { id: zoneId, cameraId, type: { in: ['TABLE', 'table'] }, isActive: true },
   });
   if (!zone) {
     return res.status(404).json({ error: 'Table zone not found' });
