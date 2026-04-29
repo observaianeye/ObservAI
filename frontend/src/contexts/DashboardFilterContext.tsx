@@ -16,10 +16,20 @@ interface Branch {
 // page held its own `useState<Range>('1d')`, so jumping Analytics → Tables →
 // back to Analytics dropped the user's choice. Persist into localStorage so
 // it also survives reload.
-export type DashboardDateRange = '1h' | '1d' | '1w' | '1m' | '3m';
+//
+// Yan #39: 'custom' joins the enum so the user can pick an arbitrary
+// from/to window. Custom payload (from/to ISO) lives in a separate
+// localStorage key and is only consulted when dateRange === 'custom'.
+export type DashboardDateRange = '1h' | '1d' | '1w' | '1m' | '3m' | 'custom';
+
+export interface CustomDateRange {
+  from: string; // ISO
+  to: string; // ISO
+}
 
 const DATE_RANGE_KEY = 'dashboardDateRange';
-const VALID_RANGES: ReadonlyArray<DashboardDateRange> = ['1h', '1d', '1w', '1m', '3m'];
+const CUSTOM_RANGE_KEY = 'dashboardCustomRange';
+const VALID_RANGES: ReadonlyArray<DashboardDateRange> = ['1h', '1d', '1w', '1m', '3m', 'custom'];
 
 function readStoredRange(): DashboardDateRange {
   try {
@@ -31,12 +41,26 @@ function readStoredRange(): DashboardDateRange {
   return '1d';
 }
 
+function readStoredCustom(): CustomDateRange | null {
+  try {
+    const raw = localStorage.getItem(CUSTOM_RANGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CustomDateRange;
+    if (typeof parsed?.from !== 'string' || typeof parsed?.to !== 'string') return null;
+    if (isNaN(new Date(parsed.from).getTime()) || isNaN(new Date(parsed.to).getTime())) return null;
+    if (new Date(parsed.from).getTime() >= new Date(parsed.to).getTime()) return null;
+    return parsed;
+  } catch { return null; }
+}
+
 interface DashboardFilterContextType {
   branches: Branch[];
   selectedBranch: Branch | null;
   setSelectedBranch: (branch: Branch | null) => void;
   dateRange: DashboardDateRange;
   setDateRange: (range: DashboardDateRange) => void;
+  customRange: CustomDateRange | null;
+  setCustomRange: (range: CustomDateRange | null) => void;
   fetchBranches: () => Promise<void>;
   isLoading: boolean;
 }
@@ -48,6 +72,7 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranchState] = useState<Branch | null>(null);
   const [dateRange, setDateRangeState] = useState<DashboardDateRange>(readStoredRange);
+  const [customRange, setCustomRangeState] = useState<CustomDateRange | null>(readStoredCustom);
   const [isLoading, setIsLoading] = useState(false);
 
   // Re-resolves branches from server. Picks the previously-saved branch when
@@ -111,6 +136,14 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem(DATE_RANGE_KEY, range); } catch { /* ignore */ }
   };
 
+  const setCustomRange = (range: CustomDateRange | null) => {
+    setCustomRangeState(range);
+    try {
+      if (range) localStorage.setItem(CUSTOM_RANGE_KEY, JSON.stringify(range));
+      else localStorage.removeItem(CUSTOM_RANGE_KEY);
+    } catch { /* ignore */ }
+  };
+
   return (
     <DashboardFilterContext.Provider
       value={{
@@ -119,6 +152,8 @@ export function DashboardFilterProvider({ children }: { children: ReactNode }) {
         setSelectedBranch,
         dateRange,
         setDateRange,
+        customRange,
+        setCustomRange,
         fetchBranches,
         isLoading,
       }}

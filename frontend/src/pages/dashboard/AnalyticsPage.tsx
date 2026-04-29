@@ -24,7 +24,7 @@ import { useDashboardFilter } from '../../contexts/DashboardFilterContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-type Range = '1h' | '1d' | '1w' | '1m' | '3m';
+type Range = '1h' | '1d' | '1w' | '1m' | '3m' | 'custom';
 
 interface OverviewKpis {
   totalVisitors: number;
@@ -96,6 +96,7 @@ const RANGE_OPTIONS: { key: Range; labelKey: string }[] = [
   { key: '1w', labelKey: 'analytics.range.1w' },
   { key: '1m', labelKey: 'analytics.range.1m' },
   { key: '3m', labelKey: 'analytics.range.3m' },
+  { key: 'custom', labelKey: 'analytics.range.custom' },
 ];
 
 async function fetchJSON<T>(path: string): Promise<T> {
@@ -239,8 +240,9 @@ function ExportDropdown({
 export default function AnalyticsPage() {
   const { t, lang } = useLanguage();
   // Yan #38: dateRange now lives in DashboardFilterContext + localStorage so
-  // navigating away and back preserves the selection.
-  const { selectedBranch, dateRange: range, setDateRange: setRange } = useDashboardFilter();
+  // navigating away and back preserves the selection. Yan #39 adds a 'custom'
+  // option whose from/to ISO bounds live alongside in customRange.
+  const { selectedBranch, dateRange: range, setDateRange: setRange, customRange, setCustomRange } = useDashboardFilter();
 
   const [cameraId, setCameraId] = useState('');
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
@@ -283,11 +285,17 @@ export default function AnalyticsPage() {
     return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
-  const loadOverview = useCallback(async (camId: string, r: Range) => {
+  const loadOverview = useCallback(async (camId: string, r: Range, custom: { from: string; to: string } | null) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchJSON<OverviewResponse>(`/api/analytics/${camId}/overview?range=${r}`);
+      // Yan #39: 'custom' carries from/to as ISO query params; backend caps at 365d.
+      const qs = new URLSearchParams({ range: r });
+      if (r === 'custom' && custom) {
+        qs.set('from', custom.from);
+        qs.set('to', custom.to);
+      }
+      const data = await fetchJSON<OverviewResponse>(`/api/analytics/${camId}/overview?${qs.toString()}`);
       setOverview(data);
     } catch (e: any) {
       setError(e.message || 'Yükleme hatası');
@@ -322,8 +330,9 @@ export default function AnalyticsPage() {
   // Load overview on camera/range change
   useEffect(() => {
     if (!cameraId) return;
-    loadOverview(cameraId, range);
-  }, [cameraId, range, loadOverview]);
+    if (range === 'custom' && !customRange) return;
+    loadOverview(cameraId, range, customRange);
+  }, [cameraId, range, customRange, loadOverview]);
 
   // Load AI summary + recommendations on camera change (slow Ollama, separate)
   useEffect(() => {
@@ -333,11 +342,11 @@ export default function AnalyticsPage() {
     return () => clearInterval(interval);
   }, [cameraId, loadAI]);
 
-  // Auto-refresh overview for live ranges
+  // Auto-refresh overview for live ranges (custom is user-pinned, no auto-poll)
   useEffect(() => {
-    if (!cameraId) return;
+    if (!cameraId || range === 'custom') return;
     const refreshMs = range === '1h' ? 30000 : range === '1d' ? 60000 : 300000;
-    const interval = setInterval(() => loadOverview(cameraId, range), refreshMs);
+    const interval = setInterval(() => loadOverview(cameraId, range, null), refreshMs);
     return () => clearInterval(interval);
   }, [cameraId, range, loadOverview]);
 
@@ -474,6 +483,44 @@ export default function AnalyticsPage() {
               );
             })}
           </div>
+          {/* Yan #39: native HTML5 date inputs only render when 'custom' is active */}
+          {range === 'custom' && (
+            <div className="inline-flex items-center gap-2 px-2 py-1 rounded-xl border border-white/[0.08] bg-surface-2/70" data-testid="custom-range-picker">
+              <input
+                type="date"
+                data-testid="custom-range-from"
+                value={customRange?.from ? customRange.from.slice(0, 10) : ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) return;
+                  const fromIso = `${v}T00:00:00.000Z`;
+                  const toIso = customRange?.to || `${v}T23:59:59.999Z`;
+                  if (new Date(fromIso).getTime() < new Date(toIso).getTime()) {
+                    setCustomRange({ from: fromIso, to: toIso });
+                  }
+                }}
+                className="px-2 py-1 text-xs bg-surface-2 border border-white/[0.08] rounded-lg text-ink-1 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                aria-label={t('analytics.range.customFrom')}
+              />
+              <span className="text-ink-3 text-xs">→</span>
+              <input
+                type="date"
+                data-testid="custom-range-to"
+                value={customRange?.to ? customRange.to.slice(0, 10) : ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) return;
+                  const toIso = `${v}T23:59:59.999Z`;
+                  const fromIso = customRange?.from || `${v}T00:00:00.000Z`;
+                  if (new Date(fromIso).getTime() < new Date(toIso).getTime()) {
+                    setCustomRange({ from: fromIso, to: toIso });
+                  }
+                }}
+                className="px-2 py-1 text-xs bg-surface-2 border border-white/[0.08] rounded-lg text-ink-1 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                aria-label={t('analytics.range.customTo')}
+              />
+            </div>
+          )}
           {/* Yan #43: export row-cap selector. */}
           <select
             data-testid="export-limit-select"
@@ -498,7 +545,7 @@ export default function AnalyticsPage() {
             t={t}
           />
           <button
-            onClick={() => { if (cameraId) { loadOverview(cameraId, range); loadAI(cameraId); } }}
+            onClick={() => { if (cameraId) { loadOverview(cameraId, range, customRange); loadAI(cameraId); } }}
             disabled={loading}
             className="p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.06] rounded-xl transition-colors border border-white/[0.08]"
             title={t('common.refresh')}
