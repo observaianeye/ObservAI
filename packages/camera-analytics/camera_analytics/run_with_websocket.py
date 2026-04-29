@@ -366,6 +366,22 @@ class CameraAnalyticsWithWebSocket:
                     "longestWaitTime": 0.0,
                     "fps": float(payload.get("fps", 0.0) or 0.0),
                 }
+                # Faz 12 (T17 fix): forward demographics so Analytics page can
+                # render live gender/age even before hourly aggregation rolls up.
+                # Normalize Python websocket shape (ages plural) to backend
+                # mergeDemographics shape (age singular + samples count).
+                demo = payload.get("demographics")
+                if demo and isinstance(demo, dict):
+                    age_buckets = demo.get("ages") or {}
+                    gender_buckets = demo.get("gender") or {}
+                    samples = sum(int(v or 0) for v in age_buckets.values()) \
+                        or sum(int(v or 0) for v in gender_buckets.values())
+                    if samples > 0:
+                        ingest_entry["demographics"] = {
+                            "gender": gender_buckets,
+                            "age": age_buckets,
+                            "samples": samples,
+                        }
                 asyncio.run_coroutine_threadsafe(
                     self.persister.push(ingest_entry), loop
                 )

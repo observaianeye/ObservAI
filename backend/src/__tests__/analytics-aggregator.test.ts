@@ -2,12 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { computeStats, mergeDemographics } from '../services/analyticsAggregator';
 
 describe('computeStats', () => {
-  it('returns zeroes/nulls when bucket is empty demographic + optional fields', () => {
-    // Single row with only the required numeric fields.
+  // peopleIn/peopleOut are cumulative engine counters (analytics.py). Tests
+  // express scenarios as cumulative growth, and totals reflect the delta
+  // between the first and last sample (with engine-restart handling).
+
+  it('returns zeroes/nulls when bucket has only one sample', () => {
+    // Single sample → cannot derive a delta without a prior baseline.
     const r = computeStats([
       { peopleIn: 1, peopleOut: 0, currentCount: 1, demographics: null, queueCount: null, avgWaitTime: null },
     ]);
-    expect(r.totalEntries).toBe(1);
+    expect(r.totalEntries).toBe(0);
     expect(r.totalExits).toBe(0);
     expect(r.peakOccupancy).toBe(1);
     expect(r.avgOccupancy).toBe(1);
@@ -16,17 +20,31 @@ describe('computeStats', () => {
     expect(r.demographics).toBeNull();
   });
 
-  it('sums entries/exits and finds peak', () => {
+  it('computes entries/exits from cumulative counter growth', () => {
+    // Cumulative timeline: peopleIn 2 → 5 → 7 means 5 net entries.
+    // peopleOut 1 → 1 → 3 means 2 net exits.
     const r = computeStats([
       { peopleIn: 2, peopleOut: 1, currentCount: 5, demographics: null, queueCount: null, avgWaitTime: null },
-      { peopleIn: 3, peopleOut: 0, currentCount: 8, demographics: null, queueCount: null, avgWaitTime: null },
-      { peopleIn: 0, peopleOut: 2, currentCount: 6, demographics: null, queueCount: null, avgWaitTime: null },
+      { peopleIn: 5, peopleOut: 1, currentCount: 8, demographics: null, queueCount: null, avgWaitTime: null },
+      { peopleIn: 7, peopleOut: 3, currentCount: 6, demographics: null, queueCount: null, avgWaitTime: null },
     ]);
     expect(r.totalEntries).toBe(5);
-    expect(r.totalExits).toBe(3);
+    expect(r.totalExits).toBe(2);
     expect(r.peakOccupancy).toBe(8);
     // average of 5+8+6 = 19/3 ≈ 6.333
     expect(r.avgOccupancy).toBeCloseTo(6.333, 2);
+  });
+
+  it('handles engine restart by treating counter drops as a new run', () => {
+    // First run: 5 → 12 (7 entries). Engine restarts → counter drops to 0.
+    // Second run: 0 → 3 (3 entries). Total = 7 + 3 = 10.
+    const r = computeStats([
+      { peopleIn: 5, peopleOut: 0, currentCount: 5, demographics: null, queueCount: null, avgWaitTime: null },
+      { peopleIn: 12, peopleOut: 0, currentCount: 12, demographics: null, queueCount: null, avgWaitTime: null },
+      { peopleIn: 0, peopleOut: 0, currentCount: 0, demographics: null, queueCount: null, avgWaitTime: null },
+      { peopleIn: 3, peopleOut: 0, currentCount: 3, demographics: null, queueCount: null, avgWaitTime: null },
+    ]);
+    expect(r.totalEntries).toBe(10);
   });
 
   it('averages queue length and wait time only over rows that have them', () => {

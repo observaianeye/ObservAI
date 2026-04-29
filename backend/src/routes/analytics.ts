@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { z } from 'zod';
 import { validateAnalyticsPayload } from '../lib/analyticsValidator';
+import { cumulativeDelta } from '../lib/cumulativeCounter';
 import { sendAlertEmail } from '../services/emailService';
 import { authenticate } from '../middleware/authMiddleware';
 import { requireCameraOwnership, requireZoneOwnership, userOwnsCamera } from '../middleware/tenantScope';
@@ -161,6 +162,10 @@ const IngestEntrySchema = z.object({
   avgWaitTime: z.number().min(0).optional().default(0),
   longestWaitTime: z.number().min(0).optional().default(0),
   fps: z.number().min(0).optional().default(0),
+  // Faz 12 (T17 fix): demographics persisted from Python pipeline so the
+  // Analytics page can render gender/age distribution from raw logs even
+  // before the hourly AnalyticsSummary aggregator has rolled up.
+  demographics: z.unknown().optional(),
 });
 
 const IngestBatchSchema = z.array(IngestEntrySchema).min(1).max(100);
@@ -195,6 +200,7 @@ router.post('/ingest', async (req: Request, res: Response) => {
       avgWaitTime: e.avgWaitTime,
       longestWaitTime: e.longestWaitTime,
       fps: e.fps,
+      demographics: e.demographics ? JSON.stringify(e.demographics) : undefined,
     }));
 
     // SQLite Prisma adapter does not support skipDuplicates; AnalyticsLog uses
@@ -266,8 +272,9 @@ router.get('/compare', authenticate, async (req: Request, res: Response) => {
           return null;
         }
 
-        const totalPeopleIn = logs.reduce((sum, log) => sum + log.peopleIn, 0);
-        const totalPeopleOut = logs.reduce((sum, log) => sum + log.peopleOut, 0);
+        // peopleIn/peopleOut are cumulative engine counters — convert to delta.
+        const totalPeopleIn = cumulativeDelta(logs, 'peopleIn');
+        const totalPeopleOut = cumulativeDelta(logs, 'peopleOut');
         const avgCurrentCount = logs.reduce((sum, log) => sum + log.currentCount, 0) / logs.length;
         const avgQueueCount = logs.filter(l => l.queueCount !== null).length > 0
           ? logs.filter(l => l.queueCount !== null).reduce((sum, log) => sum + (log.queueCount || 0), 0) /
@@ -1082,8 +1089,8 @@ function generateComparisonSummary(period1: any, period2: any): string {
 // UNIFIED OVERVIEW ENDPOINT
 // ============================================================
 
-type OverviewRange = '1h' | '1d' | '1w' | '1m' | '3m' | 'custom';
-const RANGE_DAYS: Record<Exclude<OverviewRange, 'custom'>, number> = { '1h': 0, '1d': 1, '1w': 7, '1m': 30, '3m': 90 };
+type OverviewRange = '1d' | '1w' | '1m' | '3m' | 'custom';
+const RANGE_DAYS: Record<Exclude<OverviewRange, 'custom'>, number> = { '1d': 1, '1w': 7, '1m': 30, '3m': 90 };
 
 // Yan #39: cap custom range at 365 days. Beyond that the AnalyticsSummary
 // table starts rolling off (we keep ~12mo of dailies) and the bar chart
@@ -1115,14 +1122,16 @@ function mergeDemographics(into: DemoSnap, jsonStr: string | null | undefined) {
   } catch { /* skip */ }
 }
 
-// GET /api/analytics/:cameraId/overview?range=1h|1d|1w|1m|3m
+// GET /api/analytics/:cameraId/overview?range=1d|1w|1m|3m|custom
 //
 // Single bundled response for the unified Analytics page. Replaces three
 // separate page-specific endpoints (trends, historical, insights). The range
 // determines the data source AND the compare window:
-//   - 1h: AnalyticsLog 5-min buckets, compare to previous hour
 //   - 1d: AnalyticsSummary hourly today, compare to same weekday last week
 //   - 1w/1m/3m: AnalyticsSummary daily, compare to prior same-length window
+//   - custom: from/to query, compare to prior same-length window
+// (Faz 11: '1h' removed — UI migrates persisted '1h' to '1d'; raw AnalyticsLog
+//  rotation made the 1h bucket empty in 95% of cafe sessions.)
 //
 // Only verifiably-present data is returned. When the prior baseline is empty,
 // delta fields are null (frontend renders "—" instead of fake +100%).
@@ -1130,8 +1139,11 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
   try {
     const { cameraId } = req.params;
     const range = (req.query.range as OverviewRange) || '1d';
-    if (!['1h', '1d', '1w', '1m', '3m', 'custom'].includes(range)) {
-      return res.status(400).json({ error: 'Invalid range. Use: 1h | 1d | 1w | 1m | 3m | custom' });
+    // Faz 11: '1h' removed from the supported set — UI no longer offers it
+    // and the prior implementation returned empty-state in 95% of cafe
+    // sessions because raw AnalyticsLog rotates faster than the page polls.
+    if (!['1d', '1w', '1m', '3m', 'custom'].includes(range)) {
+      return res.status(400).json({ error: 'Invalid range. Use: 1d | 1w | 1m | 3m | custom' });
     }
 
     // Yan #39: parse + validate custom from/to before any DB work.
@@ -1162,84 +1174,16 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
     const now = new Date();
     const rangeEnd = range === 'custom' && customTo ? customTo : new Date(now);
 
-    // ─── 1h branch ── live data from AnalyticsLog, 5-min buckets ──
-    if (range === '1h') {
-      const rangeStart = new Date(now.getTime() - 60 * 60 * 1000);
-      const prevStart = new Date(now.getTime() - 2 * 60 * 60 * 1000);
-
-      const [currentLogs, prevLogs] = await Promise.all([
-        prisma.analyticsLog.findMany({
-          where: { cameraId, timestamp: { gte: rangeStart, lte: rangeEnd } },
-          orderBy: { timestamp: 'asc' },
-        }),
-        prisma.analyticsLog.findMany({
-          where: { cameraId, timestamp: { gte: prevStart, lt: rangeStart } },
-          orderBy: { timestamp: 'asc' },
-        }),
-      ]);
-
-      // 12 5-minute buckets
-      const buckets: { ts: string; label: string; visitors: number; occupancy: number; samples: number }[] = [];
-      for (let i = 0; i < 12; i++) {
-        const bStart = new Date(rangeStart.getTime() + i * 5 * 60 * 1000);
-        buckets.push({
-          ts: bStart.toISOString(),
-          label: `${String(bStart.getHours()).padStart(2, '0')}:${String(bStart.getMinutes()).padStart(2, '0')}`,
-          visitors: 0, occupancy: 0, samples: 0,
-        });
-      }
-      for (const l of currentLogs) {
-        const idx = Math.floor((new Date(l.timestamp).getTime() - rangeStart.getTime()) / (5 * 60 * 1000));
-        if (idx >= 0 && idx < 12) {
-          buckets[idx].visitors += l.peopleIn;
-          buckets[idx].occupancy += l.currentCount;
-          buckets[idx].samples += 1;
-        }
-      }
-      const timeline = buckets.map((b) => ({
-        ts: b.ts, label: b.label, visitors: b.visitors,
-        occupancy: b.samples > 0 ? Math.round(b.occupancy / b.samples) : 0,
-      }));
-
-      const totalVisitors = currentLogs.reduce((s, l) => s + l.peopleIn, 0);
-      const avgOccupancy = currentLogs.length > 0
-        ? Math.round((currentLogs.reduce((s, l) => s + l.currentCount, 0) / currentLogs.length) * 10) / 10
-        : 0;
-      const peakOccupancy = currentLogs.length > 0 ? Math.max(...currentLogs.map((l) => l.currentCount)) : 0;
-      const peakLog = currentLogs.reduce((max, l) => (l.currentCount > (max?.currentCount ?? -1) ? l : max), currentLogs[0]);
-      const peakHour = peakLog ? `${String(new Date(peakLog.timestamp).getHours()).padStart(2, '0')}:${String(new Date(peakLog.timestamp).getMinutes()).padStart(2, '0')}` : null;
-
-      const prevVisitors = prevLogs.reduce((s, l) => s + l.peopleIn, 0);
-      const prevAvgOcc = prevLogs.length > 0
-        ? Math.round((prevLogs.reduce((s, l) => s + l.currentCount, 0) / prevLogs.length) * 10) / 10
-        : 0;
-      const calcDelta = (a: number, b: number): number | null => (b === 0 ? null : Math.round(((a - b) / b) * 100));
-
-      const demoAgg = emptyDemo();
-      for (const l of currentLogs) mergeDemographics(demoAgg, l.demographics);
-
-      return res.json({
-        range,
-        rangeStart: rangeStart.toISOString(),
-        rangeEnd: rangeEnd.toISOString(),
-        hasData: currentLogs.length > 0,
-        dataSource: 'logs',
-        kpis: { totalVisitors, avgOccupancy, peakOccupancy, peakHour },
-        timeline,
-        peakHours: [],
-        weekdayCompare: null,
-        demographics: demoAgg.samples > 0 ? demoAgg : null,
-        compare: {
-          current: { visitors: totalVisitors, avgOccupancy },
-          previous: { visitors: prevVisitors, avgOccupancy: prevAvgOcc },
-          delta: { visitors: calcDelta(totalVisitors, prevVisitors), avgOccupancy: calcDelta(avgOccupancy, prevAvgOcc) },
-          previousLabel: 'previous_hour',
-        },
-        prediction: null,
-      });
-    }
-
-    // ─── 1d branch ── hourly summaries today, compare to same weekday last week ──
+    // ─── 1d branch ── hybrid: raw AnalyticsLog for today (live, includes the
+    // current partial hour) + AnalyticsSummary fallback for any hour that has
+    // zero raw rows (e.g. backfill-only DBs, or hours predating the deploy).
+    // Compares to same weekday last week using AnalyticsSummary hourly rows.
+    //
+    // Why hybrid: the analytics aggregator only writes AnalyticsSummary on the
+    // hour boundary (and only for completed hours), so the previous summary-
+    // only path made the chart freeze at the last full hour and dropped the
+    // current hour entirely. The raw-log bucket fills the live hour, and the
+    // summary fills any historic hour where logs were rotated away.
     if (range === '1d') {
       const todayStart = new Date(now);
       todayStart.setHours(0, 0, 0, 0);
@@ -1248,7 +1192,11 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
       const lastWeekEnd = new Date(lastWeekStart);
       lastWeekEnd.setHours(23, 59, 59, 999);
 
-      const [todayHourly, prevHourly] = await Promise.all([
+      const [todayLogs, todayHourly, prevHourly] = await Promise.all([
+        prisma.analyticsLog.findMany({
+          where: { cameraId, timestamp: { gte: todayStart, lte: rangeEnd } },
+          orderBy: { timestamp: 'asc' },
+        }),
         prisma.analyticsSummary.findMany({
           where: { cameraId, date: { gte: todayStart, lte: rangeEnd }, hour: { not: null } },
           orderBy: [{ date: 'asc' }, { hour: 'asc' }],
@@ -1259,22 +1207,85 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
         }),
       ]);
 
-      const timeline = todayHourly.map((s) => ({
-        ts: s.date.toISOString(),
-        label: `${String(s.hour ?? 0).padStart(2, '0')}:00`,
-        visitors: s.totalEntries,
-        occupancy: Math.round(s.avgOccupancy ?? 0),
-        hour: s.hour,
-      }));
+      // Build per-hour buckets from raw logs first (authoritative for live data).
+      // peopleIn is a cumulative engine counter (analytics.py: self.people_in
+      // += 1 since boot). Naively summing it across logs blows up the chart
+      // (Faz 11: 3946 logs with peopleIn 0..12 summed to 7672 entries/hour).
+      // We bucket logs by hour first, then run cumulativeDelta inside each
+      // bucket to recover the real per-hour entry count.
+      type HourBucket = {
+        logsForDelta: Array<{ peopleIn: number; timestamp: number }>;
+        occSum: number;          // sum(currentCount)
+        occSamples: number;      // count for avg
+        peak: number;            // max(currentCount)
+        demoJsons: (string | null)[];
+      };
+      const hourBuckets = new Map<number, HourBucket>();
+      const ensure = (h: number): HourBucket => {
+        let b = hourBuckets.get(h);
+        if (!b) {
+          b = { logsForDelta: [], occSum: 0, occSamples: 0, peak: 0, demoJsons: [] };
+          hourBuckets.set(h, b);
+        }
+        return b;
+      };
+      for (const l of todayLogs) {
+        const ts = new Date(l.timestamp);
+        const h = ts.getHours();
+        const b = ensure(h);
+        b.logsForDelta.push({ peopleIn: l.peopleIn, timestamp: ts.getTime() });
+        b.occSum += l.currentCount;
+        b.occSamples += 1;
+        if (l.currentCount > b.peak) b.peak = l.currentCount;
+        if (l.demographics) b.demoJsons.push(l.demographics);
+      }
+      const visitorsForBucket = (b: HourBucket | undefined): number =>
+        b ? cumulativeDelta(b.logsForDelta, 'peopleIn') : 0;
 
-      const totalVisitors = todayHourly.reduce((s, r) => s + r.totalEntries, 0);
-      const activeHours = todayHourly.filter((r) => r.totalEntries > 0);
-      const avgOccupancy = activeHours.length > 0
-        ? Math.round((activeHours.reduce((s, r) => s + (r.avgOccupancy ?? 0), 0) / activeHours.length) * 10) / 10
+      // Backfill any hour that has summary data but no raw logs. This rescues
+      // pre-deploy hours and hours where the engine wasn't running. Summary
+      // rows store delta-style totalEntries directly — bypass cumulativeDelta.
+      const liveHours = new Set<number>([...hourBuckets.keys()]);
+      const summaryVisitorsByHour = new Map<number, number>();
+      for (const s of todayHourly) {
+        const h = s.hour ?? 0;
+        if (liveHours.has(h)) continue; // raw logs win
+        const b = ensure(h);
+        summaryVisitorsByHour.set(h, s.totalEntries);
+        b.occSum = (s.avgOccupancy ?? 0); // sentinel — occSamples=1 for avg-of-avg
+        b.occSamples = 1;
+        b.peak = s.peakOccupancy;
+        if (s.demographics) b.demoJsons.push(s.demographics);
+      }
+
+      const hourVisitors = (h: number): number => {
+        if (summaryVisitorsByHour.has(h)) return summaryVisitorsByHour.get(h)!;
+        return visitorsForBucket(hourBuckets.get(h));
+      };
+
+      const currentHour = now.getHours();
+      const timeline: Array<{ ts: string; label: string; visitors: number; occupancy: number; hour: number }> = [];
+      for (let h = 0; h <= currentHour; h++) {
+        const b = hourBuckets.get(h);
+        const slotStart = new Date(todayStart);
+        slotStart.setHours(h, 0, 0, 0);
+        timeline.push({
+          ts: slotStart.toISOString(),
+          label: `${String(h).padStart(2, '0')}:00`,
+          visitors: hourVisitors(h),
+          occupancy: b && b.occSamples > 0 ? Math.round(b.occSum / b.occSamples) : 0,
+          hour: h,
+        });
+      }
+
+      const totalVisitors = timeline.reduce((s, p) => s + p.visitors, 0);
+      const occActive = timeline.filter((p) => p.occupancy > 0);
+      const avgOccupancy = occActive.length > 0
+        ? Math.round((occActive.reduce((s, p) => s + p.occupancy, 0) / occActive.length) * 10) / 10
         : 0;
-      const peakRow = todayHourly.reduce((max, r) => (r.totalEntries > (max?.totalEntries ?? -1) ? r : max), todayHourly[0]);
-      const peakOccupancy = todayHourly.length > 0 ? Math.max(...todayHourly.map((r) => r.peakOccupancy)) : 0;
-      const peakHour = peakRow && peakRow.totalEntries > 0 ? `${String(peakRow.hour ?? 0).padStart(2, '0')}:00` : null;
+      const peakOccupancy = Array.from(hourBuckets.values()).reduce((m, b) => Math.max(m, b.peak), 0);
+      const peakRow = timeline.reduce((max, p) => (p.visitors > (max?.visitors ?? -1) ? p : max), timeline[0]);
+      const peakHour = peakRow && peakRow.visitors > 0 ? peakRow.label : null;
 
       const prevVisitors = prevHourly.reduce((s, r) => s + r.totalEntries, 0);
       const prevAvgOcc = (() => {
@@ -1284,27 +1295,97 @@ router.get('/:cameraId/overview', authenticate, requireCameraOwnership('cameraId
       const calcDelta = (a: number, b: number): number | null => (b === 0 ? null : Math.round(((a - b) / b) * 100));
 
       const demoAgg = emptyDemo();
-      for (const r of todayHourly) mergeDemographics(demoAgg, r.demographics);
+      for (const b of hourBuckets.values()) {
+        for (const json of b.demoJsons) mergeDemographics(demoAgg, json);
+      }
 
-      // Peak hours top-3 from today
-      const sortedHours = [...todayHourly].sort((a, b) => b.totalEntries - a.totalEntries).slice(0, 3);
-      const peakHours = sortedHours.filter((r) => r.totalEntries > 0).map((r) => ({ hour: r.hour ?? 0, avg: r.totalEntries }));
+      // Faz 12 (T17 fix): aggregated demoAgg can be empty even with active live
+      // pipeline if hourly summary hasn't rolled up yet. Pull last 5 minutes of
+      // raw analyticsLog rows as a live snapshot fallback so the demographics
+      // widget shows current gender/age distribution instead of empty state.
+      if (demoAgg.samples === 0) {
+        const recentCutoff = new Date(Date.now() - 5 * 60 * 1000);
+        const recentLogs = await prisma.analyticsLog.findMany({
+          where: { cameraId, timestamp: { gte: recentCutoff }, demographics: { not: null } },
+          select: { demographics: true },
+          orderBy: { timestamp: 'desc' },
+          take: 60,
+        });
+        for (const r of recentLogs) mergeDemographics(demoAgg, r.demographics);
+      }
+
+      // Faz 11 fallback: when nothing happened today AND nothing for the same
+      // weekday last week, use the rolling 7-day mean by hour as a soft prior
+      // so the page renders a meaningful baseline instead of an empty chart.
+      // The user explicitly asked for this behaviour ("anlık verinin belirli
+      // bir zaman aralığındaki ortalamasına bağlı olarak").
+      let usedFallback = false;
+      if (totalVisitors === 0 && hourBuckets.size === 0) {
+        const weekStart = new Date(todayStart);
+        weekStart.setDate(weekStart.getDate() - 7);
+        const weekRows = await prisma.analyticsSummary.findMany({
+          where: { cameraId, date: { gte: weekStart, lt: todayStart }, hour: { not: null } },
+          select: { hour: true, totalEntries: true, avgOccupancy: true, peakOccupancy: true, demographics: true },
+        });
+        if (weekRows.length > 0) {
+          const sums: Record<number, { v: number; o: number; p: number; n: number; demo: (string | null)[] }> = {};
+          for (const r of weekRows) {
+            const h = r.hour ?? 0;
+            const s = sums[h] || (sums[h] = { v: 0, o: 0, p: 0, n: 0, demo: [] });
+            s.v += r.totalEntries;
+            s.o += r.avgOccupancy ?? 0;
+            s.p = Math.max(s.p, r.peakOccupancy);
+            s.n += 1;
+            if (r.demographics) s.demo.push(r.demographics);
+          }
+          for (let h = 0; h <= currentHour; h++) {
+            const s = sums[h];
+            if (!s || s.n === 0) continue;
+            const slot = timeline[h];
+            slot.visitors = Math.round(s.v / s.n);
+            slot.occupancy = Math.round(s.o / s.n);
+          }
+          usedFallback = true;
+        }
+      }
+
+      const sortedHours = [...timeline].sort((a, b) => b.visitors - a.visitors).slice(0, 3);
+      const peakHours = sortedHours.filter((p) => p.visitors > 0).map((p) => ({ hour: p.hour, avg: p.visitors }));
+
+      const finalTotalVisitors = timeline.reduce((s, p) => s + p.visitors, 0);
+      const finalActive = timeline.filter((p) => p.occupancy > 0);
+      const finalAvgOccupancy = finalActive.length > 0
+        ? Math.round((finalActive.reduce((s, p) => s + p.occupancy, 0) / finalActive.length) * 10) / 10
+        : avgOccupancy;
+      const finalPeakOccupancy = Math.max(peakOccupancy, ...timeline.map((p) => p.occupancy));
+      const finalPeakRow = timeline.reduce((max, p) => (p.visitors > (max?.visitors ?? -1) ? p : max), timeline[0]);
+      const finalPeakHour = finalPeakRow && finalPeakRow.visitors > 0 ? finalPeakRow.label : peakHour;
+
+      const hasData = timeline.some((p) => p.visitors > 0 || p.occupancy > 0);
 
       return res.json({
         range,
         rangeStart: todayStart.toISOString(),
         rangeEnd: rangeEnd.toISOString(),
-        hasData: todayHourly.length > 0,
-        dataSource: 'summary',
-        kpis: { totalVisitors, avgOccupancy, peakOccupancy, peakHour },
+        hasData,
+        dataSource: usedFallback ? 'fallback_7d_mean' : todayLogs.length > 0 ? 'logs+summary' : 'summary',
+        kpis: {
+          totalVisitors: finalTotalVisitors,
+          avgOccupancy: finalAvgOccupancy,
+          peakOccupancy: finalPeakOccupancy,
+          peakHour: finalPeakHour,
+        },
         timeline,
         peakHours,
         weekdayCompare: null,
         demographics: demoAgg.samples > 0 ? demoAgg : null,
         compare: {
-          current: { visitors: totalVisitors, avgOccupancy },
+          current: { visitors: finalTotalVisitors, avgOccupancy: finalAvgOccupancy },
           previous: { visitors: prevVisitors, avgOccupancy: prevAvgOcc },
-          delta: { visitors: calcDelta(totalVisitors, prevVisitors), avgOccupancy: calcDelta(avgOccupancy, prevAvgOcc) },
+          delta: {
+            visitors: calcDelta(finalTotalVisitors, prevVisitors),
+            avgOccupancy: calcDelta(finalAvgOccupancy, prevAvgOcc),
+          },
           previousLabel: 'same_weekday_last_week',
         },
         prediction: null,

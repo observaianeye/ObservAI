@@ -15,6 +15,7 @@
  */
 
 import { prisma } from '../lib/db';
+import { cumulativeDelta } from '../lib/cumulativeCounter';
 
 type LogForAgg = {
   peopleIn: number;
@@ -23,6 +24,7 @@ type LogForAgg = {
   demographics: string | null;
   queueCount: number | null;
   avgWaitTime: number | null;
+  timestamp?: Date;
 };
 
 function startOfHour(d: Date): Date {
@@ -141,8 +143,17 @@ export function mergeDemographics(rows: Array<{ demographics: string | null }>):
 }
 
 export function computeStats(logs: LogForAgg[]) {
-  const totalEntries = logs.reduce((s, l) => s + (l.peopleIn || 0), 0);
-  const totalExits = logs.reduce((s, l) => s + (l.peopleOut || 0), 0);
+  // peopleIn/peopleOut are cumulative engine counters — convert to delta.
+  // Logs without timestamps (legacy tests) fall back to row-order semantics:
+  // we tag synthetic monotonic timestamps so the cumulative-delta helper can
+  // still walk them deterministically.
+  const stamped: Array<LogForAgg & { _ts: number }> = logs.map((l, i) => ({
+    ...l,
+    _ts: l.timestamp ? l.timestamp.getTime() : i,
+  }));
+  const sortable = stamped.map((l) => ({ peopleIn: l.peopleIn || 0, peopleOut: l.peopleOut || 0, timestamp: l._ts }));
+  const totalEntries = cumulativeDelta(sortable, 'peopleIn');
+  const totalExits = cumulativeDelta(sortable, 'peopleOut');
   const peakOccupancy = logs.reduce((m, l) => Math.max(m, l.currentCount || 0), 0);
   const avgOccupancy = logs.reduce((s, l) => s + (l.currentCount || 0), 0) / logs.length;
 
@@ -165,7 +176,9 @@ async function aggregateHourBucket(cameraId: string, hourStart: Date): Promise<v
   const hourEnd = endOfHour(hourStart);
   const logs = await prisma.analyticsLog.findMany({
     where: { cameraId, timestamp: { gte: hourStart, lt: hourEnd } },
+    orderBy: { timestamp: 'asc' },
     select: {
+      timestamp: true,
       peopleIn: true, peopleOut: true, currentCount: true,
       demographics: true, queueCount: true, avgWaitTime: true,
     },
@@ -199,7 +212,9 @@ async function aggregateDayBucket(cameraId: string, dayDate: Date): Promise<void
   const dayEnd = endOfDayInTz(dayDate, tz);
   const logs = await prisma.analyticsLog.findMany({
     where: { cameraId, timestamp: { gte: dayStart, lt: dayEnd } },
+    orderBy: { timestamp: 'asc' },
     select: {
+      timestamp: true,
       peopleIn: true, peopleOut: true, currentCount: true,
       demographics: true, queueCount: true, avgWaitTime: true,
     },

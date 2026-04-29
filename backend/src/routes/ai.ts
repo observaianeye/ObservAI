@@ -12,6 +12,7 @@ import { authenticate } from '../middleware/authMiddleware';
 import { userOwnsCamera, userOwnsBranch } from '../middleware/tenantScope';
 import { CameraIdOptionalSchema } from '../lib/schemas';
 import { sanitizeUserMessage, wrapUserMessage } from '../lib/promptSanitizer';
+import { cumulativeDelta } from '../lib/cumulativeCounter';
 
 const router = Router();
 
@@ -771,8 +772,9 @@ async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): 
     // Aggregates over last 100 logs (~1-8h depending on poll cadence). Useful
     // for "ortalama" / "son saatte" questions but EXPLICITLY labelled as such
     // so the model doesn't conflate them with the live count.
-    const totalPeopleIn = logs.reduce((sum, log) => sum + log.peopleIn, 0);
-    const totalPeopleOut = logs.reduce((sum, log) => sum + log.peopleOut, 0);
+    // peopleIn/peopleOut are cumulative engine counters — convert to delta.
+    const totalPeopleIn = cumulativeDelta(logs, 'peopleIn');
+    const totalPeopleOut = cumulativeDelta(logs, 'peopleOut');
     const avgCurrentCount = Math.round(
       logs.reduce((sum, log) => sum + log.currentCount, 0) / logs.length
     );
@@ -843,24 +845,33 @@ async function getRecentAnalyticsContext(cameraId?: string, branchId?: string): 
     // Issue #8: when liveSource is the analytics log (Python /health didn't
     // expose a count) AND that log is stale, we deliberately mask the number
     // so the model cannot quote a 78-hour-old "live" count as if it were now.
-    const liveValueIsTrustworthy = liveSource === 'python_live_health' || !latestStale;
+    // When liveSource = python_live_health, LIVE_PEOPLE_COUNT is the absolute
+    // ground truth (the camera /health endpoint just answered with a fresh
+    // value). The DB log timestamp is irrelevant in that case — surfacing
+    // "Latest log timestamp 285973s ago, STALE" alongside a trustworthy live
+    // value caused the model to hallucinate "data is stale, system offline"
+    // even when the engine was streaming. Hide the historical timestamp
+    // entirely when /health responded.
+    const liveFromHealth = liveSource === 'python_live_health';
+    const liveValueIsTrustworthy = liveFromHealth || !latestStale;
     let context = '';
     context += '=== LIVE / REAL-TIME (use this for "su anki", "current", "right now" questions) ===\n';
     context += `Camera: ${logs[0].camera?.name ?? 'unknown'}\n`;
     context += `Source: ${liveSource}\n`;
     if (liveValueIsTrustworthy) {
       context += `LIVE_PEOPLE_COUNT: ${livePeopleCount}\n`;
-    } else {
-      context += `LIVE_PEOPLE_COUNT: UNAVAILABLE (engine offline ${latestAgeSec}s)\n`;
-    }
-    context += `Latest log timestamp: ${latestLog.timestamp.toISOString()} (${latestAgeSec}s ago${latestStale ? ', STALE' : ''})\n`;
-    if (liveValueIsTrustworthy) {
+      if (liveFromHealth) {
+        context += `LIVE_FRESHNESS: just-now (Python /health responded with a fresh sample)\n`;
+      } else {
+        context += `Latest log timestamp: ${latestLog.timestamp.toISOString()} (${latestAgeSec}s ago)\n`;
+      }
       context += `Latest peopleIn: ${latestLog.peopleIn}, peopleOut: ${latestLog.peopleOut}\n`;
       if (latestLog.queueCount !== null) context += `Latest queueCount: ${latestLog.queueCount}\n`;
       if (latestGenderJson) context += `Latest gender split: ${latestGenderJson}\n`;
       if (latestAgeJson) context += `Latest age buckets: ${latestAgeJson}\n`;
-    }
-    if (!liveValueIsTrustworthy) {
+    } else {
+      context += `LIVE_PEOPLE_COUNT: UNAVAILABLE (engine offline ${latestAgeSec}s)\n`;
+      context += `Latest log timestamp: ${latestLog.timestamp.toISOString()} (${latestAgeSec}s ago, STALE)\n`;
       context += `STALE_MARKER: live engine has not produced a fresh sample in ${latestAgeSec}s (${Math.round(latestAgeSec/60)}min). For ANY "current/right now" question reply with "Canli motor su an offline; veriler ${Math.round(latestAgeSec/60)} dakika once duraklamis" — do NOT quote a number.\n`;
     }
     context += '\n';

@@ -20,6 +20,7 @@ import { callOllama } from '../routes/ai';
 import { dispatchBatch } from './notificationDispatcher';
 import { GEMINI_MODEL_CANDIDATES, isGeminiFallbackError } from '../lib/aiConfig';
 import { fetchTrafficData } from '../routes/branches';
+import { cumulativeDelta } from '../lib/cumulativeCounter';
 
 // ─── Weather Helper ───────────────────────────────────────────────────────────
 
@@ -455,7 +456,7 @@ export async function getStats(
   const hasLogs = logs.length > 0;
 
   const totalVisitors = hasLogs
-    ? logs.reduce((s, l) => s + l.peopleIn, 0)
+    ? cumulativeDelta(logs, 'peopleIn') // peopleIn is a cumulative engine counter
     : summaries.reduce((s, row) => s + row.totalEntries, 0);
   const avgOccupancy = hasLogs
     ? (logs.length > 0 ? round2(logs.reduce((s, l) => s + l.currentCount, 0) / logs.length) : 0)
@@ -570,7 +571,7 @@ async function buildRecommendationContext(cameraId?: string): Promise<{
     `,
   ]);
 
-  const totalVisitors = logs.reduce((s, l) => s + l.peopleIn, 0);
+  const totalVisitors = cumulativeDelta(logs, 'peopleIn');
   const avgOccupancy = logs.length > 0
     ? round2(logs.reduce((s, l) => s + l.currentCount, 0) / logs.length)
     : 0;
@@ -750,7 +751,7 @@ async function buildSummaryContext(cameraId?: string): Promise<{
     prisma.branch.findFirst({ where: { isDefault: true }, select: { latitude: true, longitude: true, timezone: true, city: true } }),
   ]);
 
-  const sumIn = (xs: any[]) => xs.reduce((s, l) => s + l.peopleIn, 0);
+  const sumIn = (xs: any[]) => cumulativeDelta(xs, 'peopleIn');
   const avgOcc = (xs: any[]) =>
     xs.length > 0 ? round2(xs.reduce((s, l) => s + l.currentCount, 0) / xs.length) : 0;
   const peak = (xs: any[]) => (xs.length > 0 ? Math.max(...xs.map((l) => l.currentCount)) : 0);
@@ -1084,8 +1085,12 @@ export async function generateInsights(cameraId: string): Promise<{
       cameraName = cam?.name || undefined;
     } catch { /* camera lookup optional */ }
 
+    // Faz 11: medium dropped from email dispatch — gets too noisy when
+    // routine triggers like "Peak Hour Approaching" / "Visitor Surge vs
+    // Yesterday" fire every cron tick. Medium still surfaces in the in-app
+    // Notifications page because saveInsights persists every severity.
     const dispatchable = alerts
-      .filter(a => a.severity === 'high' || a.severity === 'critical' || a.severity === 'medium')
+      .filter(a => a.severity === 'high' || a.severity === 'critical')
       .map(a => ({ ...a, cameraName }));
 
     if (dispatchable.length > 0) {

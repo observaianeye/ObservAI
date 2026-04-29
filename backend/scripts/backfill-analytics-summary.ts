@@ -276,7 +276,6 @@ async function backfillOneCamera(
 ): Promise<number> {
   let written = 0;
   const today = startOfDay(new Date());
-  const nowHour = new Date().getHours();
 
   // Pull the full window once per branch (Open-Meteo accepts ranges, so this
   // is one HTTP call per unique location for the whole backfill).
@@ -286,9 +285,21 @@ async function backfillOneCamera(
     ? await fetchHistoricalWeather(branchCoords.latitude, branchCoords.longitude, startDate, today)
     : new Map<string, DailyWeather>();
 
-  // Walk from oldest to today (offset 0). Including today gives Trends'
-  // "this week" curve a non-empty rightmost slice.
-  for (let dayOffset = days; dayOffset >= 0; dayOffset--) {
+  // Walk strictly past days (offset >= 1). The user product rule (Faz 11) is
+  // that today's analytics MUST come from live engine data; the backfill is
+  // historical-only. Any pre-existing synthetic rows for today are deleted
+  // below so the live aggregator can re-fold them from raw AnalyticsLog.
+  await prisma.analyticsSummary.deleteMany({
+    where: {
+      cameraId,
+      date: { gte: today, lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
+      // We can't filter on the synthetic flag (it lives inside JSON) without
+      // a raw scan; deleting the whole today window is fine because the
+      // analytics aggregator re-creates needed rows on its next tick.
+    },
+  });
+
+  for (let dayOffset = days; dayOffset >= 1; dayOffset--) {
     const day = new Date(today);
     day.setDate(day.getDate() - dayOffset);
     const weekdayMod = WEEKDAY_MOD[day.getDay() === 0 ? 6 : day.getDay() - 1]; // Mon=0 ... Sun=6
@@ -298,9 +309,9 @@ async function backfillOneCamera(
     const weatherMod = weatherMultiplier(weather.get(dayKey));
     const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
-    // Hourly rows. For today, only emit hours up to the current real hour so
-    // the page doesn't show 23:00 traffic at 14:00.
-    const lastHour = dayOffset === 0 ? Math.min(23, nowHour) : 23;
+    // Past days emit the full 24h grid (closed hours stay zero). Today is
+    // never written by this script — see deleteMany above.
+    const lastHour = 23;
     for (let hour = 0; hour <= lastHour; hour++) {
       const trafficMod = trafficMultiplier(hour, isWeekend);
       const row = generateHourlyRow(baseTraffic, weekdayMod, hour, seasonalMod * weatherMod * trafficMod);
