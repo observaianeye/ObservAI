@@ -40,6 +40,31 @@ export function rectToPolygon(x: number, y: number, w: number, h: number): NormP
 }
 
 /**
+ * Faz 10 / Issue #3: detect if a 4-point polygon is an axis-aligned
+ * rectangle. The backend stores every zone as a polygon coords array, so
+ * after a save/reload round-trip the canvas has no first-class signal that
+ * the user originally drew a rect. Without this detection the zone gets
+ * re-rendered as a polygon (different overlay, different drag affordance,
+ * impossible to resize via 4 corner handles), which the user reads as
+ * "Rect → Poly mutation". Tolerance is in normalized canvas space —
+ * 0.005 ≈ 0.5% of the canvas, generous enough to absorb floating-point
+ * drift but tight enough to reject genuinely off-axis quadrilaterals.
+ */
+export function coordsLookLikeRect(
+  coords: NormPoint[],
+  bbox?: { x: number; y: number; width: number; height: number },
+  tol = 0.005,
+): boolean {
+  if (coords.length !== 4) return false;
+  const b = bbox ?? polygonBounds(coords);
+  const onLeft = (p: NormPoint) => Math.abs(p.x - b.x) < tol;
+  const onRight = (p: NormPoint) => Math.abs(p.x - (b.x + b.width)) < tol;
+  const onTop = (p: NormPoint) => Math.abs(p.y - b.y) < tol;
+  const onBottom = (p: NormPoint) => Math.abs(p.y - (b.y + b.height)) < tol;
+  return coords.every((p) => (onLeft(p) || onRight(p)) && (onTop(p) || onBottom(p)));
+}
+
+/**
  * Ramer-Douglas-Peucker simplification (epsilon in normalized space).
  * Keeps endpoints; removes redundant points along straight-ish edges.
  */

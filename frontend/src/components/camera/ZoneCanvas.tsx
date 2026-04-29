@@ -12,6 +12,7 @@ import {
   simplifyPolygon,
   polygonsOverlap,
   pointsToSvgString,
+  coordsLookLikeRect,
 } from './ZonePolygonUtils';
 
 type DrawMode = 'rect' | 'polygon' | 'freehand' | null;
@@ -83,16 +84,19 @@ export default function ZoneCanvas() {
       }
       const rows = await zonesRes.json() as Array<any>;
       // Node payload uses { coordinates: NormPoint[], type, name, color, ... };
-      // map into the polygon shape ZoneCanvas renders.
+      // map into the polygon shape ZoneCanvas renders. Detect axis-aligned
+      // rect (4 corners on bbox edges) and mark shape='rect' so user-saved
+      // rectangles don't morph into polygons after a reload (Issue #3).
       const mapped: Zone[] = rows.map((r) => {
         const coords: NormPoint[] = Array.isArray(r.coordinates) ? r.coordinates : [];
         const bbox = polygonBounds(coords);
+        const isRect = coords.length === 4 && coordsLookLikeRect(coords, bbox);
         return {
           id: r.id,
           name: r.name,
           type: (String(r.type || 'CUSTOM').toLowerCase()) as Zone['type'],
           color: r.color || '#3b82f6',
-          shape: 'polygon',
+          shape: isRect ? 'rect' : 'polygon',
           points: coords,
           x: bbox.x,
           y: bbox.y,
@@ -353,11 +357,22 @@ export default function ZoneCanvas() {
       newX = Math.max(0, Math.min(newX, 1 - initBounds.width));
       newY = Math.max(0, Math.min(newY, 1 - initBounds.height));
       const shift = { x: newX - initBounds.x, y: newY - initBounds.y };
-      if (checkOverlap({ x: newX, y: newY, width: initBounds.width, height: initBounds.height }, init.id)) return;
-      setZones(zones.map((z) => {
+      // Issue #3: build the EXACT candidate polygon (shifted poly verts when
+      // the zone has explicit points, otherwise the rect bbox) before passing
+      // to checkOverlap — the previous WIP passed a bbox object which not only
+      // failed typecheck but was an inaccurate proxy for poly drag overlap.
+      const candidatePoly = (init.points && init.points.length >= 3)
+        ? init.points.map((p) => ({ x: p.x + shift.x, y: p.y + shift.y }))
+        : rectToPolygon(newX, newY, initBounds.width, initBounds.height);
+      if (checkOverlap(candidatePoly, init.id)) return;
+      setZones((prev) => prev.map((z) => {
         if (z.id !== init.id) return z;
-        if (z.shape === 'polygon' && z.points) {
-          const points = z.points.map((p) => ({ x: p.x + shift.x, y: p.y + shift.y }));
+        // Issue #3: polygon drag teleport — must use init.points (snapshot at
+        // mousedown), NOT z.points (already-moved current state). Adding the
+        // delta to current points each mousemove accumulates and the zone
+        // flies off-canvas.
+        if ((init.shape === 'polygon' || init.shape === 'rect') && init.points && init.points.length >= 3) {
+          const points = init.points.map((p) => ({ x: p.x + shift.x, y: p.y + shift.y }));
           const b = polygonBounds(points);
           return { ...z, points, x: b.x, y: b.y, width: b.width, height: b.height };
         }
@@ -373,13 +388,25 @@ export default function ZoneCanvas() {
       if (handle?.includes('n')) { y += deltaY; h -= deltaY; }
       if (w < 0.02) w = 0.02;
       if (h < 0.02) h = 0.02;
-      if (checkOverlap({ x, y, width: w, height: h }, init.id)) return;
-      setZones(zones.map((z) => {
+      // Issue #3: same candidate-polygon pattern as drag — scaled poly verts
+      // for poly/rect-with-points zones, plain rect for legacy bbox-only.
+      const candidatePoly = (init.points && init.points.length >= 3)
+        ? (() => {
+            const prevB = polygonBounds(init.points!);
+            return init.points!.map((p) => ({
+              x: x + ((p.x - prevB.x) / (prevB.width || 1)) * w,
+              y: y + ((p.y - prevB.y) / (prevB.height || 1)) * h,
+            }));
+          })()
+        : rectToPolygon(x, y, w, h);
+      if (checkOverlap(candidatePoly, init.id)) return;
+      setZones((prev) => prev.map((z) => {
         if (z.id !== init.id) return z;
-        if (z.shape === 'polygon' && z.points) {
-          // Scale polygon points to new bounds
-          const prevB = polygonBounds(init.points || [{ x: init.x, y: init.y }, { x: init.x + init.width, y: init.y + init.height }]);
-          const scaled = (z.points || []).map((p) => ({
+        // Issue #3: scale poly from INITIAL points snapshot, not z.points which
+        // already reflects the current resize step (causes drift).
+        if ((init.shape === 'polygon' || init.shape === 'rect') && init.points && init.points.length >= 3) {
+          const prevB = polygonBounds(init.points);
+          const scaled = init.points.map((p) => ({
             x: x + ((p.x - prevB.x) / (prevB.width || 1)) * w,
             y: y + ((p.y - prevB.y) / (prevB.height || 1)) * h,
           }));
