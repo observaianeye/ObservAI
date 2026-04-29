@@ -91,15 +91,35 @@ Kullanici 11 maddelik kapsamli sistem raporu verdi (ekran ekran gezdi, ag loglar
 - BranchSection card grid + accordion chevron + Bildirimler+Kanallar merge (Yan #1.4)
 - InsightCard component (animated dismiss + dateKey badge + relative time)
 
-## Faz 10 — Backlog (gelecek release)
-**Durum:** BACKLOG
-**Kapsam:**
+## Faz 10 — Production-blocker bug fix + UX rework + AI grounding
+**Durum:** DONE (2026-04-29)
+**Branch:** partal_test → main (rebase + ff-only) | **Tag:** v1.0.0 (v1.0.0-rc.1 promoted)
+**Detay:** test-results/10-production-blocker-batch.md
+
+**8 USER-reported bug + 2 Faz 9 deferred kapatildi:**
+- Bug #1 iVCam phone connect — Webcam type + index 1 (virtual cam) | Bug #2 Screen Capture remove (sources.py + zod + i18n + factory) | Batch 1 (32a71ad)
+- Bug #3 ZoneCanvas drag/resize/persist (3 sub-bugs: Rect→Poly mutation, drag teleport, typecheck) | Batch 2 (56e45aa)
+- Bug #4 Yan #22 Python NodePersister wire-up (POST /set-camera dynamic camera binding) + Analytics i18n no-synthetic-backfill | Batch 3+4 (173b9a8 + c10a7c0)
+- Bug #8 CRITICAL AI Chatbot grounding (LIVE/REAL-TIME sentinel + 7 CRITICAL RULES + STALE_MARKER + WEATHER_UNAVAILABLE) + Ollama qwen2.5:14b-8k primary | Batch 5 (af45afd)
+- Bug #5 AI Recommendations refresh + cache bypass (?force=true + nonce) | Batch 6 (01f03ac)
+- Bug #6 Notifications event catalog (3 new realtime: queue_overflow + low_visitor_alert + fps_drop + dev-trigger 9-event) | Batch 7 (030da48)
+- Bug #7 Settings simplify -531 net SHRINK (Camera detection sliders / Regional theme / dead notification toggles / 2FA placeholders all removed)
+
+**Vitest:** 114 → 157 PASS (+43) / 6 expected FAIL preserved | **Yan #37 leak:** 10. ardisik session 0 | **TypeCheck:** BE+FE 0 error
+
+**DEFERRED (Faz 11 nice-to-have, post-v1.0.0):**
+- Frontend vitest setup (geometry helper unit tests for ZonePolygonUtils)
+- ZoneCanvas E2E retroactive specs (10.3a/b/c) — drag delta math, rect persist, resize handles
+- User Profile section TopNavbar dropdown move (USER plan item 5 approved, requires non-trivial TopNavbar refactor)
+- Faz 9 Batch 2 carry-overs: BranchSection card grid + accordion chevron, InsightCard animated dismiss + dateKey badge
+- Backend service restart for qwen2.5:14b-8k runtime activation (USER action — aiConfig priority + start-all.bat env updated)
+
+**Original Faz 10 backlog items (deferred to Faz 11+):**
 - Yan #21 — Test fixture infrastructure: `tests/fixtures/mozart_cafe_{1,2}_short.mp4` + `ground_truth.json` annotation, InsightFace t1-t4 sample'lar gercek dosya olarak commit + LFS karari
 - Yan #60 — Staffing AI summary endpoint (eger product tekrar isterse): `POST /api/staffing/summary` Ollama brifi 30sn throttle, tables.ts pattern
 - Yan #4.4 — tables-ai-summary 6/6 expected FAIL closure (mock parser fixture / live Ollama)
 - 4K kaynak performans optimizasyonu (FPS / latency / bandwidth Faz 2 retroactive notlar)
 - `Staff.telegramChatId` legacy kolon Prisma migration drop (Yan #58 followup)
-- **UX completion (Faz 8/9'dan tasindi):** BranchSection card grid + accordion chevron + Bildirimler+Kanallar merge (Yan #1.4); InsightCard component (animated dismiss + dateKey badge + relative time) — Magic MCP brainstorming gerektirir
 - Live `runDailyAggregationFor()` re-aggregate-each-tick (3.7c #24 — su an seed path Yan #25 ile cozulu, live path arkaplan)
 
 ---
