@@ -39,4 +39,24 @@ describe('Yan #56 — markdownLiteToHtml', () => {
     assert.match(out, /<br\/><br\/>/);
     assert.match(out, /<em>italic<\/em>/);
   });
+
+  // Faz 8 polish: inline code + auto-linking
+  it('renders inline `code` as <code> with utility classes', () => {
+    const out = markdownLiteToHtml('try `npm test` to run');
+    assert.match(out, /<code[^>]*>npm test<\/code>/);
+  });
+
+  it('inline code does not get further bold/italic transformation', () => {
+    const out = markdownLiteToHtml('use `**not-bold**` here');
+    // The asterisks inside the code span must survive as text
+    assert.match(out, /<code[^>]*>\*\*not-bold\*\*<\/code>/);
+    // No <strong> from the asterisks inside the code block
+    assert.ok(!out.includes('<strong>not-bold</strong>'));
+  });
+
+  it('auto-links bare http(s) URLs with rel=noopener', () => {
+    const out = markdownLiteToHtml('see https://example.com/x for details');
+    assert.match(out, /<a href="https:\/\/example.com\/x"[^>]*rel="noopener noreferrer"/);
+    assert.match(out, /target="_blank"/);
+  });
 });
