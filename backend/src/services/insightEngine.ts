@@ -244,6 +244,70 @@ export async function checkRealtimeAlerts(cameraId: string): Promise<InsightResu
         },
       });
     }
+
+    // Faz 10 Bug #6 — extended event catalog. The notifications page used to
+    // show one repeating "Demographic Profile Update" because crowd_surge /
+    // occupancy / wait-time were the only catalog entries and they rarely
+    // fire on a typical cafe shift. The three additions below are designed
+    // to surface mundane-but-meaningful operational signals so the page is
+    // never empty during business hours.
+
+    // ── Queue Overflow ── threshold-based, fires at queueCount >= 5.
+    if (latestLog && typeof latestLog.queueCount === 'number' && latestLog.queueCount >= 5) {
+      insights.push({
+        type: 'queue_overflow',
+        severity: latestLog.queueCount >= 10 ? 'high' : 'medium',
+        title: 'Queue Overflow',
+        message: `Current queue length is ${latestLog.queueCount} people. ` +
+          `Consider opening another register or expediting orders.`,
+        cameraId,
+        context: { queueCount: latestLog.queueCount, threshold: 5 },
+      });
+    }
+
+    // ── Low Visitor Alert ── currentCount=0 during a confirmed business
+    // hour AND we have at least 5 prior samples in the last hour (proves
+    // the engine is alive — a quiet venue, not a crashed pipeline). Pairs
+    // with the "Engine Offline" alert in generateInsights which fires when
+    // there are NO samples at all.
+    const nowHr = new Date().getHours();
+    const businessHour = nowHr >= 8 && nowHr < 23;
+    if (
+      businessHour &&
+      latestLog &&
+      latestLog.currentCount === 0 &&
+      recentLogs.length >= 5
+    ) {
+      insights.push({
+        type: 'low_visitor_alert',
+        severity: 'low',
+        title: 'No Visitors Detected (Business Hours)',
+        message: `No visitors detected in the latest sample at ${String(nowHr).padStart(2, '0')}:00. ` +
+          `${recentLogs.length} samples in the last hour confirm the engine is running.`,
+        cameraId,
+        context: { currentCount: 0, hourlySamples: recentLogs.length, hour: nowHr },
+      });
+    }
+
+    // ── FPS Drop ── average FPS over the last 10 samples below 5 means
+    // the engine is grinding (CPU bound, GPU OOM, or thermal throttle).
+    // Operations want to know because dropped frames silently degrade
+    // demographic accuracy and zone enter/exit events.
+    const fpsLogs = recentLogs.slice(0, 10).filter((l) => typeof l.fps === 'number' && l.fps! > 0);
+    if (fpsLogs.length >= 5) {
+      const avgFps = fpsLogs.reduce((s, l) => s + (l.fps || 0), 0) / fpsLogs.length;
+      if (avgFps < 5) {
+        insights.push({
+          type: 'fps_drop',
+          severity: avgFps < 2 ? 'high' : 'medium',
+          title: 'Low FPS — Pipeline Degraded',
+          message: `Average FPS over the last ${fpsLogs.length} samples is ${avgFps.toFixed(1)} (target ~15-25). ` +
+            `Demographic accuracy and zone events may be unreliable.`,
+          cameraId,
+          context: { avgFps: round2(avgFps), samples: fpsLogs.length },
+        });
+      }
+    }
   } catch (error) {
     console.error('[InsightEngine] Error checking real-time alerts:', error);
   }

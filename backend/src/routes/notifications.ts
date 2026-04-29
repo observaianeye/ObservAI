@@ -252,6 +252,67 @@ router.get('/summary', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// ─── POST /api/notifications/dev-trigger ────────────────────────────────────
+//
+// Faz 10 Bug #6 — dev-only endpoint to insert a synthetic Insight row of any
+// catalog event type so the NotificationsPage UI can be exercised without
+// waiting for the live engine to organically trigger one. Gated to NODE_ENV
+// !== 'production' so it cannot be hit in a production deploy.
+//
+// Catalog (mirrors checkRealtimeAlerts + generateInsights triggers):
+//   queue_overflow, table_cleaning_overdue, peak_occupancy_threshold,
+//   fps_drop, low_visitor_alert, zone_enter_spike,
+//   demographic_shift, visitor_surge, engine_offline
+//
+// Usage:
+//   POST /api/notifications/dev-trigger?event=queue_overflow&cameraId=<uuid>
+router.post('/dev-trigger', authenticate, async (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'dev-trigger disabled in production' });
+  }
+  const event = String(req.query.event || '').toLowerCase();
+  const cameraId = String(req.query.cameraId || req.body?.cameraId || '');
+  if (!cameraId) {
+    return res.status(400).json({ error: 'cameraId query/body required' });
+  }
+  const CATALOG: Record<string, { type: string; severity: string; title: string; message: string }> = {
+    queue_overflow: { type: 'queue_overflow', severity: 'high', title: 'Queue Overflow (DEV)', message: 'Synthetic dev event — current queue length is 7 people.' },
+    table_cleaning_overdue: { type: 'table_cleaning', severity: 'medium', title: 'Table Cleaning Overdue (DEV)', message: 'Synthetic dev event — table 3 has been awaiting cleanup for 18 minutes.' },
+    peak_occupancy_threshold: { type: 'occupancy_alert', severity: 'high', title: 'Peak Occupancy Threshold (DEV)', message: 'Synthetic dev event — current occupancy 94% of capacity.' },
+    fps_drop: { type: 'fps_drop', severity: 'medium', title: 'Low FPS (DEV)', message: 'Synthetic dev event — average FPS 3.2 over the last 10 samples.' },
+    low_visitor_alert: { type: 'low_visitor_alert', severity: 'low', title: 'No Visitors Detected (DEV)', message: 'Synthetic dev event — zero visitors during business hour.' },
+    zone_enter_spike: { type: 'crowd_surge', severity: 'critical', title: 'Zone Enter Spike (DEV)', message: 'Synthetic dev event — entrance zone enters 2.4x hourly average.' },
+    demographic_shift: { type: 'demographic_trend', severity: 'low', title: 'Demographic Shift (DEV)', message: 'Synthetic dev event — dominant gender flipped vs yesterday.' },
+    visitor_surge: { type: 'trend', severity: 'medium', title: 'Visitor Surge (DEV)', message: 'Synthetic dev event — today +45% vs yesterday.' },
+    engine_offline: { type: 'system_alert', severity: 'high', title: 'Analytics Engine Offline (DEV)', message: 'Synthetic dev event — no analytics samples in 30 minutes.' },
+  };
+  const spec = CATALOG[event];
+  if (!spec) {
+    return res.status(400).json({ error: 'unknown event', allowed: Object.keys(CATALOG) });
+  }
+  try {
+    const today = new Date();
+    const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const created = await prisma.insight.create({
+      data: {
+        cameraId,
+        type: spec.type,
+        severity: spec.severity,
+        title: spec.title,
+        message: spec.message,
+        context: JSON.stringify({ devTrigger: true, event, triggeredAt: today.toISOString() }),
+        // Use a unique dateKey per call so the @@unique([cameraId, type, dateKey]) constraint
+        // doesn't reject repeated dev triggers within the same day.
+        dateKey: `${dateKey}-dev-${Date.now()}`,
+      },
+    });
+    return res.status(201).json({ ok: true, insight: created });
+  } catch (err: any) {
+    console.error('[Notifications dev-trigger] insert failed:', err);
+    return res.status(500).json({ error: 'failed to create insight', detail: err?.message });
+  }
+});
+
 // ─── GET /api/notifications/channels/status ─────────────────────────────────
 
 router.get('/channels/status', async (_req: Request, res: Response) => {

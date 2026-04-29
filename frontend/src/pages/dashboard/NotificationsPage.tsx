@@ -486,10 +486,27 @@ export default function NotificationsPage() {
     ];
   }, [t]);
 
-  const fetchNotifications = useCallback(async (showLoader = true) => {
+  const fetchNotifications = useCallback(async (showLoader = true, regenerate = false) => {
     if (showLoader) setLoading(true);
     else setRefreshing(true);
     try {
+      // Issue #6: when the user explicitly clicks the refresh button (regenerate=true),
+      // first ask the backend to recompute insights against the latest analytics.
+      // /api/insights/generate runs the rule set + AI summary against the active
+      // camera. Failures are swallowed — we still want to render whatever's
+      // already in the DB.
+      if (regenerate && selectedBranch) {
+        const cams = (selectedBranch as any).cameras || [];
+        const active = cams.find((c: any) => c.isActive) || cams[0];
+        if (active?.id) {
+          await fetch(`${API_URL}/api/insights/generate`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cameraId: active.id }),
+          }).catch(() => null);
+        }
+      }
       const branchQs = selectedBranch ? `&branchId=${encodeURIComponent(selectedBranch.id)}` : '';
       const data = await fetchJSON<{ insights: Notification[]; total: number }>(
         `/api/insights?limit=100${branchQs}`,
@@ -508,7 +525,7 @@ export default function NotificationsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [getDemoNotifications, selectedBranch?.id]);
+  }, [getDemoNotifications, selectedBranch]);
 
   useEffect(() => {
     fetchNotifications();
@@ -650,7 +667,7 @@ export default function NotificationsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => fetchNotifications(false)}
+            onClick={() => fetchNotifications(false, true)}
             disabled={refreshing}
             className="p-2 text-ink-3 hover:text-ink-0 hover:bg-white/[0.04] rounded-xl transition-colors disabled:opacity-50"
             title={t('notif.page.refresh')}
